@@ -20,7 +20,6 @@ def test_settings_signature_covers_all_visible_control_values() -> None:
     for field in (
         "data_scope_id",
         "app.cheatMode",
-        "app.freeShop",
         "app.disableFa",
         "app.godMode",
         "app.compactMoney",

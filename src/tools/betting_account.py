@@ -553,8 +553,8 @@ def cheat_balance(amount: float | None = None, clear: bool = False) -> dict[str,
         delta_minor = -before_minor
         transaction_type = "cheat_balance_clear"
     else:
-        if amount not in {500, 5000}:
-            raise ValueError("作弊资金金额必须为 500 或 5000")
+        if amount not in {100, 500, 5000, 100_000_000_000}:
+            raise ValueError("作弊资金金额必须为 100、500、5000 或 100B")
         delta_minor = to_minor(amount)
         transaction_type = "cheat_funding"
     _adjust_wallet(wallet, from_minor(delta_minor), transaction_type)

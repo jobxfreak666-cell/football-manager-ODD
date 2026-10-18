@@ -419,7 +419,6 @@ def test_activity_workspace_exposes_busy_selection_and_motion_feedback():
     reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
     assert ".activity-sync-status > i" in reduced_motion
     assert ".activity-scene-node:hover { transform:none; }" in reduced_motion
-    assert ".counseling-wheel.spinning" in reduced_motion
 
 
 def test_activity_header_can_force_refresh_player_statuses_and_retirement_cache():
@@ -501,26 +500,33 @@ def test_entertainment_staff_flag_is_available_to_roster_footer():
     assert 'isEntertainmentStaff ? "职员" : "球员"' in renderer[footer:]
 
 
-def test_psychological_counseling_shows_one_result_wheel_per_player():
-    script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
-    markup = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+def test_psychological_counseling_is_guaranteed_wallet_payment_without_wheel():
+    from frontend_source import raw_web_source
+
+    script = raw_web_source(ROOT / "web" / "app.js")
+    markup = raw_web_source(ROOT / "web" / "index.html")
     styles = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
 
     assert 'id="counseling-wheel-dialog"' in markup
     assert "openCounselingWheels(targetPlayers)" in script
-    assert "settleCounselingWheel(id, result)" in script
     assert "players.filter((player) => player.has_unhappiness === true)" in script
-    assert 'data-counseling-wheel-spin="${Number(player.id)}"' in script
-    assert 'data-counseling-wheel-unlock="${Number(player.id)}"' in script
-    assert "unlockCounselingWheel" in script
-    assert "guaranteed" in script
+    assert 'data-counseling-start="${Number(player.id)}"' in script
+    assert "body:JSON.stringify({player_id:id,team_id:managedPlayerTeamId(id)})" in script
     assert "100_000" in script
-    assert "spinAllCounselingWheels" in script
+    assert "availableWalletBalance() >= counselingPrice()" in script
+    assert 'uiText("activity.counselling_wallet_short")' in script
+    assert 'uiText("activity.confirm_counselling_unlock"' in script
+    assert 'uiText("activity.confirm_counselling_batch"' in script
     assert 'id="counseling-wheel-auto"' in markup
-    assert "不满已清除" in script
-    assert "不满未清除" in script
     assert "grid-template-columns:repeat(auto-fit,minmax(280px,1fr))" in styles
-    assert "conic-gradient(#279b68 0 40%,#66b58d 40% 65%,#d2a844 65% 95%,#b54a52 95% 100%)" in styles
+    # The wheel, odds legend and paid "guaranteed" unlock are gone.
+    for removed in ("guaranteed", "COUNSELING_WHEEL_STOPS", "data-counseling-wheel-spin", "data-counseling-wheel-unlock", "spinAllCounselingWheels", "40% ${uiText"):
+        assert removed not in script
+    for removed in ("counseling-wheel-legend", "counselling.spin_all", "Completely relieved 40%"):
+        assert removed not in markup
+    facilities = (ROOT / "web" / "i18n.facilities.js").read_text(encoding="utf-8")
+    assert "请先备份存档" in facilities
+    assert "钱包余额不足" in facilities
 
 
 def test_language_classroom_uses_searchable_picker_with_twelve_common_languages():

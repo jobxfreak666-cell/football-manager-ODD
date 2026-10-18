@@ -60,39 +60,12 @@ class PsychologicalCounselingTests(unittest.TestCase):
         }
         self.assertTrue(_person_has_unhappiness(fm26, 0x1000, None))
 
-    def test_probability_boundaries(self) -> None:
-        self.assertEqual(psychological_counseling_outcome(0.0), "relieved")
-        self.assertEqual(psychological_counseling_outcome(0.399999), "relieved")
-        self.assertEqual(psychological_counseling_outcome(0.4), "opened_up")
-        self.assertEqual(psychological_counseling_outcome(0.65), "no_effect")
-        self.assertEqual(psychological_counseling_outcome(0.95), "rupture")
-        self.assertEqual(psychological_counseling_outcome(0.999999), "rupture")
+    def test_outcome_is_always_relief(self) -> None:
+        self.assertEqual(
+            {psychological_counseling_outcome() for _ in range(100)}, {"unlocked"},
+        )
 
-    def test_opened_up_preserves_fractional_intimacy(self) -> None:
-        state = {
-            "owned_activity_centres": ["talk_room"],
-            "owned_activity_facilities": [],
-            "activity_floor_cooldowns": {},
-            "psychological_counseling": {},
-            "activity_progress": {},
-            "activity_history": [],
-        }
-        with patch("tools.club_economy.load_economy", return_value=state), patch(
-            "tools.club_economy.save_economy"
-        ):
-            result = perform_psychological_counseling(
-                1, 2, "球员", "2028-01-01", 20,
-                lambda outcome, points: {
-                    "before": 20, "after": 20, "applied": 0,
-                    "effect": {"field": outcome, "effects": []},
-                },
-                roll=0.5,
-            )
-        self.assertEqual(result["outcome"], "opened_up")
-        self.assertEqual(result["fractional_remainder"], 0.5)
-        self.assertEqual(state["activity_progress"]["1:2"], 0.5)
-
-    def test_paid_unlock_forces_relief_outcome(self) -> None:
+    def test_every_session_resolves_unhappiness(self) -> None:
         state = {
             "owned_activity_centres": ["talk_room"],
             "owned_activity_facilities": [],
@@ -104,22 +77,22 @@ class PsychologicalCounselingTests(unittest.TestCase):
         applied = []
         with patch("tools.club_economy.load_economy", return_value=state), patch(
             "tools.club_economy.save_economy"
-        ):
+        ), patch("tools.club_economy.random.random", side_effect=AssertionError("no roll")):
             result = perform_psychological_counseling(
                 1, 2, "球员", "2028-01-01", 20,
                 lambda outcome, points: applied.append((outcome, points)) or {
-                    "before": 20, "after": 21, "applied": points,
+                    "before": 20, "after": 20, "applied": points,
                     "effect": {"field": outcome, "effects": [
                         {"field": "unhappiness", "after": False},
                     ]},
                 },
-                roll=0.99, forced_outcome="unlocked",
             )
         self.assertEqual(result["outcome"], "unlocked")
+        self.assertEqual(result["outcome_name"], "彻底释怀")
         self.assertEqual(applied, [("unlocked", 0)])
         self.assertFalse(result["effect"]["effects"][0]["after"])
 
-    def test_rupture_uses_shared_two_day_floor_cooldown(self) -> None:
+    def test_session_uses_shared_two_day_floor_cooldown(self) -> None:
         state = {
             "owned_activity_centres": ["talk_room"],
             "owned_activity_facilities": [],
@@ -134,16 +107,15 @@ class PsychologicalCounselingTests(unittest.TestCase):
             result = perform_psychological_counseling(
                 1, 2, "球员", "2028-01-01", 20,
                 lambda outcome, points: {
-                    "before": 20, "after": 19, "applied": points,
+                    "before": 20, "after": 20, "applied": points,
                     "effect": {"field": outcome, "effects": []},
                 },
-                roll=0.99,
             )
             self.assertEqual(result["cooldown_until"], "2028-01-03")
             with self.assertRaisesRegex(ValueError, "2F活动冷却至 2028-01-03"):
                 perform_psychological_counseling(
                     1, 2, "球员", "2028-01-02", 19,
-                    lambda _outcome, _points: {}, roll=0.0,
+                    lambda _outcome, _points: {},
                 )
 
 

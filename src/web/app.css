@@ -464,7 +464,8 @@ dialog { width:min(900px, calc(100vw - 48px)); max-height:84vh; border:1px solid
 .betting-limit-setting input:disabled { opacity:.55; }
 .betting-limit-actions { grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:7px; }
 .cheat-actions #unlimited-betting.active { border-color:var(--green-2); background:var(--green-2); color:#fff; }
-.cheat-actions .free-shop-option { grid-column:1 / -1; min-height:38px; padding:0 11px; border:1px solid #cad8d1; border-radius:4px; background:#fff; color:var(--green); }
+.cheat-actions .cheat-toggle-option { grid-column:1 / -1; min-height:38px; padding:0 11px; border:1px solid #cad8d1; border-radius:4px; background:#fff; color:var(--green); }
+.cheat-actions .disable-fa-option { grid-column:auto; }
 .cheat-actions .god-mode-option { align-items:flex-start; flex-wrap:wrap; gap:6px 8px; padding-top:8px; padding-bottom:8px; }
 .cheat-actions .god-mode-option small { flex-basis:100%; padding-left:25px; color:#8b4d21; font-size:13px; line-height:1.45; }
 .cheat-actions .danger { grid-column:1 / -1; color:#a3312a; border-color:#e4c8c4; background:#fff5f3; }
@@ -2058,6 +2059,7 @@ html[data-locale="ja-JP"] { --fmodd-locale-font:"Yu Gothic UI","Meiryo","Noto Sa
 .counseling-wheel-spin-one{position:absolute;z-index:4;inset:0;width:100%;height:100%;padding:76px 8px 0;border:0;border-radius:50%;background:transparent;color:#244d3d;font-size:13px;font-weight:900;cursor:pointer}.counseling-wheel-card.pending .counseling-wheel-spin-one,.counseling-wheel-card.resolved .counseling-wheel-spin-one,.counseling-wheel-card.failed .counseling-wheel-spin-one{display:none}.counseling-wheel-card.ready .counseling-wheel{cursor:pointer}.counseling-wheel-actions{display:flex;align-items:center;gap:8px}.counseling-wheel-actions button{min-height:38px;padding:0 13px;border:1px solid #bfd2c8;border-radius:5px;background:#fff;color:#315e4c;font-size:13px;font-weight:900}.counseling-wheel-actions button:first-child{display:flex;align-items:center;gap:6px;border-color:#276f54;background:#276f54;color:#fff}.counseling-wheel-actions button svg{width:16px;height:16px}.counseling-wheel-actions button:disabled{border-color:#c5d0cb;background:#c5d0cb;color:#eef2f0}@media(max-width:650px){.counseling-wheel-actions{display:grid;grid-template-columns:1fr 1fr}.counseling-wheel-actions button{width:100%}}
 .counseling-wheel-card-actions{display:flex;margin-top:3px}.counseling-wheel-card-actions button{display:flex;align-items:center;gap:6px;min-height:34px;padding:0 10px;border:1px solid #b99a4a;border-radius:5px;background:#fff8e6;color:#775c18;font-size:13px;font-weight:900;cursor:pointer}.counseling-wheel-card-actions button svg{width:15px;height:15px}.counseling-wheel-card-actions button:disabled{border-color:#ccd4d0;background:#edf1ef;color:#94a19b}.counseling-wheel-card.pending .counseling-wheel-card-actions,.counseling-wheel-card.resolved .counseling-wheel-card-actions,.counseling-wheel-card.failed .counseling-wheel-card-actions{display:none}
 .counseling-wheel-card.unlocked .counseling-wheel-copy b{background:#e3f3eb;color:#1e7551}
+.counseling-wheel-card{grid-template-columns:minmax(0,1fr);align-items:start;min-height:0}.counseling-wheel-footer{justify-content:flex-end}
 /* ===== 我的集团页面视觉升级 ===== */
 #page-my-clubs.feature-page {
   padding: 18px 22px 30px;

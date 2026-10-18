@@ -54,7 +54,7 @@ API 仍兼容旧业务校验的 `error` 原因，同时用 `message_key` / `mess
 
 ### 3.1 Web 目录装配
 
-`src/web/i18n.js` 只负责 locale 状态、英文回退、参数替换、复数、格式化、DOM 应用与动态节点观察。领域文案按 `src/web/i18n.<domain>.js` 拆分；各文件在核心之前向 `window.FMODDI18nModules` 注册英中韩三种语言的同构目录。`src/web/i18n.ko.js` 是旧过渡目录，领域完成语义键迁移后逐步并入对应模块。
+`src/web/i18n.js` 只负责 locale 状态、英文回退、参数替换、复数、格式化、DOM 应用与动态节点观察。领域文案按 `src/web/i18n.<domain>.js` 拆分；各文件在核心之前向 `window.FMODDI18nModules` 注册同构目录，至少包含 `en-GB`、`zh-CN`、`ko-KR`；领域目录也可直接提供其他受支持语言（例如 `src/web/i18n.departure.js` 内嵌全部 11 种语言），所有已声明语言须与英文具有相同键及占位参数，不得注册不支持的语言。其他译文仍可由后述独立语言包提供。`src/web/i18n.ko.js` 是旧过渡目录，领域完成语义键迁移后逐步并入对应模块。
 
 台湾繁体中文、德语、西语、法语、俄语、日语、巴西葡萄牙语和欧洲葡萄牙语分别由 `src/web/i18n.tw.js`、`src/web/i18n.de.js`、`src/web/i18n.es.js`、`src/web/i18n.fr.js`、`src/web/i18n.ru.js`、`src/web/i18n.ja.js`、`src/web/i18n.pt-BR.js` 与 `src/web/i18n.pt-PT.js` 注册到 `window.FMODDLocalePacks`。语言包在全部领域模块之后、核心之前加载，并覆盖同一套英文语义键；缺键由核心明确回退至英文。各语言包可根据领域模块中的中文源值和同键目标译文生成精确 legacy 映射，不复制一份独立的旧中文目录。独立语言包避免为了新增一种语言而重写所有现有三语领域文件。
 

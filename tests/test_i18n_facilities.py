@@ -126,13 +126,13 @@ console.log(JSON.stringify(messages));
     assert messages["zh-CN"] == {
         "description": "选择有不满的球员进行心理辅导",
         "action": "开始谈话",
-        "confirmation": "确认支付 £100K 为 Alex 解锁必定清除不满？",
+        "confirmation": "确认从钱包支付 £100K 为 Alex 进行心理辅导？\n\n这会直接修改 FM 进程内存，请先备份存档。",
     }
     for locale, copy in messages.items():
         assert copy["description"] and copy["description"] != "activity.counselling_roster_description", locale
         assert copy["action"] and copy["action"] != "activity.start_counselling", locale
         assert "£100K" in copy["confirmation"] and "Alex" in copy["confirmation"], locale
-        assert "\n" not in copy["confirmation"], locale
+        assert "\n\n" in copy["confirmation"], locale  # backup-save reminder paragraph
 
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     metadata = script.split("activityMeta.psychological_counseling =", 1)[1].split(";", 1)[0]

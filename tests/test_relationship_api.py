@@ -66,7 +66,6 @@ def test_relationship_room_unlock_charges_real_combined_funds():
     with (
         patch.object(value, "_bind_request_scope", return_value=True),
         patch("fm_odds_web.assert_training_floor_unlocked"),
-        patch("fm_odds_web.free_services_enabled", return_value=False),
         patch("fm_odds_web.local_purchase_price", return_value=5_000_000.0),
         patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
         patch("fm_odds_web.unlock_relationship_training_room", return_value={"id": "mind-1"}),

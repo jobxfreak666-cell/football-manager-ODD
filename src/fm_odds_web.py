@@ -29,6 +29,22 @@ from tools.state_publication import CoalescedStatePublisher, PublicationCandidat
 from tools.account_application import AccountOperation
 from tools.state_patches import MutationContext, mutation_patch_fields
 from tools.player_departure_application import PlayerDepartureApplication
+from tools.match_intelligence_application import (
+    MatchIntelligenceApplicationService,
+    MatchIntelligenceIO,
+)
+from tools.counseling_application import (
+    CounselingApplicationService,
+    CounselingIO,
+)
+from tools.medical_application import (
+    MedicalApplicationService,
+    MedicalIO,
+)
+from tools.canteen_application import (
+    CanteenApplicationService,
+    CanteenIO,
+)
 from tools.sponsorship_payment import SponsorshipPaymentIO, credit_sponsorship_payment
 
 from tools.club_operation_quotes import (
@@ -50,6 +66,7 @@ from tools.betting_account import (
     LIVE_SETTLEMENT_MINIMUM_MATCH_MINUTES,
     RESULT_SEARCH_WAIT_DAYS,
     add_funds,
+    adjust_balance,
     available_balance,
     cheat_balance,
     betting_profit_analysis,
@@ -106,7 +123,7 @@ from tools.club_economy import (
     assert_activity_centre_unlocked, assert_activity_facility_unlocked,
     assert_activity_floor_available, assert_media_activity_available,
     perform_player_activity, perform_staff_activity, perform_psychological_counseling, process_medical_treatments,
-    PSYCHOLOGICAL_COUNSELING_UNLOCK_PRICE,
+    PSYCHOLOGICAL_COUNSELING_SESSION_PRICE,
     purchase_activity_centre, purchase_activity_facility,
     match_intelligence_status, open_match_intelligence_status,
     purchase_match_intelligence, match_intelligence_betting_unlocked_fixture_keys,
@@ -118,7 +135,7 @@ from tools.club_economy import (
     configure_automatic_staff_language_learning,
     enroll_language_learning, enroll_staff_language_learning,
     process_language_learning,
-    free_services_enabled, resolve_flu_item, set_default_medical_treatment, set_free_services,
+    resolve_flu_item, set_default_medical_treatment,
     set_medical_treatment, welfare_status,
     club_dividend_forecast, forget_club_dividend_tracking, settle_club_dividends,
 )
@@ -3910,11 +3927,8 @@ class LocalOddsState:
         self.match_intelligence_public_cache: dict[str, Any] = {
             "unlocked": False,
             "floor": "7F",
-            "pricing_basis": "daily_entry_combined_funds_percentage",
-            "pricing": {
-                "locked": False, "game_date": "",
-                "combined_funds": 0.0, "locked_at": "",
-            },
+            "pricing_basis": "fixed_price",
+            "pricing": {"game_date": ""},
             "candidates": [],
         }
         self.match_intelligence_public_cache_scope_id = ""
@@ -11314,13 +11328,9 @@ class LocalOddsState:
             int(row.get("job_type") or 0) in SPORTS_SCIENCE_JOB_TYPES for row in staff
         ):
             raise ValueError("解锁运动科学室需要队中至少一名运动科学团队职员")
-        free = free_services_enabled()
         cost = local_purchase_price(float(definition.get("unlock_cost") or 0))
-        payment = (
-            {"bank": 0.0, "wallet": 0.0, "total": 0.0}
-            if free else charge_combined_funds(
-                cost, "relationship_training_room_unlock", room_sku=sku,
-            )
+        payment = charge_combined_funds(
+            cost, "relationship_training_room_unlock", room_sku=sku,
         )
         try:
             room = unlock_relationship_training_room(sku)
@@ -17462,9 +17472,6 @@ class LocalOddsState:
     def clear_cheat_credit(self) -> dict[str, Any]:
         return self._account_application().clear_credit()
 
-    def update_free_services(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._account_application().update_free_services(payload)
-
     def add_funds(self, amount: float) -> dict[str, Any]:
         return self._account_application().add_funds(amount)
 
@@ -18497,12 +18504,8 @@ class LocalOddsState:
         with self.lock:
             self._bind_current_save()
             game_date = str(self.output.get("game_date") or "")
-        free = free_services_enabled()
-        payment = (
-            {"bank": 0.0, "wallet": 0.0, "total": 0.0}
-            if free else charge_combined_funds(
-                local_purchase_price(product["price"]), "training_facility_purchase", sku=sku,
-            )
+        payment = charge_combined_funds(
+            local_purchase_price(product["price"]), "training_facility_purchase", sku=sku,
         )
         try:
             facility = purchase_facility(sku)
@@ -18525,13 +18528,9 @@ class LocalOddsState:
         with self.lock:
             self._bind_current_save()
             game_date = str(self.output.get("game_date") or "")
-        free = free_services_enabled()
-        payment = (
-            {"bank": 0.0, "wallet": 0.0, "total": 0.0}
-            if free else charge_combined_funds(
-                local_purchase_price(floor["price"]),
-                "training_floor_purchase", scene=scene,
-            )
+        payment = charge_combined_funds(
+            local_purchase_price(floor["price"]),
+            "training_floor_purchase", scene=scene,
         )
         try:
             unlocked = unlock_training_floor(scene)
@@ -20243,7 +20242,6 @@ class LocalOddsState:
             self._bind_current_save()
             result = purchase_activity_centre(
                 str(payload.get("centre") or ""),
-                free=bool(payload.get("free_purchase")),
             )
             return {**result, "economy": public_economy(), "welfare": welfare_status()}
 
@@ -20252,95 +20250,33 @@ class LocalOddsState:
             self._bind_current_save()
             result = purchase_activity_facility(
                 str(payload.get("facility") or ""),
-                free=bool(payload.get("free_purchase")),
             )
             return {**result, "economy": public_economy(), "welfare": welfare_status()}
 
+    def _match_intelligence_application(
+        self,
+    ) -> MatchIntelligenceApplicationService:
+        return MatchIntelligenceApplicationService(
+            self,
+            MatchIntelligenceIO(
+                monotonic=monotonic,
+                set_active_save_id=set_active_save_id,
+                probe_candidates=probe_match_intelligence_candidates,
+                current_candidates=current_match_intelligence_candidates,
+                read_game_clock=read_game_clock,
+                open_status=open_match_intelligence_status,
+                status=match_intelligence_status,
+                load_economy=load_economy,
+                random_candidate=random_match_intelligence_candidate,
+                purchase=purchase_match_intelligence,
+                public_economy=public_economy,
+                welfare_status=welfare_status,
+            ),
+            poll_seconds=MATCH_INTELLIGENCE_POLL_SECONDS,
+        )
+
     def _probe_match_intelligence_if_idle(self, *, force: bool = False) -> bool:
-        now = monotonic()
-        with self.lock:
-            if (
-                not self._has_verified_save()
-                or self.refreshing
-                or self.reconciling
-                or self.save_change_pending
-            ):
-                return False
-            if (
-                not force
-                and now - float(self.match_intelligence_last_probe_at or 0.0)
-                < MATCH_INTELLIGENCE_POLL_SECONDS
-            ):
-                return False
-            output = dict(self.output)
-            output["matches"] = [
-                dict(match) for match in self.output.get("matches", [])
-            ]
-            clock = dict(self.last_connection_clock or {})
-            scope_id = self._data_scope_id(self.output)
-            self.match_intelligence_last_probe_at = now
-        game_date = str(clock.get("date") or output.get("game_date") or "")
-        try:
-            game_minutes = int(clock.get("minutes"))
-        except (TypeError, ValueError):
-            return False
-        if not game_date or not scope_id:
-            return False
-        set_active_save_id(scope_id)
-        with self.lock:
-            intelligence_unlocked = bool(
-                self.match_intelligence_public_cache_scope_id == scope_id
-                and self.match_intelligence_public_cache.get("unlocked")
-            )
-        if not intelligence_unlocked:
-            return False
-        if not self.memory_lock.acquire(blocking=False):
-            return False
-        try:
-            probe = probe_match_intelligence_candidates(
-                output.get("matches", []), game_date, game_minutes,
-            )
-        except Exception as error:
-            with self.lock:
-                self.match_intelligence_last_error = str(error).strip() or type(error).__name__
-            return False
-        finally:
-            self.memory_lock.release()
-        discovered = {
-            str(item.get("fixture_id") or ""): dict(item)
-            for item in (probe.get("candidates") or [])
-            if item.get("fixture_id")
-        }
-        with self.lock:
-            merged = {
-                str(item.get("fixture_id") or ""): dict(item)
-                for item in self.match_intelligence_results
-                if item.get("fixture_id")
-            }
-            merged.update(discovered)
-            current_candidates = current_match_intelligence_candidates(
-                list(merged.values()), output.get("matches", []),
-                game_date, game_minutes,
-            )
-            candidates = sorted(current_candidates, key=lambda item: (
-                str(item.get("fixture_date") or ""),
-                int(item.get("kickoff_minutes") or 24 * 60),
-                str(item.get("competition_name") or ""),
-                str((item.get("home") or {}).get("name") or ""),
-            ))
-            before = json.dumps(
-                self.match_intelligence_results,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            after = json.dumps(
-                candidates,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            self.match_intelligence_results = candidates
-            self.match_intelligence_last_error = None
-            if before != after:
-                self.data_version += 1
-        return True
+        return self._match_intelligence_application().probe_if_idle(force=force)
 
     def watch_match_intelligence(self) -> None:
         while True:
@@ -20354,132 +20290,10 @@ class LocalOddsState:
             sleep(1)
 
     def public_match_intelligence(self) -> dict[str, Any]:
-        output = dict(self.output)
-        if output.get("save_identity_discovery_deferred") or self.save_change_pending:
-            raise ValueError("正在确认存档身份，请稍后重试")
-        if not output.get("save_instance_id"):
-            raise ValueError("尚未识别当前存档")
-        scope_id = self._data_scope_id(output)
-        if not scope_id:
-            raise ValueError("尚未识别当前存档账户")
-        set_active_save_id(scope_id)
-        if self.match_intelligence_public_cache_scope_id != scope_id:
-            return {
-                "unlocked": False,
-                "floor": "5F",
-                "pricing_basis": "daily_entry_combined_funds_percentage",
-                "pricing": {
-                    "locked": False, "game_date": "",
-                    "combined_funds": 0.0, "locked_at": "",
-                },
-                "candidates": [],
-                "refreshing": True,
-            }
-        clock = dict(self.last_connection_clock or {})
-        game_date = str(clock.get("date") or output.get("game_date") or "")
-        try:
-            game_minutes = int(clock["minutes"])
-        except (KeyError, TypeError, ValueError):
-            current_candidates = []
-        else:
-            current_candidates = current_match_intelligence_candidates(
-                [dict(item) for item in self.match_intelligence_results],
-                [dict(item) for item in output.get("matches", [])],
-                game_date,
-                game_minutes,
-            )
-        intelligence = open_match_intelligence_status(
-            current_candidates, game_date,
-        )
-        self.match_intelligence_public_cache = deepcopy(intelligence)
-        return intelligence
+        return self._match_intelligence_application().public_status()
 
     def buy_match_intelligence(self, payload: dict[str, Any]) -> dict[str, Any]:
-        fixture_id = str(payload.get("fixture_id") or "")
-        tier = str(payload.get("tier") or "")
-        random_purchase = bool(payload.get("random"))
-        submission_id = str(payload.get("client_submission_id") or "").strip()
-        with self.memory_lock:
-            clock = read_game_clock()
-        with self.lock:
-            self._bind_current_save()
-            current_date = str((clock or {}).get("date") or "")
-            try:
-                current_minutes = int((clock or {})["minutes"])
-            except (KeyError, TypeError, ValueError):
-                raise ValueError("无法确认当前游戏时间，请稍后重试") from None
-            if not current_date:
-                raise ValueError("无法确认当前游戏时间，请稍后重试")
-            open_candidates = current_match_intelligence_candidates(
-                [dict(item) for item in self.match_intelligence_results],
-                [dict(item) for item in self.output.get("matches", [])],
-                current_date,
-                current_minutes,
-            )
-            existing_purchase = None
-            if random_purchase:
-                existing_purchase = next((
-                    dict(purchase)
-                    for purchase in dict(
-                        load_economy().get("match_intelligence_purchases") or {}
-                    ).values()
-                    if any(
-                        str(payment.get("client_submission_id") or "") == submission_id
-                        for payment in purchase.get("payments") or []
-                    )
-                ), None)
-                if existing_purchase:
-                    fixture_id = str(existing_purchase.get("fixture_id") or "")
-                    candidate = next((
-                        dict(item) for item in self.match_intelligence_results
-                        if str(item.get("fixture_id") or "") == fixture_id
-                    ), existing_purchase)
-                else:
-                    current_status = match_intelligence_status(
-                        open_candidates, pricing_date=current_date,
-                    )
-                    candidate = random_match_intelligence_candidate(
-                        open_candidates, current_status, tier,
-                    )
-                    if not candidate:
-                        raise ValueError("当前没有尚未获取的随机比赛情报")
-                    fixture_id = str(candidate.get("fixture_id") or "")
-            else:
-                candidate = next((
-                    dict(item) for item in open_candidates
-                    if str(item.get("fixture_id") or "") == fixture_id
-                ), None)
-            if not candidate:
-                raise ValueError("这场比赛当前没有可获取的比赛情报")
-            fixture_date = str(candidate.get("fixture_date") or "")
-            kickoff = candidate.get("kickoff_minutes")
-            if not (random_purchase and existing_purchase) and (
-                not current_date
-                or fixture_date < current_date
-                or (
-                    fixture_date == current_date
-                    and (kickoff is None or int(kickoff) < current_minutes)
-                )
-            ):
-                raise ValueError("该场比赛的情报获取窗口已经结束")
-            result = purchase_match_intelligence(
-                candidate, tier, submission_id, game_date=current_date,
-                purchase_mode="random" if random_purchase else "specific",
-            )
-            intelligence = match_intelligence_status(
-                open_candidates,
-                pricing_date=current_date,
-            )
-            self.match_intelligence_public_cache = deepcopy(intelligence)
-            self.match_intelligence_public_cache_scope_id = str(
-                self._data_scope_id(self.output) or ""
-            )
-            return {
-                **result,
-                "intelligence": intelligence,
-                "economy": public_economy(),
-                "welfare": welfare_status(),
-            }
+        return self._match_intelligence_application().purchase(payload)
 
     @staticmethod
     def _language_learning_candidates(
@@ -20947,7 +20761,7 @@ class LocalOddsState:
                 )
                 if not game_date:
                     raise ValueError("尚未读取当前游戏日期")
-                price = 0.0 if remove_secondary or free_services_enabled() else local_purchase_price(
+                price = 0.0 if remove_secondary else local_purchase_price(
                     NATIONALITY_PROCESSING_PRICES[scope],
                 )
                 payment = None
@@ -21043,151 +20857,44 @@ class LocalOddsState:
                 "economy": public_economy(), "welfare": welfare_status(),
             }
 
+    def _canteen_application(self) -> CanteenApplicationService:
+        return CanteenApplicationService(
+            self,
+            CanteenIO(
+                read_game_clock=read_game_clock,
+                local_purchase_price=local_purchase_price,
+                base_price=CANTEEN_SEA_CUCUMBER_PRICE,
+                charge_combined_funds=charge_combined_funds,
+                refund_combined_funds=refund_combined_funds,
+                commit_player_effect=commit_player_effect,
+                apply_effect=apply_canteen_sea_cucumber_effect,
+                apply_intimacy=apply_manager_intimacy_points,
+                restore_effect=restore_player_activity_effect,
+                memory_session_factory=canteen_sea_cucumber_memory_session,
+                describe_error=describe_player_effect_error,
+                public_economy=public_economy,
+            ),
+        )
+
     def _canteen_sea_cucumber_one(
         self, player_id: int, requested_team_id: int, *,
         manager: dict[str, Any], manager_id: int, game_date: str,
         memory_session: Any = None,
     ) -> dict[str, Any]:
-        price = local_purchase_price(CANTEEN_SEA_CUCUMBER_PRICE)
-        profile_kwargs = (
-            {"memory_session": memory_session}
-            if callable(getattr(memory_session, "resolve_roster_player", None)) else {}
+        return self._canteen_application().reward_player(
+            player_id, requested_team_id, manager=manager,
+            manager_id=manager_id, game_date=game_date,
+            memory_session=memory_session,
         )
-        target = self._live_player_effect_target(
-            player_id, requested_team_id, **profile_kwargs,
-            missing_message="所选球员不属于当前执教俱乐部，请先刷新队伍",
-        )
-        player = target.player
-        team = target.team
-        if str(team.get("team_type") or "club") != "club":
-            raise ValueError("国家队球员不能使用球队食堂奖励")
-        team_id = target.team_id
-        current_intimacy = int(player.get("manager_intimacy") or 0)
-        player_name = str(player.get("name") or player_id)
-
-        payment: dict[str, Any] | None = None
-        condition: dict[str, Any] | None = None
-        if memory_session:
-            apply_effect = lambda: memory_session.apply_effect(
-                player_id, target.address,
-            )
-            apply_intimacy = lambda _condition: memory_session.apply_intimacy(
-                player_id, target.address, manager_id, team_id,
-                team_address=team.get("address"),
-                manager_address=manager.get("manager_address"),
-            )
-            rollback_effect = memory_session.restore
-        else:
-            apply_effect = lambda: apply_canteen_sea_cucumber_effect(
-                player_id, target.address,
-            )
-            apply_intimacy = lambda _condition: apply_manager_intimacy_points(
-                player_id, target.address, manager_id, team_id,
-                team_address=team.get("address"),
-                manager_address=manager.get("manager_address"), points=1,
-            )
-            rollback_effect = restore_player_activity_effect
-        try:
-            payment = charge_combined_funds(
-                price, "canteen_sea_cucumber",
-                player_id=player_id, player_name=player_name,
-                manager_id=manager_id, team_id=team_id, game_date=game_date,
-            )
-            transaction = commit_player_effect(
-                apply_effect=apply_effect,
-                persist_effect=apply_intimacy,
-                rollback_effect=rollback_effect,
-            )
-            condition = transaction.native
-            intimacy = transaction.persisted
-        except Exception:
-            try:
-                if condition:
-                    rollback_effect(condition)
-            finally:
-                if payment:
-                    refund_combined_funds(
-                        payment, "canteen_sea_cucumber_rollback",
-                        player_id=player_id, player_name=player_name,
-                    )
-            raise
-
-        public_condition = {
-            key: value for key, value in condition.items() if not key.startswith("_")
-        }
-        with self.lock:
-            player["fitness"] = 100.0
-            player["sharpness"] = 100.0
-            player["manager_intimacy"] = int(intimacy.get("after") or current_intimacy)
-        return {
-            "player_id": player_id, "player_name": player_name,
-            "price_gbp": price, "payment": payment,
-            "condition": public_condition,
-            "fitness": public_condition["fitness"],
-            "sharpness": public_condition["sharpness"],
-            "intimacy": intimacy,
-        }
 
     def _canteen_sea_cucumber_context(self) -> tuple[dict[str, Any], int, str]:
-        with self.lock:
-            self._bind_current_save()
-            manager = dict(self.output.get("manager") or {})
-            manager_id = int(
-                self.output.get("selected_manager_id") or manager.get("id") or 0
-            )
-            fallback_date = str(self.output.get("game_date") or "")
-        game_date = str((read_game_clock() or {}).get("date") or fallback_date)
-        return manager, manager_id, game_date
+        return self._canteen_application().context()
 
     def canteen_sea_cucumber(self, payload: dict[str, Any]) -> dict[str, Any]:
-        player_id = int(payload.get("player_id") or 0)
-        requested_team_id = int(payload.get("team_id") or 0)
-        if player_id <= 0:
-            raise ValueError("请选择球员")
-        with self.memory_lock:
-            manager, manager_id, game_date = self._canteen_sea_cucumber_context()
-            result = self._canteen_sea_cucumber_one(
-                player_id, requested_team_id, manager=manager,
-                manager_id=manager_id, game_date=game_date,
-            )
-        result["economy"] = public_economy()
-        return result
+        return self._canteen_application().reward_one(payload)
 
     def canteen_sea_cucumbers(self, payload: dict[str, Any]) -> dict[str, Any]:
-        raw_player_ids = payload.get("player_ids")
-        if not isinstance(raw_player_ids, list):
-            raise ValueError("请选择球员")
-        player_ids = list(dict.fromkeys(int(value or 0) for value in raw_player_ids))
-        if not player_ids or any(player_id <= 0 for player_id in player_ids):
-            raise ValueError("请选择有效球员")
-        if len(player_ids) > 200:
-            raise ValueError("单次最多奖励 200 名球员")
-        requested_team_id = int(payload.get("team_id") or 0)
-        results: list[dict[str, Any]] = []
-        failure: dict[str, Any] | None = None
-        with self.memory_lock:
-            manager, manager_id, game_date = self._canteen_sea_cucumber_context()
-            with canteen_sea_cucumber_memory_session() as memory_session:
-                for player_id in player_ids:
-                    try:
-                        results.append(self._canteen_sea_cucumber_one(
-                            player_id, requested_team_id, manager=manager,
-                            manager_id=manager_id, game_date=game_date,
-                            memory_session=memory_session,
-                        ))
-                    except Exception as error:
-                        failure = {
-                            "player_id": player_id,
-                            **describe_player_effect_error(
-                                error, operation="sea_cucumber_batch",
-                            ),
-                        }
-                        break
-        return {
-            "requested": len(player_ids), "completed": len(results),
-            "results": results, "failure": failure,
-            "economy": public_economy(),
-        }
+        return self._canteen_application().reward_batch(payload)
 
     def retirement_activity(self, payload: dict[str, Any]) -> dict[str, Any]:
         player_id = int(payload.get("player_id") or 0)
@@ -21316,241 +21023,61 @@ class LocalOddsState:
                 "economy": public_economy(), "welfare": welfare_status(),
             }
 
+    def _counseling_application(self) -> CounselingApplicationService:
+        return CounselingApplicationService(
+            self,
+            CounselingIO(
+                read_game_clock=read_game_clock,
+                local_purchase_price=local_purchase_price,
+                session_price=PSYCHOLOGICAL_COUNSELING_SESSION_PRICE,
+                available_balance=available_balance,
+                adjust_balance=adjust_balance,
+                player_has_unhappiness=player_has_unhappiness,
+                apply_effect=apply_psychological_counseling_effect,
+                adjust_manager_intimacy=adjust_manager_intimacy_points,
+                restore_effect=restore_player_activity_effect,
+                perform_counseling=perform_psychological_counseling,
+                public_economy=public_economy,
+                welfare_status=welfare_status,
+            ),
+        )
+
     def psychological_counseling(self, payload: dict[str, Any]) -> dict[str, Any]:
-        player_id = int(payload.get("player_id") or 0)
-        requested_team_id = int(payload.get("team_id") or 0)
-        guaranteed = bool(payload.get("guaranteed"))
-        with self.memory_lock:
-            with self.lock:
-                self._bind_current_save()
-                profile, player = self._live_player_profile(
-                    player_id, requested_team_id,
-                )
-                if not profile or not player:
-                    raise ValueError("所选球员不属于当前执教球队，请先刷新队伍")
-                manager = dict(self.output.get("manager") or {})
-                manager_id = int(self.output.get("selected_manager_id") or manager.get("id") or 0)
-                team = dict(profile.get("team") or {})
-                team_id = int(team.get("id") or 0)
-                current_intimacy = int(player.get("manager_intimacy") or 0)
-                game_date = str((read_game_clock() or {}).get("date") or self.output.get("game_date") or "")
-                if not game_date:
-                    raise ValueError("尚未读取当前游戏日期")
-                player_name = str(player.get("name") or player_id)
-                player_address = player.get("address")
-            if not player_has_unhappiness(player_id, player_address):
-                raise ValueError("该球员当前没有可清除的不满")
+        return self._counseling_application().counsel(payload)
 
-            payment = {"bank": 0.0, "wallet": 0.0, "total": 0.0}
-            if guaranteed and not free_services_enabled():
-                payment = charge_combined_funds(
-                    local_purchase_price(PSYCHOLOGICAL_COUNSELING_UNLOCK_PRICE),
-                    "psychological_counseling_unlock",
-                    manager_id=manager_id, player_id=player_id,
-                    player_name=player_name, game_date=game_date,
-                )
-            applied_effect: dict[str, Any] | None = None
-
-            def apply_effects(outcome: str, points: int) -> dict[str, Any]:
-                nonlocal applied_effect
-                effect = apply_psychological_counseling_effect(player_id, player_address, outcome)
-                applied_effect = effect
-                try:
-                    intimacy = adjust_manager_intimacy_points(
-                        player_id, player_address, manager_id, team_id,
-                        team_address=team.get("address"),
-                        manager_address=manager.get("manager_address"), points=points,
-                    ) if points else {
-                        "before": current_intimacy, "after": current_intimacy, "applied": 0,
-                    }
-                except Exception:
-                    restore_player_activity_effect(effect)
-                    applied_effect = None
-                    raise
-                public_effect = {key: value for key, value in effect.items() if not key.startswith("_")}
-                return {**intimacy, "effect": public_effect}
-
-            try:
-                result = perform_psychological_counseling(
-                    manager_id, player_id, player_name, game_date,
-                    current_intimacy, apply_effects,
-                    forced_outcome="unlocked" if guaranteed else None,
-                )
-            except Exception:
-                if guaranteed and applied_effect is not None:
-                    try:
-                        restore_player_activity_effect(applied_effect)
-                    except Exception:
-                        pass
-                if float(payment.get("total") or 0) > 0:
-                    refund_combined_funds(
-                        payment, "psychological_counseling_unlock_rollback",
-                        manager_id=manager_id, player_id=player_id,
-                        player_name=player_name, game_date=game_date,
-                    )
-                raise
-            result["guaranteed"] = guaranteed
-            result["payment"] = payment
-            result["relationship_archived"] = self._archive_activity_relationship(
-                target=player, target_kind="player", manager=manager,
-                manager_id=manager_id, result=result, game_date=game_date,
-                source_key="activity:psychological_counseling",
-                source_label=f"心理辅导 · {result.get('outcome_name') or '关系变化'}",
-                target_role="counselee", intimacy_before=current_intimacy,
-                details={
-                    "event_family": "心理辅导", "outcome": result.get("outcome"),
-                    "outcome_name": result.get("outcome_name"), "team_id": team_id,
-                },
-            )
-            with self.lock:
-                if int(result.get("integer_applied") or 0):
-                    player["manager_intimacy"] = int(float(result["intimacy"]))
-                for change in (result.get("effect") or {}).get("effects") or []:
-                    if change.get("field") == "morale":
-                        player["morale"] = change.get("after")
-                    if change.get("field") == "unhappiness" and change.get("after") is False:
-                        player["has_unhappiness"] = False
-            return {
-                "counseling": result,
-                "economy": public_economy(),
-                "welfare": welfare_status(),
-            }
+    def _medical_application(self) -> MedicalApplicationService:
+        return MedicalApplicationService(
+            self,
+            MedicalIO(
+                read_game_clock=read_game_clock,
+                welfare_status=welfare_status,
+                public_economy=public_economy,
+                update_player_injury_treatment=update_player_injury_treatment,
+                set_medical_treatment=set_medical_treatment,
+                set_default_medical_treatment=set_default_medical_treatment,
+                process_medical_treatments=process_medical_treatments,
+                complete_player_medical_treatment=complete_player_medical_treatment,
+                apply_default_medical_treatments=apply_default_medical_treatments,
+            ),
+        )
 
     def update_medical_treatment(self, payload: dict[str, Any]) -> dict[str, Any]:
-        player_id = int(payload.get("player_id") or 0)
-        requested_team_id = int(payload.get("team_id") or 0)
-        mode = str(payload.get("mode") or "none")
-        with self.memory_lock:
-            with self.lock:
-                self._bind_current_save()
-                profile, player = self._live_player_profile(
-                    player_id, requested_team_id,
-                )
-                if not profile or not player:
-                    raise ValueError("所选球员不属于当前执教球队，请先刷新队伍")
-                game_date = str((read_game_clock() or {}).get("date") or self.output.get("game_date") or "")
-                team_id = int((profile.get("team") or {}).get("id") or 0)
-                player_address = str(player.get("address") or "")
-                if not game_date:
-                    raise ValueError("尚未读取当前游戏日期")
-
-            previous = dict((welfare_status().get("treatments") or {}).get(str(player_id)) or {})
-            old_factor = float(previous.get("factor") or 1.0)
-
-            def transform(from_factor: float, to_factor: float) -> dict[str, Any]:
-                return update_player_injury_treatment(
-                    player_id, player_address, game_date, from_factor, to_factor,
-                )
-
-            result = set_medical_treatment(
-                player_id, str(player.get("name") or player_id), team_id,
-                player_address, mode, game_date, transform,
-            )
-            with self.lock:
-                if result.get("injuries") is not None:
-                    availability = dict(player.get("availability") or {})
-                    availability["injuries"] = list(result.get("injuries") or [])
-                    availability["injury_count"] = len(availability["injuries"])
-                    player["availability"] = availability
-            return {"treatment": result, "economy": public_economy(), "welfare": welfare_status()}
+        return self._medical_application().update_treatment(payload)
 
     def update_default_medical_treatment(self, payload: dict[str, Any]) -> dict[str, Any]:
-        mode = str(payload.get("mode") or "manual")
-        with self.memory_lock:
-            with self.lock:
-                self._bind_current_save()
-                profiles = list(self.club_profiles.values()) or (
-                    [self.club_profile] if self.club_profile else []
-                )
-                game_date = str(
-                    (read_game_clock() or {}).get("date")
-                    or self.output.get("game_date") or ""
-                )
-            medical_snapshot = set_default_medical_treatment(mode)
-            auto_result = (
-                self._apply_default_medical_treatments(
-                    game_date, profiles, status=medical_snapshot,
-                )
-                if game_date and profiles else None
-            )
-            with self.lock:
-                self.club_medical_auto_result = auto_result
-        return {
-            "economy": public_economy(), "welfare": welfare_status(),
-            "auto_treatment": auto_result,
-        }
+        return self._medical_application().update_default(payload)
 
     def _process_due_medical_treatments(
         self, game_date: str, profiles: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        players = {
-            int(player.get("id") or 0): player
-            for profile in profiles for player in (profile.get("players") or [])
-            if int(player.get("id") or 0) > 0
-        }
-        injured_ids = {
-            player_id for player_id, player in players.items()
-            if int((player.get("availability") or {}).get("injury_count") or 0) > 0
-        }
-
-        def cancel(state: dict[str, Any]) -> None:
-            player_id = int(state.get("player_id") or 0)
-            player = players.get(player_id)
-            address = (player or {}).get("address") or state.get("player_address")
-            result = update_player_injury_treatment(
-                player_id, address, game_date, float(state.get("factor") or 1.0), 1.0,
-            )
-            if player is not None:
-                availability = dict(player.get("availability") or {})
-                availability["injuries"] = list(result.get("injuries") or [])
-                availability["injury_count"] = len(availability["injuries"])
-                player["availability"] = availability
-
-        def complete(state: dict[str, Any]) -> None:
-            player_id = int(state.get("player_id") or 0)
-            player = players.get(player_id)
-            address = (player or {}).get("address") or state.get("player_address")
-            complete_player_medical_treatment(
-                player_id, address, game_date,
-                list(state.get("injury_start_dates") or []),
-            )
-
-        return process_medical_treatments(
-            game_date, injured_ids, cancel, complete,
-            resolved_player_ids=set(players),
-        )
+        return self._medical_application().process_due(game_date, profiles)
 
     def _apply_default_medical_treatments(
         self, game_date: str, profiles: list[dict[str, Any]],
         *, status: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        candidates = []
-        for profile in profiles:
-            team_id = int((profile.get("team") or {}).get("id") or 0)
-            for player in profile.get("players") or []:
-                candidate = dict(player)
-                candidate["team_id"] = team_id
-                candidate["_profile_player"] = player
-                candidates.append(candidate)
-
-        def transform(
-            candidate: dict[str, Any], from_factor: float, to_factor: float,
-        ) -> dict[str, Any]:
-            player_id = int(candidate.get("id") or 0)
-            result = update_player_injury_treatment(
-                player_id, candidate.get("address"), game_date,
-                from_factor, to_factor,
-            )
-            player = candidate.get("_profile_player")
-            if isinstance(player, dict):
-                availability = dict(player.get("availability") or {})
-                availability["injuries"] = list(result.get("injuries") or [])
-                availability["injury_count"] = len(availability["injuries"])
-                player["availability"] = availability
-            return result
-
-        return apply_default_medical_treatments(
-            game_date, candidates, transform, status=status,
+        return self._medical_application().apply_default(
+            game_date, profiles, status=status,
         )
 
     def _team_context(self, team_id: int) -> dict[str, Any]:
@@ -22886,7 +22413,6 @@ def build_api_routes() -> RouteRegistry:
         "/api/hospital/treatment": "update_medical_treatment",
         "/api/hospital/default-treatment": "update_default_medical_treatment",
         "/api/cheat-balance": "update_cheat_balance",
-        "/api/cheat/free-services": "update_free_services",
         "/api/favorites/teams": "update_favorite_teams",
         "/api/favorites/competitions": "update_favorite_competitions",
         "/api/favorites/hidden-competitions": "update_hidden_competitions",

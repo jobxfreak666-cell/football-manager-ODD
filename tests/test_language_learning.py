@@ -66,9 +66,8 @@ def test_instant_language_prices_are_proportional_thousand_multiples():
     assert club_economy.language_instant_max_price(0) == 952_000
 
 
-def test_welfare_status_keeps_paid_language_quotes_when_free_services_is_stale():
+def test_welfare_status_returns_paid_language_quotes():
     state = language_state()
-    state["free_services"] = True
     with (
         patch.object(club_economy, "load_economy", return_value=state),
         patch.object(club_economy, "load_settings", return_value={}),
@@ -79,7 +78,7 @@ def test_welfare_status_keeps_paid_language_quotes_when_free_services_is_stale()
     ):
         status = club_economy.welfare_status()
 
-    assert status["free_services"] is True
+    assert "free_services" not in status
     assert status["language_learning"]["instant_prices"]["0"] == 22_000
     assert status["language_learning"]["instant_prices"]["9"] == 200_000
     assert status["language_learning"]["instant_max_prices"]["0"] == 952_000
