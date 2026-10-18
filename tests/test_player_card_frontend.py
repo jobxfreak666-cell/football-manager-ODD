@@ -75,8 +75,12 @@ class PlayerCardFrontendTests(unittest.TestCase):
 
     def test_card_uses_compact_weekly_wage_and_asking_price(self):
         script = open(ROOT / "web" / "app.js", encoding="utf-8").read()
-        self.assertIn("const unit = moneyAbbreviationUnit(amount);", script)
-        self.assertIn('if (unit) return `£${compact(amount / unit[0], unit[1])}`;', script)
+        player_money = script.split("function compactMoney(value) {", 1)[1].split(
+            "function ownedClubMoney(", 1,
+        )[0]
+        self.assertIn('if (!Number.isFinite(amount) || amount < 0) return "-";', player_money)
+        self.assertIn("return formatFullMoney(amount);", player_money)
+        self.assertNotIn("£", player_money)
         self.assertIn("player.player_contract?.wage_per_week", script)
         self.assertIn("player.transfer?.asking_price ?? player.asking_price", script)
         self.assertIn('uiText("owned.detail.weekly_wage")', script)
@@ -107,7 +111,9 @@ class PlayerCardFrontendTests(unittest.TestCase):
         self.assertNotIn('data-lucide="arrow-up-right"', portfolio_card)
         self.assertNotIn('data-lucide="badge-pound-sterling"', portfolio_card)
         self.assertIn('class="owned-club-row-sell"', portfolio_card)
-        self.assertIn("background:#b5453e;color:#fff", self.styles)
+        self.assertIn(">查看详情<", portfolio_card)
+        self.assertIn(">出售俱乐部<", portfolio_card)
+        self.assertNotIn("background:#b5453e;color:#fff", self.styles)
         for label in (
             "当前估值", "财政结余",
             "本赛季营收", "负债", "联赛排名",
@@ -140,18 +146,21 @@ class PlayerCardFrontendTests(unittest.TestCase):
             ":is(.owned-acquisition-metric,.owned-history-metric){padding-top:7px;padding-bottom:7px}",
             self.styles,
         )
-        self.assertIn(".owned-club-row-metrics{grid-area:metrics", self.styles)
-        self.assertIn("grid-template-columns:repeat(4,minmax(0,1fr))", self.styles)
-        self.assertIn('grid-template-areas:"identity metrics view" "form metrics view"', self.styles)
-        self.assertIn(".owned-club-row-identity h2{overflow-wrap:anywhere;font-size:26px", self.styles)
-        self.assertIn(".owned-club-row-metrics dd{margin-top:5px;color:#173f31;font-size:17px", self.styles)
         self.assertIn(".owned-reputation-rank-metric dd{overflow:visible", self.styles)
         self.assertIn("text-overflow:clip;white-space:pre-line", self.styles)
-        self.assertIn(".owned-club-row-view{display:flex;align-self:center;align-items:center;justify-self:end", self.styles)
-        self.assertIn("align-self:center", self.styles)
-        self.assertIn("min-width:86px;min-height:44px", self.styles)
-        self.assertIn("margin:-22px 0", self.styles)
-        self.assertIn("border-radius:0;background:#fff", self.styles)
+        self.assertIn(
+            ".owned-club-row-card > dl.owned-club-row-metrics {\n"
+            "  display: grid;\n"
+            "  grid-template-columns: repeat(3, minmax(0, 1fr));",
+            self.styles,
+        )
+        self.assertIn("@media (max-width: 1100px)", self.styles)
+        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", self.styles)
+        self.assertIn("@media (max-width: 720px)", self.styles)
+        self.assertIn("grid-template-columns: minmax(0, 1fr);", self.styles)
+        self.assertNotIn(".owned-club-row-metrics{grid-area:metrics", self.styles)
+        self.assertNotIn('grid-template-areas:"identity metrics view" "form metrics view"', self.styles)
+        self.assertNotIn(".owned-club-row-identity h2{overflow-wrap:anywhere;font-size:26px", self.styles)
 
     def test_owned_club_card_metrics_have_separated_equal_height_headers(self):
         self.assertIn(
@@ -165,7 +174,7 @@ class PlayerCardFrontendTests(unittest.TestCase):
         self.assertIn("min-height: 36px;", self.styles)
         self.assertIn(".owned-club-row-metrics dd { margin: 9px 0 0; }", self.styles)
 
-    def test_owned_club_cards_default_collapsed_and_expand_in_requested_order(self):
+    def test_owned_club_cards_stay_expanded_in_metric_order(self):
         card = self.script.split("function worldClubCard", 1)[1].split(
             "function activeOwnedClubs", 1,
         )[0]
@@ -184,12 +193,14 @@ class PlayerCardFrontendTests(unittest.TestCase):
             'ownedClubMetric("本赛季营收"',
         ]
         positions = [card.index(value) for value in expected]
+        self.assertTrue(all(position >= 0 for position in positions), positions)
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("ownedClubExpandedIds: new Set()", self.script)
-        self.assertIn('data-owned-club-toggle="${teamId}"', card)
-        self.assertIn('aria-expanded="${expanded}"', card)
-        self.assertIn(".owned-club-row-card:not(.is-expanded)", self.styles)
-        self.assertIn("div:nth-child(n+5)", self.styles)
+        self.assertNotIn("ownedClubExpandedIds", self.script)
+        self.assertNotIn("data-owned-club-toggle", card)
+        self.assertNotIn("is-expanded", card)
+        self.assertNotIn(".owned-club-row-card:not(.is-expanded)", self.styles)
+        self.assertIn(">查看详情<", card)
+        self.assertIn(">出售俱乐部<", card)
 
     def test_owned_club_reputation_and_followers_show_adjacent_history(self):
         renderer = self.script.split("function ownedClubHistoricalMetric", 1)[1].split(
@@ -232,34 +243,24 @@ class PlayerCardFrontendTests(unittest.TestCase):
         self.assertNotIn("pointerdown", interactions)
         self.assertNotIn("owned-club-drag-handle", self.styles)
 
-    def test_owned_club_collapsed_card_uses_inline_disclosure_without_misclicks(self):
-        self.assertIn(".owned-club-row-card:not(.is-expanded) > .owned-club-row-identity {", self.styles)
-        self.assertIn("padding: 13px 16px;", self.styles)
-        self.assertIn("grid-template-rows: minmax(20px,auto) auto;", self.styles)
-        self.assertIn("height: 36px;", self.styles)
-        self.assertNotIn("transform: translate(-50%,50%);", self.styles)
-        self.assertIn("data-owned-club-disclosure", self.script)
-        self.assertIn('event.target.closest("button, a, input, select, textarea, label")', self.script)
-        self.assertIn("app.ownedClubReorderMode", self.script)
-        self.assertIn(
-            ".owned-club-row-card:not(.is-expanded) > .owned-club-row-actions "
-            ".owned-club-row-sell { display: none; }",
-            self.styles,
-        )
-        self.assertIn(
-            ".owned-club-row-card > dl.owned-club-row-metrics > div:first-child dd "
-            "{ color: #173f31; }",
-            self.styles,
-        )
+    def test_owned_club_cards_stay_open_without_fold_controls(self):
         card = self.script.split("function worldClubCard", 1)[1].split(
             "function activeOwnedClubs", 1,
         )[0]
-        toggle = card.split('class="owned-club-row-toggle"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('data-lucide="chevron-${expanded ? "up" : "down"}"', toggle)
-        self.assertIn("更多", toggle)
-        self.assertIn("收起", toggle)
-        self.assertNotIn("更多数据", toggle)
-        self.assertIn("<span>", toggle)
+        interactions = self.script.split(
+            "function initializeOwnedClubCardInteractions", 1,
+        )[1].split("async function performOwnedClubMetricsLoad", 1)[0]
+        self.assertNotIn("data-owned-club-disclosure", self.script)
+        self.assertNotIn("owned-club-row-toggle", self.script)
+        self.assertNotIn("is-expanded", self.styles)
+        self.assertNotIn(
+            ".owned-club-row-sell { display: none; }",
+            self.styles,
+        )
+        self.assertNotIn('event.target.closest("button, a, input, select, textarea, label")', interactions)
+        self.assertIn('class="owned-club-row-sell"', card)
+        self.assertIn('data-world-sell="', card)
+        self.assertIn("data-owned-club-order", interactions)
 
     def test_detail_keeps_full_money_and_combines_nationalities(self):
         self.assertIn(

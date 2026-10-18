@@ -2824,6 +2824,8 @@
   "portfolio.transfer.player": "este jogador",
   "portfolio.unknown_income": "Renda desconhecida",
   "portfolio.view": "Ver",
+  "portfolio.card.view_details": "Ver detalhes",
+  "portfolio.card.sell_club": "Vender clube",
   "portfolio.youth.active_elsewhere": "Desenvolvendo em {team}",
   "portfolio.youth.arranged": "Organizado",
   "portfolio.youth.cancel": "Cancelar plano",

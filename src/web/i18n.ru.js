@@ -2769,6 +2769,8 @@
   "portfolio.transfer.player": "этот игрок",
   "portfolio.unknown_income": "Неизвестный доход",
   "portfolio.view": "Просмотреть",
+  "portfolio.card.view_details": "Подробнее",
+  "portfolio.card.sell_club": "Продать клуб",
   "portfolio.youth.active_elsewhere": "Развивается в клубе {team}",
   "portfolio.youth.arranged": "Запланировано",
   "portfolio.youth.cancel": "Отменить план",

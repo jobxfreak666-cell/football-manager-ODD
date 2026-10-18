@@ -295,6 +295,8 @@
     "portfolio.form.none":["No results", "暂无赛果", "경기 결과 없음"],
     "portfolio.form.opponent":["Opponent", "对手", "상대"],
     "portfolio.view":["View", "查看", "보기"], "portfolio.sell":["Sell", "出售", "매각"],
+    "portfolio.card.view_details":["View details", "查看详情", "상세 보기"],
+    "portfolio.card.sell_club":["Sell club", "出售俱乐部", "클럽 매각"],
     "portfolio.expand":["Expand", "展开", "펼치기"], "portfolio.collapse":["Collapse", "收起", "접기"],
     "portfolio.more_data":["More", "更多", "더보기"], "portfolio.collapse_data":["Less", "收起", "접기"],
     "portfolio.club_fallback":["club", "俱乐部", "클럽"],

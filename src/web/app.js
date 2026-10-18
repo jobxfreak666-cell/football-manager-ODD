@@ -428,7 +428,6 @@ const app = {
   disableFa: localStorage.getItem("fm-odds-disable-fa") === "true",
   godMode: localStorage.getItem("fm-odds-god-mode") === "true",
   unlimitedBetting: localStorage.getItem("fm-odds-unlimited-betting") === "true",
-  compactMoney: localStorage.getItem("fm-odds-compact-money") !== "false",
   darkMode: localStorage.getItem(THEME_STORAGE_KEY) === "dark",
   reverseProfitLossColors: localStorage.getItem(PROFIT_LOSS_COLOR_STORAGE_KEY) === "true",
   interfaceFontLocale: activeUiLocale(),
@@ -721,7 +720,6 @@ const app = {
   ownedClubIndex: null,
   ownedClubIndexVersion: 0,
   ownedClubRenderSignature: null,
-  ownedClubExpandedIds: new Set(),
   ownedClubReorderMode: false,
   portfolioTool: null,
   portfolioToolRequestKey: 0,
@@ -1479,8 +1477,9 @@ const formatGoalLine = (value) => {
   if (Number.isInteger(line)) return line.toFixed(0);
   return Number.isInteger(line * 2) ? line.toFixed(1) : line.toFixed(2);
 };
-const formatFullMoney = (value) => {
-  const amount = toDisplayMoney(value);
+const formatFullMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatExactDisplayMoney = (displayAmount) => {
+  const amount = Number(displayAmount || 0);
   const digits = moneyDecimalDigits();
   return `${moneySymbol()}${amount.toLocaleString(activeUiLocale(), {minimumFractionDigits:digits, maximumFractionDigits:digits})}`;
 };
@@ -1502,42 +1501,49 @@ const MONEY_ABBREVIATION_MULTIPLIERS = Object.freeze(Object.fromEntries(
 const moneyAbbreviationUnit = (value) => (
   MONEY_ABBREVIATION_UNITS.find(([threshold]) => Math.abs(Number(value)) >= threshold) || null
 );
-const formatGlobalStatisticMoney = (value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const number = (absolute / unit[0]).toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
+const moneyAbbreviationUnitFor = (absoluteAmount, fractionDigits) => {
+  const amount = Math.abs(Number(absoluteAmount) || 0);
+  const digits = Number(fractionDigits);
+  let selected = moneyAbbreviationUnit(amount);
+  if (!selected) {
+    const currencyDigits = moneyDecimalDigits();
+    const rounded = Number(new Intl.NumberFormat(activeUiLocale(), {
+      minimumFractionDigits:currencyDigits, maximumFractionDigits:currencyDigits, useGrouping:false,
+    }).formatToParts(amount).reduce((value, part) => (
+      part.type === "integer" || part.type === "fraction" ? value + part.value
+      : part.type === "decimal" ? `${value}.` : value
+    ), ""));
+    return rounded >= 1000 ? moneyAbbreviationUnit(1000) : null;
+  }
+  let index = MONEY_ABBREVIATION_UNITS.findIndex((unit) => unit[0] === selected[0]);
+  while (selected && Number((amount / selected[0]).toFixed(digits)) >= 1000) {
+    index -= 1;
+    if (index < 0) return selected;
+    selected = MONEY_ABBREVIATION_UNITS[index];
+  }
+  return selected;
+};
+const formatAbbreviatedDisplayMoney = (displayAmount, fractionDigits = 1) => {
+  const amount = Number(displayAmount || 0);
+  const digits = Number(fractionDigits);
+  const unit = moneyAbbreviationUnitFor(amount, digits);
+  if (!unit) return formatExactDisplayMoney(amount);
+  const compact = Math.abs(amount) / unit[0];
+  const number = digits === 1
+    ? compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1})
+    : compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:digits, maximumFractionDigits:digits});
   return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
 };
-const formatMoney = (value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  if (!app.compactMoney) return formatFullMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const compact = absolute / unit[0];
-  const number = compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
-  return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
-};
-const formatCompactMoney = (value, fractionDigits = 1) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const compact = absolute / unit[0];
-  const number = compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:fractionDigits, maximumFractionDigits:fractionDigits});
-  return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
-};
+const formatGlobalStatisticMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatCompactMoney = (value, fractionDigits = 1) => (
+  formatAbbreviatedDisplayMoney(toDisplayMoney(value), fractionDigits)
+);
 const formatChartAxisMoney = (value, scaleValue = value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
+  const amount = toDisplayMoney(Number(value || 0));
   const scale = Math.abs(toDisplayMoney(Number(scaleValue || 0)));
-  const unit = moneyAbbreviationUnit(scale);
-  if (!unit) return formatFullMoney(internalAmount);
+  const unit = moneyAbbreviationUnitFor(scale, 1);
+  if (!unit) return formatExactDisplayMoney(amount);
   const scaled = amount / unit[0];
   const rounded = Math.abs(scaled) < .05 ? 0 : scaled;
   const number = Math.abs(rounded).toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
@@ -1611,7 +1617,7 @@ function localizedItemTier(tier) {
   return key ? uiText(key) : String(tier || "");
 }
 function moneyRenderSignature() {
-  return [moneySymbol(), moneyRate(), moneyDecimalDigits(), Boolean(app.compactMoney)].join("|");
+  return [moneySymbol(), moneyRate(), moneyDecimalDigits()].join("|");
 }
 
 function fundingPaymentSplit(price) {
@@ -2897,7 +2903,6 @@ function resetAccountScopedWorldState() {
   app.ownedClubDetailRevision += 1;
   app.ownedClubDetailCache.clear();
   app.ownedClubDetailRequests.clear();
-  app.ownedClubExpandedIds.clear();
   app.ownedClubReorderMode = false;
   app.portfolioToolRequestKey += 1;
   app.portfolioToolBusyRequestKey = app.portfolioToolRequestKey;
@@ -9726,7 +9731,7 @@ function settingsRenderStateSignature(settings) {
   return JSON.stringify([
     String(app.state?.data_scope_id || ""),
     app.cheatMode, app.disableFa, app.godMode,
-    app.compactMoney, app.darkMode, app.reverseProfitLossColors,
+    app.darkMode, app.reverseProfitLossColors,
     String(settings.ui_locale || activeUiLocale()), storedLocaleFontKey(settings.ui_locale || activeUiLocale()),
     app.fontSizeStep, app.showHiddenAttributes,
     settings.player_name_localization !== false,
@@ -9776,7 +9781,6 @@ function renderSettingsControls({force = false} = {}) {
   $("#cheat-actions").classList.toggle("visible", app.cheatMode);
   $("#disable-fa").checked = app.disableFa;
   if ($("#god-mode")) $("#god-mode").checked = app.godMode;
-  $("#compact-money").checked = app.compactMoney;
   $("#dark-mode").checked = app.darkMode;
   $("#reverse-profit-loss-colors").checked = app.reverseProfitLossColors;
   syncLocaleFontControls(settings.ui_locale || activeUiLocale());
@@ -17374,10 +17378,7 @@ function cyclePlayerCardPosition(playerId) {
 function compactMoney(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0) return "-";
-  const compact = (number, suffix) => `${number.toFixed(1)}${suffix}`;
-  const unit = moneyAbbreviationUnit(amount);
-  if (unit) return `£${compact(amount / unit[0], unit[1])}`;
-  return `£${Math.round(amount)}`;
+  return formatFullMoney(amount);
 }
 
 function ownedClubMoney(value, unavailable = false) {
@@ -18214,9 +18215,9 @@ function worldClubCard(club, {
   orderTotal = 0,
   reordering = false,
 } = {}) {
-  const displayName = club.display_name
-    || (portfolio ? (club.renamed_short_name || club.short_name) : "")
-    || club.name || club.short_name || uiText("world.unnamed_club");
+  const displayName = portfolio
+    ? ownedClubPortfolioDisplayName(club)
+    : (club.display_name || club.name || club.short_name || uiText("world.unnamed_club"));
   const ranking = club.league_position != null && club.league_team_count != null
     ? uiText("portfolio.league_position", {position:Number(club.league_position), total:Number(club.league_team_count)})
     : uiText("world.pending");
@@ -18225,7 +18226,6 @@ function worldClubCard(club, {
     : clubReputationTier(club.reputation);
   if (portfolio) {
     const teamId = Number(club.id);
-    const expanded = app.ownedClubExpandedIds.has(teamId);
     const orderControls = reordering && orderTotal > 1 ? `<div class="owned-club-order-controls" aria-label="${uiText("portfolio.order.aria", {club:escapeHtml(displayName)})}"><span><i data-lucide="grip-vertical"></i><b data-owned-club-order-position>${uiText("portfolio.order.position", {position:Number(orderIndex) + 1})}</b></span><div><button type="button" data-owned-club-order="up" aria-label="${uiText("portfolio.order.up")} ${escapeHtml(displayName)}" title="${uiText("portfolio.order.up")}"><i data-lucide="arrow-up"></i></button><button type="button" data-owned-club-order="down" aria-label="${uiText("portfolio.order.down")} ${escapeHtml(displayName)}" title="${uiText("portfolio.order.down")}"><i data-lucide="arrow-down"></i></button></div></div>` : "";
     if (club.ownership_active === false) {
       const restoreDate = club.ownership_suspended_until || club.acquired_game_date || uiText("world.pending");
@@ -18250,17 +18250,16 @@ function worldClubCard(club, {
         metrics.social_media_followers_comparison,
       )
       : ownedClubMetric(fanCountLabel, ownedClubCount(metrics.fan_count));
-    const salePrice = ownedClubSalePrice(metrics, club);
     const form = (club.recent_results || []).slice(0, 5);
     const formHtml = form.length ? form.map((row) => {
       const tone = row.result === "胜" ? "win" : row.result === "平" ? "draw" : "loss";
       return `<span class="world-form-${tone}" title="${escapeHtml(`${row.opponent || uiText("portfolio.form.opponent")} ${row.score || ""}`)}">${escapeHtml(row.result || "-")}</span>`;
     }).join("") : `<span class="owned-form-none">${uiText("portfolio.form.none")}</span>`;
-    return `<article class="owned-club-row-card${expanded ? " is-expanded" : ""}" data-owned-club-card="${teamId}">
-      <div class="owned-club-row-identity" data-owned-club-disclosure role="button" tabindex="0" aria-expanded="${expanded}" aria-controls="owned-club-metrics-${teamId}">${orderControls}<h2>${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
-      <dl class="owned-club-row-metrics" id="owned-club-metrics-${teamId}" data-owned-club-disclosure>${ownedClubMetric(uiText("portfolio.metric.league_rank"), ranking)}${ownedClubMetric(uiText("portfolio.metric.transfer_budget"), ownedClubMoney(metrics.transfer_budget, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.balance"), ownedClubMoney(metrics.balance, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.dividend"), ownedClubDividendEstimate(metrics))}${ownedClubMetric(uiText("portfolio.metric.valuation"), ownedClubMoney(metrics.current_valuation, metrics.unavailable))}${ownedClubAcquisitionMetric(metrics)}${ownedClubMetric(uiText("portfolio.metric.holding_days"), metrics.holding_days == null ? uiText("world.not_read") : uiText("portfolio.metric.days", {count:ownedClubCount(metrics.holding_days)}))}${ownedClubDebtMetric(metrics, club.id)}${ownedClubReputationMetric(club)}${reputationMetric}${fanCountMetric}${ownedClubMetric(uiText("portfolio.metric.season_revenue"), ownedClubMoney(metrics.season_revenue, metrics.unavailable))}</dl>
+    return `<article class="owned-club-row-card" data-owned-club-card="${teamId}">
+      <div class="owned-club-row-identity">${orderControls}<h2>${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
+      <dl class="owned-club-row-metrics" id="owned-club-metrics-${teamId}">${ownedClubMetric(uiText("portfolio.metric.league_rank"), ranking)}${ownedClubMetric(uiText("portfolio.metric.transfer_budget"), ownedClubMoney(metrics.transfer_budget, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.balance"), ownedClubMoney(metrics.balance, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.dividend"), ownedClubDividendEstimate(metrics))}${ownedClubMetric(uiText("portfolio.metric.valuation"), ownedClubMoney(metrics.current_valuation, metrics.unavailable))}${ownedClubAcquisitionMetric(metrics)}${ownedClubMetric(uiText("portfolio.metric.holding_days"), metrics.holding_days == null ? uiText("world.not_read") : uiText("portfolio.metric.days", {count:ownedClubCount(metrics.holding_days)}))}${ownedClubDebtMetric(metrics, club.id)}${ownedClubReputationMetric(club)}${reputationMetric}${fanCountMetric}${ownedClubMetric(uiText("portfolio.metric.season_revenue"), ownedClubMoney(metrics.season_revenue, metrics.unavailable))}</dl>
       <div class="owned-club-row-form"><small>${uiText("portfolio.form.recent")}</small><div>${formHtml}</div></div>
-      <div class="owned-club-row-actions"><button type="button" class="primary-action owned-club-row-view" data-world-view="${Number(club.id)}"><span>${uiText("portfolio.view")}</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>${uiText("portfolio.sell")}</span></button><button type="button" class="owned-club-row-toggle" data-owned-club-toggle="${teamId}" aria-expanded="${expanded}" aria-controls="owned-club-metrics-${teamId}" aria-label="${expanded ? uiText("portfolio.collapse") : uiText("portfolio.expand")} ${escapeHtml(displayName)}"><span>${expanded ? uiText("portfolio.collapse_data") : uiText("portfolio.more_data")}</span><i data-lucide="chevron-${expanded ? "up" : "down"}"></i></button></div>
+      <div class="owned-club-row-actions"><button type="button" class="primary-action owned-club-row-view" data-world-view="${Number(club.id)}"><span>${uiText("portfolio.card.view_details")}</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>${uiText("portfolio.card.sell_club")}</span></button></div>
     </article>`;
   }
   return `<article class="world-club-card">
@@ -18280,42 +18279,6 @@ function activeOwnedClubs() {
 }
 
 function initializeOwnedClubCardInteractions(root) {
-  const setExpanded = (card, button, expanded) => {
-    const teamId = Number(card?.dataset.ownedClubCard);
-    if (!card || !button || !Number.isInteger(teamId)) return;
-    card.classList.toggle("is-expanded", expanded);
-    if (expanded) app.ownedClubExpandedIds.add(teamId);
-    else app.ownedClubExpandedIds.delete(teamId);
-    button.setAttribute("aria-expanded", String(expanded));
-    card.querySelectorAll('[data-owned-club-disclosure][role="button"]').forEach((node) => node.setAttribute("aria-expanded", String(expanded)));
-    button.setAttribute("aria-label", `${expanded ? uiText("portfolio.collapse") : uiText("portfolio.expand")} ${card.querySelector("h2")?.textContent || uiText("portfolio.club_fallback")}`);
-    button.innerHTML = `<span>${expanded ? uiText("portfolio.collapse_data") : uiText("portfolio.more_data")}</span><i data-lucide="chevron-${expanded ? "up" : "down"}"></i>`;
-    renderIcons();
-  };
-  root.querySelectorAll("[data-owned-club-toggle]").forEach((button) => button.addEventListener("click", () => {
-    const teamId = Number(button.dataset.ownedClubToggle);
-    const card = button.closest("[data-owned-club-card]");
-    if (!card || !Number.isInteger(teamId)) return;
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-
-  root.querySelectorAll("[data-owned-club-card]").forEach((card) => card.addEventListener("click", (event) => {
-    if (app.ownedClubReorderMode || !event.target.closest("[data-owned-club-disclosure]")) return;
-    if (event.target.closest("button, a, input, select, textarea, label")) return;
-    const selection = window.getSelection?.();
-    if (selection && !selection.isCollapsed) return;
-    const button = card.querySelector("[data-owned-club-toggle]");
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-  root.querySelectorAll('[data-owned-club-disclosure][role="button"]').forEach((disclosure) => disclosure.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    const card = disclosure.closest("[data-owned-club-card]");
-    const button = card?.querySelector("[data-owned-club-toggle]");
-    if (!card || !button || app.ownedClubReorderMode) return;
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-
   const grid = root.querySelector(".my-club-grid");
   if (!grid) return;
   const syncOrderButtons = () => {
@@ -18669,42 +18632,100 @@ function renderWorldClubs() {
   renderIcons();
 }
 
+function ownedClubPortfolioDisplayName(club) {
+  if (!club) return uiText("portfolio.club_fallback");
+  return club.display_name
+    || club.renamed_short_name
+    || club.short_name
+    || club.name
+    || uiText("world.unnamed_club");
+}
+
 async function sellOwnedClub(teamId, button) {
+  const scopeAtStart = String(app.state?.data_scope_id || "");
+  const worldClubsRequestKeyAtStart = Number(app.worldClubsRequestKey || 0);
+  const operationKey = `sell:${scopeAtStart}:${Number(teamId)}`;
+  if (app.ownedClubOperationsInFlight.has(operationKey)) return;
   const club = (app.worldClubs?.acquired || []).find(
-    (row) => Number(row.id) === Number(teamId),
+    (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
   );
-  const metrics = app.ownedClubMetrics.get(Number(teamId)) || club?.portfolio_metrics || {};
-  const salePrice = ownedClubSalePrice(metrics, club);
-  const confirmed = await fmoddConfirm(
-    uiText("portfolio.sell.confirm", {
-      club:club?.name || uiText("portfolio.club_fallback"),
-      amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
-    }),
-    uiText("portfolio.sell.title"),
-  );
-  if (!confirmed) return;
+  if (!club) return;
+  const scopeStillCurrent = () => String(app.state?.data_scope_id || "") === scopeAtStart;
+  const worldClubsRequestStillCurrent = () => Number(app.worldClubsRequestKey || 0) === worldClubsRequestKeyAtStart;
+  const ownershipStillCurrent = () => (app.worldClubs?.acquired || []).find(
+    (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
+  ) === club;
+  app.ownedClubOperationsInFlight.add(operationKey);
+  const finish = beginOwnedClubOperation(button, uiText("portfolio.sell.busy"));
+  if (!finish) {
+    app.ownedClubOperationsInFlight.delete(operationKey);
+    return;
+  }
   try {
-    const result = await runOwnedClubOperation(button, uiText("portfolio.sell.busy"), () => request(
-      "/api/world-clubs/sell",
-      {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({team_id:Number(teamId)}),
-      },
-    ));
-    if (!result) return;
-    if (app.worldClubs) app.worldClubs.acquired = result.acquired || [];
-    app.ownedClubMetrics.delete(Number(teamId));
-    app.ownedClubMetricsVersion += 1;
-    clearOwnedClubDetailCache(teamId);
-    rebuildOwnedClubPortfolioSummaryFromCache();
-    if (result.economy && app.state) {
-      applyEconomySnapshot(result.economy);
-      renderBank();
+    const metrics = app.ownedClubMetrics.get(Number(teamId)) || club.portfolio_metrics || {};
+    const salePrice = ownedClubSalePrice(metrics, club);
+    const confirmed = await fmoddConfirm(
+      uiText("portfolio.sell.confirm", {
+        club:ownedClubPortfolioDisplayName(club),
+        amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
+      }),
+      uiText("portfolio.sell.title"),
+      uiText("portfolio.sell.title"),
+    );
+    if (!confirmed || !scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
+    const result = await request("/api/world-clubs/sell", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({team_id:Number(teamId)}),
+    });
+    if (!result || !scopeStillCurrent()) return;
+    const preSaleListReads = [];
+    if (app.worldClubsLoadPromise) preSaleListReads.push(app.worldClubsLoadPromise);
+    if (app.pageDataRequests) {
+      for (const [key, promise] of app.pageDataRequests) {
+        if (String(key).startsWith("world-clubs:") && promise && !preSaleListReads.includes(promise)) {
+          preSaleListReads.push(promise);
+        }
+      }
     }
+    if (!preSaleListReads.length && worldClubsRequestStillCurrent() && ownershipStillCurrent()) {
+      if (app.worldClubs) app.worldClubs.acquired = result.acquired || [];
+      app.ownedClubMetrics.delete(Number(teamId));
+      app.ownedClubMetricsVersion += 1;
+      clearOwnedClubDetailCache(teamId);
+      rebuildOwnedClubPortfolioSummaryFromCache();
+      if (result.economy && app.state) {
+        applyEconomySnapshot(result.economy);
+        renderBank();
+      }
+      renderMyClubs();
+      toast(uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)}));
+      return;
+    }
+    if (preSaleListReads.length) {
+      await Promise.allSettled(preSaleListReads);
+      await Promise.resolve();
+    }
+    if (!scopeStillCurrent()) return;
+    await loadState({fresh:true});
+    if (!scopeStillCurrent()) return;
+    await loadWorldClubs();
+    if (!scopeStillCurrent()) return;
+    const soldClubStillListed = (app.worldClubs?.acquired || []).some(
+      (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
+    );
+    if (!soldClubStillListed) {
+      app.ownedClubMetrics.delete(Number(teamId));
+      app.ownedClubMetricsVersion += 1;
+      clearOwnedClubDetailCache(teamId);
+    }
+    rebuildOwnedClubPortfolioSummaryFromCache();
     renderMyClubs();
-    toast(uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)}));
   } catch (error) {
+    if (!scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
     toast(error.message || uiText("portfolio.sell.failed"));
+  } finally {
+    app.ownedClubOperationsInFlight.delete(operationKey);
+    finish();
   }
 }
 
@@ -21902,7 +21923,7 @@ function portfolioControlDeck(clubs, summary) {
     ["brand", "megaphone", uiText("portfolio.command.brand"), uiText("portfolio.command.reputation")],
     ["relations", "network", uiText("portfolio.command.relations"), uiText("portfolio.clubs_count", {count:clubs.length})],
   ];
-  return `<section class="portfolio-command-deck" aria-label="${uiText("portfolio.control_deck")}"><header><div><small>GROUP OFFICE · MY GROUP</small><div class="portfolio-group-title"><h2>${escapeHtml(groupName)}</h2><button type="button" data-group-rename aria-label="${uiText("portfolio.rename_group")}" title="${uiText("portfolio.rename_group")}"><i data-lucide="pencil"></i></button></div></div><span class="portfolio-command-count"><i data-lucide="building-2"></i>${uiText("portfolio.clubs_count", {count:clubs.length})}</span></header><div class="portfolio-command-grid">${commands.map(([key,icon,title,value], index) => `<button type="button" class="portfolio-command portfolio-command-${index + 1}" data-portfolio-tool="${key}" aria-label="${uiText("portfolio.open_tool", {tool:title})}"><span class="portfolio-command-icon"><i data-lucide="${icon}"></i></span><span class="portfolio-command-copy"><strong>${escapeHtml(title)}</strong></span>${value ? `<b>${escapeHtml(value)}</b>` : ""}<span class="portfolio-command-arrow"><i data-lucide="arrow-up-right"></i></span></button>`).join("")}</div></section>`;
+  return `<section class="portfolio-command-deck" aria-label="${uiText("portfolio.control_deck")}"><header><div class="portfolio-group-title"><h2>${escapeHtml(groupName)}</h2><button type="button" data-group-rename aria-label="${uiText("portfolio.rename_group")}" title="${uiText("portfolio.rename_group")}"><i data-lucide="pencil"></i></button></div></header><div class="portfolio-command-grid">${commands.map(([key, icon, title], index) => `<button type="button" class="portfolio-command portfolio-command-${index + 1}" data-portfolio-tool="${key}" aria-label="${uiText("portfolio.open_tool", {tool:title})}"><span class="portfolio-command-icon"><i data-lucide="${icon}"></i></span><span class="portfolio-command-copy"><strong>${escapeHtml(title)}</strong></span></button>`).join("")}</div></section>`;
 }
 
 function openGroupRenameDialog() {
@@ -22708,7 +22729,6 @@ function ownedClubRenderStateSignature(index) {
     app.ownedClubPortfolioSummary,
     Number(app.ownedClubMetricsVersion || 0),
     Boolean(app.ownedClubMetricsLoading),
-    [...app.ownedClubExpandedIds].sort((left, right) => left - right),
     Boolean(app.ownedClubReorderMode),
     portfolioYouthArrangementLabel(),
     index.data ? "" : String(app.worldClubsError || ""),
@@ -22766,7 +22786,7 @@ function renderMyClubs() {
   summaryRoot.innerHTML = portfolioSummaryMetrics(activeClubs, summary);
   const reorderLabel = app.ownedClubReorderMode ? uiText("portfolio.finish_order") : uiText("portfolio.reorder");
   const clubList = clubs.length ? `<section class="owned-club-list">
-  <header class="owned-club-list-heading"><div><strong>${uiText("portfolio.owned_clubs")}</strong><span data-owned-club-order-status aria-live="polite">${app.ownedClubReorderMode ? uiText("portfolio.order_help") : uiText("portfolio.expand_help")}</span></div>${clubs.length > 1 ? `<button type="button" class="owned-club-reorder-toggle${app.ownedClubReorderMode ? " active" : ""}" data-owned-club-reorder-toggle aria-pressed="${app.ownedClubReorderMode}"><i data-lucide="${app.ownedClubReorderMode ? "check" : "list-restart"}"></i><span>${reorderLabel}</span></button>` : ""}</header>
+  <header class="owned-club-list-heading"><div><strong>${uiText("portfolio.owned_clubs")}</strong><span data-owned-club-order-status aria-live="polite">${app.ownedClubReorderMode ? uiText("portfolio.order_help") : uiText("portfolio.clubs_count", {count:clubs.length})}</span></div>${clubs.length > 1 ? `<button type="button" class="owned-club-reorder-toggle${app.ownedClubReorderMode ? " active" : ""}" data-owned-club-reorder-toggle aria-pressed="${app.ownedClubReorderMode}"><i data-lucide="${app.ownedClubReorderMode ? "check" : "list-restart"}"></i><span>${reorderLabel}</span></button>` : ""}</header>
     <div class="my-club-grid${app.ownedClubReorderMode ? " is-reordering" : ""}">${clubs.map((club, index) => worldClubCard(club, {portfolio:true, orderIndex:index, orderTotal:clubs.length, reordering:app.ownedClubReorderMode})).join("")}</div>
   </section>` : "";
   root.innerHTML = clubs.length ? `${portfolioControlDeck(activeClubs, summary)}${clubList}` : `<div class="my-club-empty"><i data-lucide="briefcase-business"></i><strong>${uiText("portfolio.no_acquired")}</strong><span>${uiText("portfolio.no_acquired_note")}</span></div>`;
@@ -28630,8 +28650,8 @@ function ensureProfitLossColorControl() {
   const row = document.createElement("div");
   row.className = "setting-toggle profit-loss-color-setting";
   row.innerHTML = `<label><input type="checkbox" id="reverse-profit-loss-colors"><span data-i18n="settings.colours.reverse">${uiText("settings.colours.reverse")}</span></label><small data-i18n="settings.colours.reverse_note">${uiText("settings.colours.reverse_note")}</small>`;
-  const compactMoney = $("#compact-money")?.closest(".setting-toggle");
-  if (compactMoney?.parentElement === settings) compactMoney.after(row);
+  const darkMode = $("#dark-mode")?.closest(".dark-mode-setting");
+  if (darkMode?.parentElement === settings) darkMode.after(row);
   else settings.append(row);
 }
 
@@ -28966,7 +28986,7 @@ const SETTINGS_TAB_GROUPS = [
   },
   {
     key:"display", labelKey:"settings.tabs.display",
-    selectors:[".ui-locale-setting", ".dark-mode-setting", ".compact-money-setting", ".profit-loss-color-setting", ".font-settings", "#show-hidden-attributes", ".player-name-localization-setting"],
+    selectors:[".ui-locale-setting", ".dark-mode-setting", ".profit-loss-color-setting", ".font-settings", "#show-hidden-attributes", ".player-name-localization-setting"],
   },
   {
     key:"cheats", labelKey:"settings.tabs.cheats",
@@ -30543,11 +30563,6 @@ function bindEvents() {
       event.target.disabled = false;
       setSettingsMutationBusy("disable-fa", false);
     }
-  });
-  $("#compact-money").addEventListener("change", (event) => {
-    app.compactMoney = event.target.checked;
-    localStorage.setItem("fm-odds-compact-money", String(app.compactMoney));
-    render();
   });
   $("#reverse-profit-loss-colors").addEventListener("change", (event) => {
     app.reverseProfitLossColors = event.target.checked;

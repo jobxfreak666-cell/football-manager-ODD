@@ -302,7 +302,7 @@ class FrontendRefreshRecoveryTests(unittest.TestCase):
             ".money-currency-setting", ".save-account-setting",
             ".full-refresh-setting",
             ".odds-reading-setting", "#championship-enabled",
-            ".compact-money-setting", ".profit-loss-color-setting", "#show-hidden-attributes",
+            ".profit-loss-color-setting", "#show-hidden-attributes",
             ".cheat-setting", ".storage-setting", ".support-setting",
         ):
             self.assertIn(f'"{selector}"', tabs)

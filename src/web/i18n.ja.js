@@ -2722,6 +2722,8 @@
     "portfolio.transfer.player": "この選手",
     "portfolio.unknown_income": "不明な収入",
     "portfolio.view": "表示",
+    "portfolio.card.view_details": "詳細を見る",
+    "portfolio.card.sell_club": "クラブを売却",
     "portfolio.youth_confirm_golden": "「{team}」のユース育成を改善しますか？この計画は取り消せません。最終的な入団人数が不足した場合は、不足分のみ返金されます。",
     "portfolio.youth_confirm_son": "「{team}」で子息育成計画を有効にしますか？",
     "portfolio.youth_enable": "有効化中",

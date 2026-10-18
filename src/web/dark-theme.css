@@ -314,7 +314,7 @@
   .club-legacy-player-identity>div>b,.club-legacy-detail-tabs,.club-legacy-source-note,
   .club-legacy-achievement-list.after li,.club-legacy-source-pill
 ) { background:#1c2b25; border-color:#344a40; color:#a9b9b1; }
-:root[data-theme="dark"] :is(.world-club-card,.owned-club-row-card,.portfolio-person-row,.club-legacy-metric,.club-legacy-transfer-card) { box-shadow:0 8px 24px #0005; }
+:root[data-theme="dark"] :is(.world-club-card,.portfolio-person-row,.club-legacy-metric,.club-legacy-transfer-card) { box-shadow:0 8px 24px #0005; }
 :root[data-theme="dark"] :is(.world-detail-info-section h3,.club-income-report h3,.owned-club-row-identity h2,.owned-club-row-card dd,.detail-section h3,.player-detail-panel h3,.portfolio-person-row strong,.club-legacy-metric strong,.club-legacy-panel h3,.club-legacy-transfer-card strong) { color:#dceae3; }
 :root[data-theme="dark"] :is(.world-detail-info-section dt,.owned-club-row-card dt,.owned-club-row-identity span,.owned-club-row-identity small,.portfolio-person-row small,.club-legacy-metric small,.club-legacy-transfer-card small) { color:#94a79d; }
 :root[data-theme="dark"] .world-detail-profile .world-detail-acquire { background:#dcebe4; color:#124c3a; }
@@ -329,7 +329,8 @@
   border-color:#30483d;
   background:radial-gradient(1100px 420px at 88% -90px,#193329 0%,#0f1a16 60%);
 }
-:root[data-theme="dark"] .portfolio-command-deck { background:linear-gradient(180deg,#17271f,#132019); border-color:#3c6652; box-shadow:0 12px 30px #0006; }
+:root[data-theme="dark"] .portfolio-command-deck { background:#15211c; border-color:#3c6652; box-shadow:none; }
+:root[data-theme="dark"] .portfolio-command-deck .portfolio-group-title button { color:#d7efe4; }
 :root[data-theme="dark"] .portfolio-tool-content { background:#101a16; }
 :root[data-theme="dark"] :is(.club-legacy-workspace>aside,.club-legacy-workspace>aside>header,.club-legacy-curation,.club-legacy-curation-panel,.owned-manager-search-results,.owned-vision-picker-search) { background:#111c18; border-color:#34473f; }
 :root[data-theme="dark"] :is(.club-legacy-achievement-list li,.club-legacy-metric>span,.club-legacy-panel>header>span,.club-legacy-transfer-card>span) { background:#342f20; color:#e4bd61; }
@@ -788,7 +789,7 @@
   .manual-stepper button,.world-player-editor-action-row button,
   .world-player-editor-inline-action,.relations-tabs button,
   .relations-summary>button,.activity-nationality-pager>button,
-  .owned-club-row-toggle,.intelligence-refresh-button
+  .intelligence-refresh-button
 ) { background:var(--night-surface-1); border-color:var(--night-line); color:var(--night-copy); }
 :root[data-theme="dark"] :is(
   .panel-heading-actions .refresh-button:hover,.fund-options button:hover,.results-button:hover,
@@ -796,7 +797,6 @@
   .bank-statement-state button:hover,.manual-stepper button:hover:not(:disabled),
   .world-player-editor-action-row button:hover,.world-player-editor-inline-action:hover,
   .relations-summary>button:hover,.activity-nationality-pager>button:hover,
-  .owned-club-row-toggle:hover,.owned-club-row-toggle:focus-visible,
   .intelligence-refresh-button:hover
 ) { background:var(--night-surface-3); border-color:#4b725f; color:#e6f2ec; }
 :root[data-theme="dark"] :is(.manual-stepper button:disabled,.owned-club-row-actions>button:only-child:disabled) {
@@ -842,11 +842,19 @@
 }
 
 /* Portfolio cards have light child gradients that otherwise override the dark card. */
+:root[data-theme="dark"] .owned-club-row-card { background:#15211c; box-shadow:none; }
 :root[data-theme="dark"] .owned-club-row-identity {
-  background:linear-gradient(180deg,#192820,#14211b); border-color:var(--night-line-soft);
+  background:#15211c; border-color:var(--night-line-soft);
 }
-:root[data-theme="dark"] .owned-club-row-form {
-  background:linear-gradient(180deg,#14211b,#192820);
+:root[data-theme="dark"] .owned-club-row-form { background:transparent; }
+:root[data-theme="dark"] .owned-club-row-actions .owned-club-row-view {
+  background:#2f7d5e; border-color:#2f7d5e; color:#fff;
+}
+:root[data-theme="dark"] .owned-club-row-sell {
+  background:transparent; border-color:#c4473e; color:#ff9a92;
+}
+:root[data-theme="dark"] .owned-club-row-sell:disabled {
+  background:transparent; border-color:#6a4541; color:#c9a29e; opacity:1;
 }
 :root[data-theme="dark"] .owned-club-order-controls {
   background:var(--night-surface-2); border-color:var(--night-line); color:var(--night-copy-muted);

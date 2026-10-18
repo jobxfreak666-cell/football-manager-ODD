@@ -2823,6 +2823,8 @@
     "portfolio.transfer.player": "該球員",
     "portfolio.unknown_income": "未知收入",
     "portfolio.view": "檢視",
+    "portfolio.card.view_details": "檢視詳情",
+    "portfolio.card.sell_club": "出售俱樂部",
     "portfolio.youth.active_elsewhere": "已在 {team} 歷練",
     "portfolio.youth.arranged": "已安排",
     "portfolio.youth.cancel": "取消計劃",

@@ -22,7 +22,6 @@ def test_settings_signature_covers_all_visible_control_values() -> None:
         "app.cheatMode",
         "app.disableFa",
         "app.godMode",
-        "app.compactMoney",
         "app.darkMode",
         "app.reverseProfitLossColors",
         "app.showHiddenAttributes",

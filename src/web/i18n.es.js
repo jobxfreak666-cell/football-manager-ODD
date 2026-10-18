@@ -3044,6 +3044,8 @@
   "portfolio.form.none": "Sin resultados",
   "portfolio.form.opponent": "Rival",
   "portfolio.view": "Ver",
+  "portfolio.card.view_details": "Ver detalles",
+  "portfolio.card.sell_club": "Vender club",
   "portfolio.sell": "Vender",
   "portfolio.expand": "Expandir",
   "portfolio.collapse": "Contraer",

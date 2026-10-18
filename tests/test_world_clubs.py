@@ -1506,7 +1506,7 @@ class WorldClubDirectoryTests(unittest.TestCase):
         self.assertIn("app.ownedClubPortfolioSummary", signature_block)
         self.assertIn("app.ownedClubMetricsVersion", signature_block)
         self.assertIn("index.version", signature_block)
-        self.assertIn("app.ownedClubExpandedIds", signature_block)
+        self.assertNotIn("ownedClubExpandedIds", signature_block)
         self.assertIn("app.ownedClubReorderMode", signature_block)
         self.assertIn("ownedClubRenderStateSignature(index)", render_block)
         self.assertIn("if (app.ownedClubRenderSignature === signature) return", render_block)
@@ -1530,7 +1530,7 @@ class WorldClubDirectoryTests(unittest.TestCase):
         self.assertIn("正在刷新旗下俱乐部", script)
         self.assertIn("正在读取经营指标", script)
         self.assertIn(".world-club-sync-status", styles)
-        self.assertIn('.owned-club-row-identity[role="button"]:focus-visible', styles)
+        self.assertIn(".owned-club-row-actions button:focus-visible", styles)
         reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
         self.assertIn(".world-club-sync-status > i", reduced_motion)
         self.assertIn(".my-clubs-sync-status > i", reduced_motion)
@@ -1549,9 +1549,9 @@ class WorldClubDirectoryTests(unittest.TestCase):
             "function portfolioToolShell", 1,
         )[0]
 
-        self.assertIn('data-owned-club-disclosure role="button" tabindex="0"', card)
-        self.assertIn('aria-controls="owned-club-metrics-${teamId}"', card)
-        self.assertIn('event.key !== "Enter" && event.key !== " "', interactions)
+        self.assertNotIn("data-owned-club-disclosure", card)
+        self.assertNotIn('event.key !== "Enter" && event.key !== " "', interactions)
+        self.assertIn('data-owned-club-order="up"', interactions)
         self.assertIn("input.focus()", group_rename)
         self.assertIn("input.select()", group_rename)
         self.assertNotIn("shortInput.focus()", group_rename)
@@ -2566,7 +2566,7 @@ class WorldClubDirectoryTests(unittest.TestCase):
         restore.assert_called_once()
         self.assertEqual(credited[0][0:2], (98_000_000, "world_club_sale"))
 
-    def test_owned_club_frontend_confirms_sale_below_view(self) -> None:
+    def test_owned_club_frontend_confirms_sale_beside_view(self) -> None:
         script = ((Path(__file__).resolve().parents[1] / "src") / "web" / "app.js").read_text(
             encoding="utf-8",
         )
@@ -2574,20 +2574,42 @@ class WorldClubDirectoryTests(unittest.TestCase):
             "async function loadOwnedClubMetrics", 1,
         )[0]
         self.assertIn('data-world-sell=', script)
-        self.assertIn('request(\n      "/api/world-clubs/sell"', script)
+        self.assertIn('"/api/world-clubs/sell"', script)
         self.assertIn("function ownedClubSalePrice", script)
         self.assertIn("(valuation - competitionPremium) * 0.98", script)
-        self.assertIn('<span>出售</span>', card)
+        self.assertIn(
+            '<span>查看详情</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>出售俱乐部</span>',
+            card,
+        )
+        self.assertNotIn('<span>出售</span>', card)
         self.assertNotIn('出售 ·', card)
         self.assertNotIn("saleReady", card)
         self.assertNotIn('data-world-sell="${Number(club.id)}" disabled', card)
         sale = script.split("async function sellOwnedClub", 1)[1].split(
-            "async function loadWorldNations", 1,
+            "async function repayOwnedClubDebt", 1,
         )[0]
         self.assertIn("const confirmed = await fmoddConfirm", sale)
         self.assertIn('"确认出售"', sale)
-        self.assertIn("if (!confirmed) return", sale)
-        self.assertLess(sale.index("fmoddConfirm"), sale.index('"/api/world-clubs/sell"'))
+        confirm_guard = "if (!confirmed || !scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return"
+        result_guard = "if (!result || !scopeStillCurrent()) return;"
+        self.assertEqual(sale.count(confirm_guard), 1)
+        self.assertEqual(sale.count(result_guard), 1)
+        self.assertNotIn(
+            "if (!result || !scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return",
+            sale,
+        )
+        self.assertIn("if (!preSaleListReads.length && worldClubsRequestStillCurrent() && ownershipStillCurrent())", sale)
+        self.assertIn("await Promise.allSettled(preSaleListReads)", sale)
+        self.assertIn("await loadState({fresh:true})", sale)
+        self.assertIn("await loadWorldClubs()", sale)
+        self.assertNotIn("refreshOwnedClubCards", sale)
+        self.assertNotIn("if (!confirmed) return", sale)
+        sell_post = sale.index('"/api/world-clubs/sell"')
+        self.assertLess(sale.index("fmoddConfirm"), sell_post)
+        self.assertLess(sale.index(confirm_guard), sell_post)
+        self.assertLess(sell_post, sale.index(result_guard))
+        self.assertLess(sale.index("preSaleListReads"), sale.index("await loadState({fresh:true})"))
+        self.assertLess(sale.index("await loadState({fresh:true})"), sale.index("await loadWorldClubs()"))
 
     def test_owned_club_detail_header_shows_revenue_instead_of_ownership(self) -> None:
         from frontend_source import read_frontend_source

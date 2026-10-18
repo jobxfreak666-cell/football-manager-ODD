@@ -3126,6 +3126,8 @@
     "portfolio.form.none": "kein Ergebnisse",
     "portfolio.form.opponent": "Gegner",
     "portfolio.view": "Anzeigen",
+    "portfolio.card.view_details": "Details anzeigen",
+    "portfolio.card.sell_club": "Verein verkaufen",
     "portfolio.sell": "Verkaufen",
     "portfolio.expand": "Erweitern",
     "portfolio.collapse": "Einklappen",
