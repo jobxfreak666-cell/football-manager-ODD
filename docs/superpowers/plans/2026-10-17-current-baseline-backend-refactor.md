@@ -1,5 +1,7 @@
 # 当前修改版后端重构实施计划
 
+> **历史基线（2026-10-17）：** 本计划记录当时工作树（包括既有未提交改动）上的实施与验证；下文测试数字和语言范围均为历史记录。自提交 `eaf59ad`（2026-10-20）起，当前 UI 仅支持 `en-GB` 和 `zh-CN`；见 [`AGENTS.md`](../../../AGENTS.md) 与 [`I18N_ARCHITECTURE.md`](../../I18N_ARCHITECTURE.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans task-by-task; delegated implementation may use superpowers:subagent-driven-development. Steps use checkbox (`- [ ]`) syntax for tracking. Honor the user's DeepSeek-first code-task preference and preserve existing work.
 
 **Goal:** 在当前修改版上，依次拆出心理辅导、医疗、食堂海参奖励的应用编排，保持用户已确认的业务行为。

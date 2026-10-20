@@ -308,6 +308,8 @@
     "portfolio.sell.estimate_pending":["recalculated at sale", "以出售时重新核定金额为准"],
     "portfolio.sell.title":["Confirm sale", "确认出售"], "portfolio.sell.busy":["Selling", "正在出售"],
     "portfolio.sell.done":["Club sold; received {amount}", "俱乐部已出售，到账 {amount}"],
+    "portfolio.sell.sync_failed":["Sale completed, but data sync failed. Retry refresh.", "出售已完成，但数据同步失败，请重试刷新。"],
+    "portfolio.sell.sync_done":["Sale data refreshed", "出售数据已刷新"],
     "portfolio.sell.failed":["Could not sell the club", "俱乐部出售失败"],
     "portfolio.sell.stale":["Data was refreshed. Please sell again", "数据已刷新，请重新出售"],
     "portfolio.debt.none":["This club has no debt to repay", "该俱乐部当前没有需要偿还的负债"],

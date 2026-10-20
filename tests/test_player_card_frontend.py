@@ -154,7 +154,8 @@ class PlayerCardFrontendTests(unittest.TestCase):
             "  grid-template-columns: repeat(3, minmax(0, 1fr));",
             self.styles,
         )
-        self.assertIn(".my-club-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);", self.styles)
+        self.assertIn(".world-club-grid,.my-club-grid{display:grid;", self.styles)
+        self.assertIn(".my-club-grid {\n  grid-template-columns: minmax(0, 1fr);", self.styles)
         self.assertIn('grid-template-areas:"name metrics form actions"', self.styles)
         self.assertIn('grid-template-areas:"name form actions" "metrics metrics metrics"', self.styles)
         self.assertIn('grid-template-areas:"name" "metrics" "form" "actions"', self.styles)
@@ -171,7 +172,10 @@ class PlayerCardFrontendTests(unittest.TestCase):
         self.assertIn("border: 1px solid #d8e5de;", self.styles)
         self.assertIn(".owned-club-row-metrics dt {", self.styles)
         self.assertIn("min-height: 36px;", self.styles)
-        self.assertIn(".owned-club-row-metrics dd { margin: 9px 0 0; }", self.styles)
+        self.assertIn(
+            ".owned-club-row-metrics dd { margin: 9px 0 0; overflow: visible; color:",
+            self.styles,
+        )
 
     def test_owned_club_cards_stay_expanded_in_metric_order(self):
         card = self.script.split("function worldClubCard", 1)[1].split(

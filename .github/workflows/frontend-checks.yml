@@ -1,0 +1,52 @@
+name: Frontend checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-regressions:
+    name: Frontend, money, and locale regressions
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install isolated test tools
+        run: python -m pip install --disable-pip-version-check pytest tomli
+
+      - name: Run frontend and bilingual regressions
+        run: >-
+          python -m pytest
+          tests/test_owned_club_sell_confirm_frontend.py
+          tests/test_money_abbreviations_frontend.py
+          tests/test_my_group_visual_fixes_frontend.py
+          tests/test_player_card_frontend.py
+          tests/test_i18n_frontend.py
+          tests/test_i18n_catalog_contract.py
+          tests/test_i18n_locale_packs.py
+          tests/test_i18n_settings.py
+          tests/test_i18n_dynamic_enums.py
+          tests/test_settings_frontend_optimization.py
+          tests/test_frontend_font_sizes.py
+          -q

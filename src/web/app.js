@@ -633,6 +633,8 @@ const app = {
   ownedClubMetricsPromise: null,
   ownedClubMetricsForceQueued: false,
   ownedClubRefreshLoading: false,
+  ownedClubSalesAwaitingSync: new Map(),
+  ownedClubSaleSyncLoading: null,
   ownedClubMetricsScope: null,
   ownedClubMetricsRequestKey: 0,
   ownedClubDetailCache: new Map(),
@@ -2818,6 +2820,8 @@ function resetAccountScopedWorldState() {
   app.ownedClubRenderSignature = null;
   app.ownedClubMetrics.clear();
   app.ownedClubMetricsVersion = 0;
+  app.ownedClubSalesAwaitingSync.clear();
+  app.ownedClubSaleSyncLoading = null;
   app.ownedClubPortfolioSummary = null;
   app.ownedClubMetricsScope = null;
   app.ownedClubMetricsLoading = false;
@@ -18085,15 +18089,18 @@ function orderedOwnedClubs(clubs) {
 
 function ownedClubDataIndex() {
   const data = app.worldClubs;
-  const acquired = data?.acquired || [];
+  const acquiredSource = data?.acquired || [];
+  const pendingSales = [...(app.ownedClubSalesAwaitingSync?.keys() || [])]
+    .filter(ownedClubSalePendingSync).join(",");
   const scope = String(app.state?.data_scope_id || output().save_instance_id || "");
   const orderRaw = localStorage.getItem(ownedClubOrderStorageKey()) || "[]";
   const sources = app.ownedClubIndexSources;
   if (
-    sources?.data === data && sources.acquired === acquired
+    sources?.data === data && sources.acquired === acquiredSource && sources.pendingSales === pendingSales
     && sources.scope === scope && sources.orderRaw === orderRaw
     && app.ownedClubIndex
   ) return app.ownedClubIndex;
+  const acquired = acquiredSource.filter((club) => !ownedClubSalePendingSync(club.id));
   let storedOrder = [];
   try {
     const parsed = JSON.parse(orderRaw);
@@ -18116,7 +18123,7 @@ function ownedClubDataIndex() {
   }).map((entry) => entry.club);
   const byId = new Map(acquired.map((club) => [Number(club.id), club]));
   app.ownedClubIndexVersion += 1;
-  app.ownedClubIndexSources = {data, acquired, scope, orderRaw};
+  app.ownedClubIndexSources = {data, acquired:acquiredSource, pendingSales, scope, orderRaw};
   app.ownedClubIndex = {
     data, acquired, ordered, byId, orderRaw, version:app.ownedClubIndexVersion,
     active:acquired.filter((club) => club.ownership_active !== false),
@@ -18564,11 +18571,63 @@ function ownedClubPortfolioDisplayName(club) {
     || uiText("world.unnamed_club");
 }
 
+function ownedClubSalePendingSync(teamId) {
+  return app.ownedClubSalesAwaitingSync?.get(Number(teamId))?.scope
+    === String(app.state?.data_scope_id || "");
+}
+
+async function syncCompletedOwnedClubSales() {
+  const scope = String(app.state?.data_scope_id || "");
+  const scopeStillCurrent = () => String(app.state?.data_scope_id || "") === scope;
+  const sales = new Map(app.ownedClubSalesAwaitingSync);
+  const pendingReads = new Set(app.worldClubsLoadPromise ? [app.worldClubsLoadPromise] : []);
+  for (const [key, promise] of app.pageDataRequests || []) {
+    if (String(key).startsWith("world-clubs:") && promise) pendingReads.add(promise);
+  }
+  // A list started before the sale can still publish an obsolete ownership row.
+  await Promise.allSettled([...pendingReads]);
+  await Promise.resolve();
+  if (!scopeStillCurrent()) return false;
+  const stateLoaded = await loadState({fresh:true});
+  if (!scopeStillCurrent()) return false;
+  if (stateLoaded === false) throw new Error(uiText("portfolio.sell.sync_failed"));
+  const previous = app.worldClubs;
+  const clubs = await loadWorldClubs({background:true});
+  if (!scopeStillCurrent()) return false;
+  // A failed or discarded list publication cannot confirm synchronization.
+  if (!clubs || clubs === previous || app.worldClubsError) {
+    throw new Error(uiText("portfolio.sell.sync_failed"));
+  }
+  for (const [teamId, sale] of sales) {
+    if (app.ownedClubSalesAwaitingSync.get(teamId) === sale) app.ownedClubSalesAwaitingSync.delete(teamId);
+  }
+  rebuildOwnedClubPortfolioSummaryFromCache();
+  renderMyClubs();
+  return true;
+}
+
+async function retryOwnedClubSaleSync() {
+  if (app.ownedClubSaleSyncLoading) return;
+  const token = {scope:String(app.state?.data_scope_id || "")};
+  app.ownedClubSaleSyncLoading = token;
+  renderMyClubs();
+  try {
+    if (await syncCompletedOwnedClubSales()) toast(uiText("portfolio.sell.sync_done"));
+  } catch (_error) {
+    if (String(app.state?.data_scope_id || "") === token.scope) toast(uiText("portfolio.sell.sync_failed"));
+  } finally {
+    if (app.ownedClubSaleSyncLoading === token) {
+      app.ownedClubSaleSyncLoading = null;
+      renderMyClubs();
+    }
+  }
+}
+
 async function sellOwnedClub(teamId, button) {
   const scopeAtStart = String(app.state?.data_scope_id || "");
   const worldClubsRequestKeyAtStart = Number(app.worldClubsRequestKey || 0);
   const operationKey = `sell:${scopeAtStart}:${Number(teamId)}`;
-  if (app.ownedClubOperationsInFlight.has(operationKey)) return;
+  if (app.ownedClubOperationsInFlight.has(operationKey) || ownedClubSalePendingSync(teamId)) return;
   const club = (app.worldClubs?.acquired || []).find(
     (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
   );
@@ -18614,6 +18673,13 @@ async function sellOwnedClub(teamId, button) {
     if (!result || !scopeStillCurrent()) return;
     restoreFocus = false;
     soldMessage = uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)});
+    app.ownedClubSalesAwaitingSync.set(Number(teamId), {scope:scopeAtStart});
+    // Metrics started before this completed sale must not restore its cache or totals.
+    app.ownedClubMetricsRequestKey = Number(app.ownedClubMetricsRequestKey || 0) + 1;
+    app.ownedClubMetricsLoading = false;
+    app.ownedClubMetrics.delete(Number(teamId));
+    app.ownedClubMetricsVersion += 1;
+    clearOwnedClubDetailCache(teamId);
     const preSaleListReads = [];
     if (app.worldClubsLoadPromise) preSaleListReads.push(app.worldClubsLoadPromise);
     if (app.pageDataRequests) {
@@ -18625,9 +18691,7 @@ async function sellOwnedClub(teamId, button) {
     }
     if (!preSaleListReads.length && worldClubsRequestStillCurrent() && ownershipStillCurrent()) {
       if (app.worldClubs) app.worldClubs.acquired = result.acquired || [];
-      app.ownedClubMetrics.delete(Number(teamId));
-      app.ownedClubMetricsVersion += 1;
-      clearOwnedClubDetailCache(teamId);
+      app.ownedClubSalesAwaitingSync.delete(Number(teamId));
       rebuildOwnedClubPortfolioSummaryFromCache();
       if (result.economy && app.state) {
         applyEconomySnapshot(result.economy);
@@ -18637,30 +18701,16 @@ async function sellOwnedClub(teamId, button) {
       toast(soldMessage);
       return;
     }
-    if (preSaleListReads.length) {
-      await Promise.allSettled(preSaleListReads);
-      await Promise.resolve();
-    }
-    if (!scopeStillCurrent()) return;
-    await loadState({fresh:true});
-    if (!scopeStillCurrent()) return;
-    await loadWorldClubs();
-    if (!scopeStillCurrent()) return;
-    const soldClubStillListed = (app.worldClubs?.acquired || []).some(
-      (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
-    );
-    if (!soldClubStillListed) {
-      app.ownedClubMetrics.delete(Number(teamId));
-      app.ownedClubMetricsVersion += 1;
-      clearOwnedClubDetailCache(teamId);
-    }
     rebuildOwnedClubPortfolioSummaryFromCache();
     renderMyClubs();
+    if (!await syncCompletedOwnedClubSales() || !scopeStillCurrent()) return;
     toast(soldMessage);
   } catch (error) {
     if (!scopeStillCurrent()) return;
     if (soldMessage) {
-      toast(soldMessage);
+      rebuildOwnedClubPortfolioSummaryFromCache();
+      renderMyClubs();
+      toast(uiText("portfolio.sell.sync_failed"));
       return;
     }
     if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
@@ -18668,6 +18718,7 @@ async function sellOwnedClub(teamId, button) {
   } finally {
     app.ownedClubOperationsInFlight.delete(operationKey);
     finish?.();
+    if (soldMessage && scopeStillCurrent()) renderMyClubs();
     if (restoreFocus && scopeStillCurrent()) {
       const focusTarget = button?.isConnected ? button : $(`[data-world-sell="${Number(teamId)}"]`);
       focusTarget?.focus();
@@ -22688,20 +22739,26 @@ function syncMyClubsPageStatus() {
   const status = $("#my-clubs-sync-status");
   const button = $("#my-clubs-refresh");
   const refreshing = Boolean(
-    app.worldClubsLoading || app.ownedClubMetricsLoading || app.ownedClubRefreshLoading
+    app.worldClubsLoading || app.ownedClubMetricsLoading || app.ownedClubRefreshLoading || app.ownedClubSaleSyncLoading
+    || [...app.ownedClubOperationsInFlight].some((key) => key.startsWith(`sell:${String(app.state?.data_scope_id || "")}:`))
   );
+  const saleSyncPending = [...(app.ownedClubSalesAwaitingSync?.keys() || [])].some(ownedClubSalePendingSync);
   page?.setAttribute("aria-busy", String(refreshing));
   root?.setAttribute("aria-busy", String(refreshing));
   if (button) {
     button.disabled = refreshing;
     button.classList.toggle("is-refreshing", refreshing);
     const label = button.querySelector("span");
-  if (label) label.textContent = app.ownedClubRefreshLoading ? uiText("portfolio.refreshing") : uiText("portfolio.refresh");
+    if (label) label.textContent = refreshing ? uiText("portfolio.refreshing")
+      : saleSyncPending ? uiText("portfolio.retry") : uiText("portfolio.refresh");
   }
   if (!status) return;
-  status.hidden = !refreshing;
+  status.hidden = !refreshing && !saleSyncPending;
+  status.classList.toggle("is-error", !refreshing && saleSyncPending);
+  const indicator = status.querySelector("i");
+  if (indicator) indicator.hidden = !refreshing;
   const label = status.querySelector("span");
-  if (label) label.textContent = app.ownedClubRefreshLoading
+  if (label) label.textContent = !refreshing && saleSyncPending ? uiText("portfolio.sell.sync_failed") : app.ownedClubRefreshLoading
     ? uiText("portfolio.refreshing_clubs")
     : app.ownedClubMetricsLoading ? uiText("portfolio.reading_metrics") : uiText("portfolio.syncing_group");
 }
@@ -29162,6 +29219,10 @@ function bindEvents() {
   $("#my-clubs-refresh")?.addEventListener("click", async () => {
     const button = $("#my-clubs-refresh");
     if (!button || button.disabled) return;
+    if ([...(app.ownedClubSalesAwaitingSync?.keys() || [])].some(ownedClubSalePendingSync)) {
+      await retryOwnedClubSaleSync();
+      return;
+    }
     app.ownedClubRefreshLoading = true;
     renderMyClubs();
     try {

@@ -705,6 +705,9 @@
   .fmodd-confirm-actions button:hover,.portfolio-command:hover,
   .portfolio-command:focus-visible,.counseling-wheel-card-actions button:hover
 ) { background:var(--night-surface-3); border-color:#4b725f; color:#e6f2ec; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #c4473e; background: #c4473e; color: #fff; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #a63d36; background: #a63d36; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #ff9a92; }
 :root[data-theme="dark"] .operation-log-summary .running { background:#3a3020; border-color:#6c572b; color:#e5c979; }
 :root[data-theme="dark"] .world-acquisition-progress-track { background:#20342b; }
 :root[data-theme="dark"] .world-acquisition-progress[data-state="complete"] .world-acquisition-progress-track i { background:#65c69a; }
@@ -850,6 +853,9 @@
 :root[data-theme="dark"] .owned-club-row-actions .owned-club-row-view {
   background:#2f7d5e; border-color:#2f7d5e; color:#fff;
 }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-win { background:#2f8a59; color:#fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-draw { background:#66726d; color:#fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-loss { background:#c4473e; color:#fff; }
 :root[data-theme="dark"] .owned-club-row-sell {
   background:transparent; border-color:#c4473e; color:#ff9a92;
 }
@@ -861,6 +867,7 @@
 }
 :root[data-theme="dark"] .owned-club-row-suspended { background:#24251d; border-color:#57513a; }
 :root[data-theme="dark"] .owned-club-row-suspended .owned-club-row-metrics div { background:#29291f; }
+:root[data-theme="dark"] .my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(n+7) { background: transparent; }
 
 /* Semantic chips keep their meaning without using near-white tints. */
 :root[data-theme="dark"] .world-form-win { background:#1c3b2d; color:#78d0a7; }
@@ -957,11 +964,3 @@
 }
 :root[data-theme="dark"] #page-bank .bank-statement-preview-metrics strong.positive { color:var(--profit-red); }
 :root[data-theme="dark"] #page-bank .bank-statement-preview-metrics strong.negative { color:var(--loss-green); }
-
-/* My group card fixes (2026-10-18 visual review) */
-:root[data-theme="dark"] .owned-club-row-form > div > .world-form-win { background: #2f8a59; color: #fff; }
-:root[data-theme="dark"] .owned-club-row-form > div > .world-form-draw { background: #66726d; color: #fff; }
-:root[data-theme="dark"] .owned-club-row-form > div > .world-form-loss { background: #c4473e; color: #fff; }
-:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #c4473e; background: #c4473e; color: #fff; }
-:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #a63d36; background: #a63d36; }
-:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #ff9a92; }

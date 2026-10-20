@@ -1511,6 +1511,9 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .integrity-waive-fourth:disabled { cursor:wait; opacity:.65; }
 .fmodd-confirm-actions button { min-width:76px; min-height:38px; padding:7px 15px; border:1px solid #d3ddd8; border-radius:7px; background:#fff; color:#56665e; font-weight:800; line-height:1.35; white-space:normal; }
 .fmodd-confirm-actions #fmodd-confirm-ok { border-color:#246c50; background:#1b694b; color:#fff; }
+.fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #a63d36; background: #a63d36; color: #fff; }
+.fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #8f312c; background: #8f312c; }
+.fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #a63d36; }
 .credit-default-details { flex:1 1 auto; min-width:0; margin-right:auto; }
 .credit-default-details[hidden] { display:none; }
 .credit-default-details summary { width:max-content; min-height:38px; display:flex; align-items:center; padding:0 13px; border:1px solid #d3ddd8; border-radius:7px; background:#f7faf8; color:#41574d; cursor:pointer; font-size:13px; font-weight:800; list-style:none; }
@@ -2065,6 +2068,9 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
     radial-gradient(1100px 420px at 88% -90px, #e5f1eb 0%, rgba(229,241,235,0) 60%),
     linear-gradient(180deg, #fbfdfc 0%, #f2f8f5 100%);
 }
+.my-clubs-summary { flex: 1 1 auto; align-items: stretch; }
+.my-clubs-summary > div { flex: 1 1 0; min-width: 0; display: grid; grid-template-rows: 1fr auto; }
+.my-clubs-summary dt { white-space: normal; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; }
 
 /* 集团控制台 */
 .portfolio-command-deck {
@@ -2124,7 +2130,7 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
   transform: none;
 }
 .portfolio-command-icon { width: 28px; height: 28px; border-radius: 6px; }
-.portfolio-command-copy strong { color: #1d4c3b; font-size: 13px; }
+.portfolio-command-copy strong { color: #1d4c3b; font-size: 13px; overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.25; overflow-wrap: break-word; }
 .portfolio-command-5 { border-color: #d3e3da; }
 .portfolio-command-5 .portfolio-command-icon { background: #eeebf7; color: #695b94; }
 .portfolio-command-5 > b { color: #695b94; }
@@ -2161,39 +2167,10 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .owned-club-reorder-toggle.active { border-color: #2f795d; background: #2f795d; color: #fff; }
 .owned-club-reorder-toggle svg { width: 16px; height: 16px; }
 .my-club-grid {
-  display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: stretch;
 }
-/* 长条卡片：公共部分（figma bro 方案 B 已批准，2026-10-20） */
-.my-club-grid>.owned-club-row-card{display:grid;grid-template-columns:minmax(140px,170px) minmax(0,1fr) auto 120px;grid-template-areas:"name metrics form actions";align-items:center;column-gap:12px;row-gap:12px}
-.my-club-grid>.owned-club-row-card>.owned-club-row-identity{grid-area:name}
-.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics{grid-area:metrics;gap:6px}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics dt{min-height:0;align-items:flex-start}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics dd{margin-top:3px;overflow-wrap:normal}
-.my-club-grid>.owned-club-row-card>.owned-club-row-form{grid-area:form}
-.my-club-grid>.owned-club-row-card>.owned-club-row-form>div{flex-wrap:nowrap}
-.my-club-grid>.owned-club-row-card>.owned-club-row-actions{grid-area:actions;grid-template-columns:1fr;margin-top:0}
-@media (max-width:1100px){
-  .my-club-grid>.owned-club-row-card{grid-template-columns:minmax(0,1fr) auto 300px;grid-template-areas:"name form actions" "metrics metrics metrics"}
-  .my-club-grid>.owned-club-row-card>.owned-club-row-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
-}
-@media (max-width:720px){
-  .my-club-grid>.owned-club-row-card{grid-template-columns:minmax(0,1fr);grid-template-areas:"name" "metrics" "form" "actions"}
-}
-/* 方案 B：前 6 项主指标一排小格子；后 6 项次要指标在下面排成一行紧凑文字（无格子） */
-.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
-.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex:1 1 calc((100% - 30px)/6);min-width:calc((100% - 30px)/6);max-width:calc((100% - 30px)/6);padding:7px 7px;grid-template-rows:auto auto}
-.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(n+7){display:flex;align-items:baseline;flex-wrap:wrap;gap:0 5px;flex:0 1 auto;padding:2px 10px 0 0;border:0;border-radius:0;background:transparent}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dt{display:inline}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dd{display:inline-flex;align-items:baseline;gap:0 5px;margin:0;font-size:13px;white-space:nowrap}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dd>strong{font-size:13px}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) .owned-acquisition-comparison>span:first-child{display:none}
-.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) .owned-acquisition-comparison{display:inline-flex;gap:0 4px;line-height:inherit}
-:root[data-theme="dark"] .my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(n+7){background:transparent}
-@media (max-width:720px){.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex-basis:calc((100% - 12px)/3);min-width:calc((100% - 12px)/3);max-width:calc((100% - 12px)/3)}}
-@media (max-width:540px){.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex-basis:calc((100% - 6px)/2);min-width:calc((100% - 6px)/2);max-width:calc((100% - 6px)/2)}}
 .owned-club-row-card {
   min-width: 0;
   min-height: 0;
@@ -2312,8 +2289,7 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
   line-height: 1.35;
   white-space: normal;
 }
-.owned-club-row-metrics dd { margin: 9px 0 0; }
-.owned-club-row-metrics dd { overflow: visible; color: #173f31; font-size: 15px; font-weight: 900; line-height: 1.35; white-space: normal; overflow-wrap: normal; }
+.owned-club-row-metrics dd { margin: 9px 0 0; overflow: visible; color: #173f31; font-size: 15px; font-weight: 900; line-height: 1.35; white-space: normal; overflow-wrap: normal; }
 .owned-club-row-metrics dd > strong { white-space: nowrap; }
 .owned-club-row-form {
   display: grid;
@@ -2324,6 +2300,10 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .owned-club-row-form > small { color: #5f766b; font-size: 13px; font-weight: 800; }
 .owned-club-row-form > div { display: flex; flex-wrap: wrap; gap: 5px; }
 .owned-club-row-form>div>span{display:grid;place-items:center;min-width:25px;height:25px;border-radius:4px;font-size:13px;font-weight:900}
+.owned-club-row-form > div > span:not(.owned-form-none) { color: #fff; }
+.owned-club-row-form > div > .world-form-win { background: #2e7d4f; }
+.owned-club-row-form > div > .world-form-draw { background: #98a49e; }
+.owned-club-row-form > div > .world-form-loss { background: #c4473e; }
 .owned-form-none {
   width: auto;
   height: auto;
@@ -2365,6 +2345,29 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .owned-club-row-suspended { border-color: #ddd9c9; background: #fbfaf6; }
 .owned-club-row-suspended .owned-club-row-identity h2 { color: #5f583e; }
 .owned-club-row-suspended .owned-club-row-metrics div { background: #f6f4ec; }
+/* The owned-club card uses strip layout B: six primary tiles, then compact secondary facts. */
+.my-club-grid>.owned-club-row-card{display:grid;grid-template-columns:minmax(140px,170px) minmax(0,1fr) auto 120px;grid-template-areas:"name metrics form actions";align-items:center;column-gap:12px;row-gap:12px}
+.my-club-grid>.owned-club-row-card>.owned-club-row-identity{grid-area:name}
+.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics{grid-area:metrics;display:flex;flex-wrap:wrap;align-items:stretch;gap:6px}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics dt{min-height:0;align-items:flex-start}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics dd{margin-top:3px;overflow-wrap:normal}
+.my-club-grid>.owned-club-row-card>.owned-club-row-form{grid-area:form}
+.my-club-grid>.owned-club-row-card>.owned-club-row-form>div{flex-wrap:nowrap}
+.my-club-grid>.owned-club-row-card>.owned-club-row-actions{grid-area:actions;grid-template-columns:1fr;margin-top:0}
+.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex:1 1 calc((100% - 30px)/6);min-width:calc((100% - 30px)/6);max-width:calc((100% - 30px)/6);padding:7px 7px;grid-template-rows:auto auto}
+.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(n+7){display:flex;align-items:baseline;flex-wrap:wrap;gap:0 5px;flex:0 1 auto;padding:2px 10px 0 0;border:0;border-radius:0;background:transparent}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dt{display:inline}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dd{display:inline-flex;align-items:baseline;gap:0 5px;margin:0;font-size:13px;white-space:nowrap}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) dd>strong{font-size:13px}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) .owned-acquisition-comparison>span:first-child{display:none}
+.my-club-grid>.owned-club-row-card .owned-club-row-metrics>div:nth-child(n+7) .owned-acquisition-comparison{display:inline-flex;gap:0 4px;line-height:inherit}
+@media (max-width:1100px){
+  .my-club-grid>.owned-club-row-card{grid-template-columns:minmax(0,1fr) auto 300px;grid-template-areas:"name form actions" "metrics metrics metrics"}
+  .my-club-grid>.owned-club-row-card>.owned-club-row-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:720px){.my-club-grid>.owned-club-row-card{grid-template-columns:minmax(0,1fr);grid-template-areas:"name" "metrics" "form" "actions"}}
+@media (max-width:720px){.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex-basis:calc((100% - 12px)/3);min-width:calc((100% - 12px)/3);max-width:calc((100% - 12px)/3)}}
+@media (max-width:540px){.my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(-n+6){flex-basis:calc((100% - 6px)/2);min-width:calc((100% - 6px)/2);max-width:calc((100% - 6px)/2)}}
 .my-club-empty {
   min-height: 300px;
   border: 1px dashed #bfd5ca;
@@ -2898,6 +2901,9 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .world-nation-sync-status[hidden],
 .club-sync-status[hidden],
 .my-clubs-sync-status[hidden] { display:none; }
+.my-clubs-page > header:has(.my-clubs-sync-status.is-error) { flex-wrap:wrap; }
+.my-clubs-sync-status.is-error { flex-basis:100%; order:2; white-space:normal; padding-block:6px; }
+.my-clubs-sync-status > i[hidden] { display:none; }
 .world-club-sync-status > i,
 .world-player-sync-status > i,
 .world-nation-sync-status > i,
@@ -5479,16 +5485,3 @@ body { background:#f1f4f2; }
 :root[data-theme="dark"] .departure-panel,:root[data-theme="dark"] .departure-offer-dialog{--departure-surface:#15251f;--departure-soft:#1b3027;--departure-ink:#e4eee8;--departure-muted:#a1b7ac;--departure-line:#375246;--departure-accent:#338460;--mint:#274c39}
 @media(max-width:700px){.departure-offer-dialog{max-width:calc(100vw - 32px);max-height:calc(100vh - 64px)}.departure-offer-sheet{padding:18px}.departure-offers{max-width:calc(100vw - 74px)}.departure-offer-sheet-head{gap:12px}.departure-offer-sheet-head h3{font-size:22px}.departure-valuation time{margin-left:0}}
 @media(prefers-reduced-motion:reduce){.departure-offer{transition:none}.departure-offer:hover,.departure-offer:focus-within{transform:none}}
-
-/* My group card fixes (2026-10-18 visual review) */
-.owned-club-row-form > div > span:not(.owned-form-none) { color: #fff; }
-.owned-club-row-form > div > .world-form-win { background: #2e7d4f; }
-.owned-club-row-form > div > .world-form-draw { background: #98a49e; }
-.owned-club-row-form > div > .world-form-loss { background: #c4473e; }
-.fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #a63d36; background: #a63d36; color: #fff; }
-.fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #8f312c; background: #8f312c; }
-.fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #a63d36; }
-.my-clubs-summary { flex: 1 1 auto; align-items: stretch; }
-.my-clubs-summary > div { flex: 1 1 0; min-width: 0; display: grid; grid-template-rows: 1fr auto; }
-.my-clubs-summary dt { white-space: normal; line-height: 1.25; overflow-wrap: break-word; hyphens: auto; }
-.portfolio-command-copy strong { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.25; overflow-wrap: break-word; }

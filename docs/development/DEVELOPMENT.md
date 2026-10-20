@@ -110,6 +110,17 @@ git diff --check
 
 修改 `src/tools/*.py` 时可检查实际变更模块。优先运行相关行为回归；涉及共享契约时覆盖受影响调用方，不自动运行全套。已通过的检查仅在新增改动、失败或明确未解决风险时重复/扩大。只使用已确认隔离的测试数据；真实 FM、账户数据或外部服务操作另需相应授权。
 
+### 4.5 前端与双语回归
+
+GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上使用 Windows、Node.js 24 和 Python 3.10。它只运行集团出售确认、货币缩写、球员卡片、前端视觉、本地化及字号回归，不构建或安装原生核心，也不启动产品或连接 FM。可在仓库根目录复现：
+
+```powershell
+python -m pip install pytest tomli
+python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py -q
+```
+
+此 lane 是隔离的源码回归，不证明实时 FM 行为。
+
 检查通过不等于已经实机验证 FM 内存功能。涉及新偏移、Hook、伤病、属性或比赛状态时，必须区分 FM24、FM26 以及 Steam、Epic、XGP，不允许在版本未通过校验时复用其他版本地址。
 
 ## 5. FM24 与 FM26 修改原则

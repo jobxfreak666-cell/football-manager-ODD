@@ -62,7 +62,10 @@ const stateLoads = [];
 const worldClubLoads = [];
 const loadOrder = [];
 let loadStateImpl = async () => {};
-let loadWorldClubsImpl = async () => {};
+let loadWorldClubsImpl = async () => {
+  app.worldClubs = {...app.worldClubs};
+  return app.worldClubs;
+};
 const loadState = async (options) => {
   stateLoads.push(options || {});
   loadOrder.push("state");
@@ -101,6 +104,7 @@ function makeApp() {
     ownedClubMetrics:new Map([[10, {sale_price:250}]]),
     ownedClubMetricsVersion:0,
     ownedClubOperationsInFlight:new Set(),
+    ownedClubSalesAwaitingSync:new Map(),
   };
   return app;
 }
@@ -276,7 +280,7 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       await sellOwnedClub(10, makeButton());
       assert.equal(posts.length, 1);
       assert.equal(app.worldClubs.acquired[0], original);
-      assert.equal(app.ownedClubMetrics.has(10), true);
+      assert.equal(app.ownedClubMetrics.has(10), false);
       assert.equal(toasts.length, 4);
       assert.equal(toasts[3], "portfolio.sell.done");
       assert.equal(applied.some((item) => Array.isArray(item) && item[0] === "economy"), false);
@@ -478,18 +482,146 @@ def test_sell_cancel_returns_focus_and_clears_danger_style():
     """)
 
 
-def test_sell_toasts_done_even_if_list_resync_fails_after_sale():
+@pytest.mark.parametrize("failure", ["state", "state-false", "list-null", "list-throw"])
+def test_completed_sale_blocks_resale_until_read_only_sync_succeeds(failure):
     run_js(HARNESS + sell_source() + r"""
     (async () => {
       makeApp();
+      const failure = FAILURE;
+      const original = app.worldClubs.acquired[0];
       confirmImpl = async () => true;
       requestImpl = async () => {
         app.worldClubsRequestKey += 1;
         return {acquired:[], sale_price:250, economy:{wallet:1}};
       };
-      loadWorldClubsImpl = async () => { throw new Error("list failed"); };
+      loadStateImpl = async () => {
+        if (failure === "state") throw new Error("state failed");
+        return failure !== "state-false";
+      };
+      loadWorldClubsImpl = async () => {
+        if (failure === "list-throw") throw new Error("list failed");
+        return null;
+      };
       await sellOwnedClub(10, makeButton());
-      assert.deepEqual(toasts, ["portfolio.sell.done"]);
+      assert.deepEqual(toasts, ["portfolio.sell.sync_failed"]);
+      assert.equal(ownedClubSalePendingSync(10), true);
+      assert.equal(app.ownedClubMetrics.has(10), false);
+      // Keep the raw snapshot intact; the portfolio excludes this confirmed sale.
+      assert.equal(app.worldClubs.acquired[0], original);
+      await sellOwnedClub(10, makeButton());
+      assert.equal(posts.length, 1);
+      assert.equal(confirms.length, 1);
+      loadStateImpl = async () => {};
+      loadWorldClubsImpl = async () => {
+        app.worldClubs = {acquired:[], group_name:"My Group"};
+        return app.worldClubs;
+      };
+      await retryOwnedClubSaleSync();
+      assert.equal(posts.length, 1);
+      assert.equal(ownedClubSalePendingSync(10), false);
       assert.equal(app.ownedClubOperationsInFlight.size, 0);
     })().catch(error => { console.error(error); process.exitCode = 1; });
+    """.replace("FAILURE", repr(failure)))
+
+
+def test_pending_sale_is_excluded_from_cached_portfolio_without_overwriting_ownership():
+    index_source = function_source("function ownedClubDataIndex()", "function saveOwnedClubOrder")
+    run_js(HARNESS + sell_source() + index_source + r"""
+    const localStorage = {getItem:() => "[]"};
+    const ownedClubOrderStorageKey = () => "order";
+    const output = () => ({});
+    makeApp();
+    app.ownedClubIndexVersion = 0;
+    const original = app.worldClubs.acquired[0];
+    const before = ownedClubDataIndex();
+    assert.equal(before.active.length, 1);
+    app.ownedClubSalesAwaitingSync.set(10, {scope:"scope-a"});
+    const pending = ownedClubDataIndex();
+    assert.equal(pending.ordered.length, 0);
+    assert.equal(pending.active.length, 0);
+    assert.equal(app.worldClubs.acquired[0], original);
+    assert.equal(ownedClubDataIndex(), pending);
+    // A different account must never inherit the sale marker.
+    app.state.data_scope_id = "scope-b";
+    assert.equal(ownedClubDataIndex().active.length, 1);
+    """)
+
+
+def test_sale_sync_keeps_marker_on_discarded_read_and_preserves_fresh_reacquisition():
+    run_js(HARNESS + sell_source() + r"""
+    (async () => {
+      makeApp();
+      app.ownedClubSalesAwaitingSync.set(10, {scope:"scope-a"});
+      const original = app.worldClubs;
+      loadWorldClubsImpl = async () => original;
+      await retryOwnedClubSaleSync();
+      assert.equal(ownedClubSalePendingSync(10), true);
+      assert.deepEqual(toasts, ["portfolio.sell.sync_failed"]);
+      const reacquired = {...clubRecord(), acquired_at:"later"};
+      loadWorldClubsImpl = async () => {
+        app.worldClubs = {acquired:[reacquired]};
+        return app.worldClubs;
+      };
+      await retryOwnedClubSaleSync();
+      assert.equal(ownedClubSalePendingSync(10), false);
+      assert.equal(app.worldClubs.acquired[0], reacquired);
+      assert.equal(posts.length, 0);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_sale_sync_double_retry_and_account_switch_do_not_touch_new_account():
+    run_js(HARNESS + sell_source() + r"""
+    (async () => {
+      makeApp();
+      app.ownedClubSalesAwaitingSync.set(10, {scope:"scope-a"});
+      let releaseState;
+      loadStateImpl = () => new Promise(resolve => { releaseState = resolve; });
+      const first = retryOwnedClubSaleSync();
+      const second = retryOwnedClubSaleSync();
+      for (let attempt = 0; attempt < 5 && !releaseState; attempt += 1) await Promise.resolve();
+      assert.equal(stateLoads.length, 1);
+      app.state.data_scope_id = "scope-b";
+      app.ownedClubSalesAwaitingSync.clear();
+      const newSale = {scope:"scope-b"};
+      app.ownedClubSalesAwaitingSync.set(10, newSale);
+      app.ownedClubSaleSyncLoading = null;
+      app.worldClubs = {acquired:[{id:77}]};
+      const renderCount = applied.length;
+      releaseState();
+      await first;
+      await second;
+      assert.equal(worldClubLoads.length, 0);
+      assert.equal(posts.length, 0);
+      assert.equal(app.worldClubs.acquired[0].id, 77);
+      assert.equal(app.ownedClubSalesAwaitingSync.get(10), newSale);
+      assert.equal(applied.length, renderCount);
+      assert.deepEqual(toasts, []);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_metrics_started_before_sale_cannot_restore_sold_cache_or_group_totals():
+    metrics_source = function_source("async function performOwnedClubMetricsLoad", "async function loadOwnedClubMetrics")
+    run_js(HARNESS + sell_source() + metrics_source + r"""
+    const activeOwnedClubs = () => app.worldClubs.acquired.filter(club => !ownedClubSalePendingSync(club.id));
+    (async () => {
+      makeApp();
+      app.ownedClubMetricsScope = "scope-a";
+      app.ownedClubMetricsRequestKey = 0;
+      let releaseMetrics;
+      requestImpl = async path => {
+        if (path.startsWith("/api/world-clubs/metrics")) return new Promise(resolve => {releaseMetrics=resolve;});
+        return {acquired:[], sale_price:250};
+      };
+      const reading = performOwnedClubMetricsLoad({force:true});
+      await sellOwnedClub(10, makeButton());
+      assert.equal(ownedClubSalePendingSync(10), false);
+      assert.equal(app.ownedClubPortfolioSummary.club_count, 0);
+      releaseMetrics({data_scope_id:"scope-a", metrics:{10:{balance:999}}, summary:{club_count:1,balance:999}});
+      await reading;
+      assert.equal(app.ownedClubMetrics.has(10), false);
+      assert.equal(app.ownedClubPortfolioSummary.club_count, 0);
+      assert.equal(app.ownedClubMetricsLoading, false);
+    })().catch(error => {console.error(error);process.exitCode=1;});
     """)
