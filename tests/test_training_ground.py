@@ -2426,260 +2426,167 @@ class TrainingGroundTests(unittest.TestCase):
                 expected = f"{numeral}倍速{action}"
                 self.assertIn(expected, item["description"])
 
-    def test_right_dock_has_capacity_people_and_inline_submission(self) -> None:
+
+    def test_training_workspace_keeps_three_modules_person_detail_and_guards(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         page = (root / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('class="training-capacity-badge"', script)
-        self.assertIn('class="training-available-title"', script)
-        self.assertIn('class="training-member-list"', script)
-        self.assertIn('class="training-available-attributes"', script)
-        self.assertIn('class="training-cancel-use"', script)
-        self.assertIn('data-lucide="x"', script)
-        self.assertIn('request("/api/training/cancel"', script)
-        self.assertIn('"三倍速"', script)
-        self.assertIn('"训练点已满，正在结算"', script)
-        self.assertNotIn("训练点已满，等待结算", script)
-        self.assertIn('data-training-repeat=', script)
-        self.assertIn('<span>再来一次</span>', script)
-        self.assertIn('app.trainingRepeatTarget=attributeKey;', script)
-        self.assertIn('function reloadTrainingSettlementPlayers()', script)
-        self.assertIn('request("/api/training/settle"', script)
-        self.assertIn('await ensureTrainingRosterLoaded(true, forceRoster);', script)
-        self.assertIn('payload.team_id = Number(selectedPlayer?.training_team_id || 0);', script)
-        self.assertIn('const needsFormulaSnapshots = !requiresStaff && product.attribute_kind !== "hidden";', script)
-        self.assertIn('? ensurePlayerDevelopmentRosterLoaded()', script)
-        self.assertIn('durationSelect.innerHTML = `<option value="${escapeHtml(active.duration_mode || "until_increase")}">${durationLabel}</option>`;', script)
-        self.assertIn('player.training_team_type === "national"', script)
-        self.assertIn('const settlingFocusIds = (data.focuses || [])', script)
-        self.assertIn('Date.now() - app.trainingSettlementReloadAt > 30000', script)
-        self.assertIn('settleTrainingProgress({forceRoster:true,notify:true})', script)
+        for module in ("player_training", "position_training", "staff_training"):
+            self.assertIn(f'key:"{module}"', script)
+        self.assertIn('id="training-module-tabs"', page)
+        self.assertIn('id="training-roster"', page)
+        self.assertIn('id="training-dock-content"', page)
+        self.assertIn('id="training-balance"', page)
         self.assertIn('id="training-settle-button"', page)
-        self.assertIn('.training-settle-button', styles)
-        self.assertIn('habit ? `<option value="week">一周</option>`', script)
-        self.assertIn('const TRAINING_FIXED_TARGETS = [14,16,18,20];', script)
-        self.assertIn('mode:`until_${target}`,target,label:uiText("training.until_value", {target})', script)
-        self.assertIn('label:direction < 0 ? "降低下一点" : "直到下一点"', script)
-        self.assertNotIn('不影响 CA', script)
-        self.assertIn('return `<option value="${mode}">${label}（${detail}）</option>`;', script)
-        self.assertIn('id="training-inline-direction"', script)
-        self.assertIn('<option value="1"', script)
-        self.assertIn('<option value="-1"', script)
-        self.assertIn('payload.direction = Number(form.querySelector("#training-inline-direction").value)', script)
-        for attribute_key in (
-            "精神:侵略性", "精神:意志力", "精神:才华", "身体:体质",
-            "门将:出击(倾向)", "门将:拳击球(倾向)",
+        self.assertNotIn("data-training-scene=", page)
+        self.assertNotIn("data-training-dock=", page)
+        for legacy in (
+            "training-edit-toggle", "training-rotate", "training-store-selected",
+            "training-selection", "training-floor-lock",
         ):
-            self.assertIn(f'  "{attribute_key}",', script)
-        self.assertIn('function trainingAttributeAffectsCa(attributeKey, product = {}, caCosts = {})', script)
-        self.assertIn('!TRAINING_ZERO_CA_ATTRIBUTE_KEYS.has(String(attributeKey || ""))', script)
-        self.assertIn('const caAffected = trainingAttributeAffectsCa(attributeKey, product, caCosts);', script)
-        self.assertIn('const detail = !caAffected', script)
-        self.assertIn('"training.estimated_days"', script)
-        self.assertIn('"training.estimated_over_pa"', script)
-        self.assertIn('"training.estimated_ca_only"', script)
-        self.assertIn('"training.confirm_continue_ca"', script)
-        self.assertIn('if (trainingAttributeAffectsCa(target, product, caCosts))', script)
-        self.assertIn('payload.confirm_ca_over_pa = true;', script)
-        self.assertNotIn('nextOption.disabled = caSpace < nextCaRequired;', script)
-        self.assertNotIn('<option value="two_weeks">', script)
-        self.assertNotIn('<option value="month"', script)
-        self.assertIn('习惯训练已开始，一周后生效', script)
-        self.assertIn('targetSelect.innerHTML = options || `<option value="">没有可训练属性</option>`;', script)
-        self.assertNotIn('} · 专项训练中</option>`;', script)
-        self.assertIn('.training-cancel-use { width:30px; height:30px;', styles)
-        self.assertIn('background:#c9362e; color:#fff;', styles)
-        self.assertIn('.training-repeat-use { min-height:32px;', styles)
-        self.assertIn('function trainingAttributeWords(product)', script)
-        self.assertIn('product.scene === "outdoor" ? "outdoor-equipment" : "indoor-equipment"', script)
-        self.assertIn('.training-facility.indoor-equipment img { inset:12.5%; width:75%; height:75%; }', styles)
-        self.assertIn('"outdoor-equipment"', script)
-        self.assertIn('.training-facility.outdoor-equipment img { inset:10%; width:80%; height:80%; }', styles)
-        self.assertIn('submitInlineTraining(form)', script)
-        self.assertIn('data-training-player-toggle', script)
-        self.assertIn('data-training-player-option=', script)
-        self.assertIn('class="training-player-picker-card"', script)
-        self.assertIn('data-training-player-picker-layer', script)
-        self.assertIn('id="training-player-search"', script)
-        self.assertIn('data-training-player-position=', script)
-        self.assertIn('app.trainingPlayerSearch=event.target.value || "";', script)
-        self.assertIn('const attributeFormFields = `${targetField}${directionField}${membersSection}${playerPicker}`;', script)
-        self.assertNotIn("roomAdvisor", script)
-        self.assertIn('class="training-target-attribute"', script)
-        self.assertIn('app.trainingTargetKey=event.target.value||null;', script)
-        self.assertIn('data-position-training-set-position', script)
-        self.assertIn('function positionTrainingSetSlotPosition(position)', script)
-        self.assertIn('先选位置，再拖到球场', script)
-        self.assertIn('key:"defence",label:', script)
-        self.assertIn('"training.position_group.defenders"', script)
-        self.assertIn('positions:["GK","SW","DL","DC","DR","WBL","WBR"]', script)
-        self.assertIn('key:"midfield",label:', script)
-        self.assertIn('"training.position_group.midfielders"', script)
-        self.assertIn('positions:["DM","ML","MC","MR"]', script)
-        self.assertIn('key:"attack",label:', script)
-        self.assertIn('"training.position_group.forwards"', script)
-        self.assertIn('positions:["AML","AMC","AMR","ST"]', script)
-        self.assertIn('class="position-training-position-groups"', script)
-        self.assertIn('data-position-training-tray-slot', script)
-        self.assertIn('application/x-fmodd-position-slot', script)
-        self.assertIn('data-position-training-edit-start', script)
-        self.assertIn('data-position-training-edit-finish', script)
-        self.assertIn('data-position-training-unplace', script)
-        self.assertIn('function positionTrainingUnplaceSlot(slotId)', script)
-        self.assertIn('开始编辑', script)
-        self.assertIn('完成编辑', script)
-        self.assertIn('customWorkflowVersion:2', script)
-        self.assertIn('customFormations:state.customFormations', script)
-        self.assertIn('data-position-training-custom-new', script)
-        self.assertIn('data-position-training-custom-select', script)
-        self.assertIn('data-position-training-custom-name', script)
-        self.assertIn('data-position-training-save-name', script)
-        self.assertIn('data-position-training-delete', script)
-        self.assertIn('function positionTrainingDeleteCustom()', script)
-        self.assertIn('自定义阵型已删除', script)
-        self.assertIn('.position-training-custom-name button.danger', styles)
-        self.assertIn('state.editing = true;', script)
-        self.assertIn('.position-training-custom-library', styles)
-        self.assertNotIn('平均熟练度 ${positionTrainingStars', script)
-        self.assertNotIn('已安排 <b>${assignedRatings.length}</b>/11', script)
-        self.assertIn('.position-training-workspace', styles)
-        self.assertIn('position-training-workspace ${state.preset==="custom"?"custom":"preset"}', script)
-        self.assertIn('.position-training-workspace.preset{grid-template-columns:minmax(0,1fr)}', styles)
-        self.assertIn('.position-training-workspace.custom .position-training-pitch{width:min(94%,820px);margin:0 auto}', styles)
-        self.assertIn('.position-training-slot>button.position-training-unplace{', styles)
-        self.assertIn('clip-path:none', styles)
-        self.assertIn('<button data-training-scene="position_training">位置训练</button>', page)
-        self.assertNotIn('<button data-training-scene="position_training"><i ', page)
-        self.assertIn('.position-rating-empty', styles)
-        self.assertIn('.position-training-position-palette', styles)
-        self.assertIn('.position-training-position-group{', styles)
-        self.assertIn('min-width:32px;min-height:26px', styles)
-        self.assertIn('Array.from({length:5}', script)
-        self.assertIn('(rating-index*4)/4*100', script)
-        self.assertIn('class="position-rating-star"', script)
-        self.assertIn('background:linear-gradient(90deg,#f2d56f var(--fill),#52635b var(--fill))', styles)
-        self.assertIn('.position-training-slot .position-slot-role{margin:0 -8px 4px', styles)
-        self.assertIn('overflow-wrap:anywhere', styles)
-        self.assertIn('class="position-player-peaks"', script)
-        self.assertIn('.position-player-peaks{', styles)
-        self.assertIn('const best = positionTrainingTopRatings(player)[0] || null;', script)
-        self.assertIn('ratings.push({position:selectedPosition,rating:current});', script)
-        self.assertIn('data-position-training-auto-add', script)
-        self.assertIn('function positionTrainingAutoAssign()', script)
-        self.assertIn('until_20:"练至满级"', script)
-        self.assertIn('durationMode:"until_20"', script)
-        self.assertIn('function positionTrainingDaysToMax', script)
-        self.assertIn('if (baseline >= 20) return 20;', script)
-        self.assertIn('focus.no_change && current >= 20', script)
+            self.assertNotIn(legacy, page, legacy)
+        for route in (
+            "/api/training/purchase", "/api/training/place",
+            "/api/training/store", "/api/training/sell",
+            "/api/training/floor/purchase",
+        ):
+            self.assertNotIn(route, script, route)
+        self.assertNotIn("requestTrainingFloorUnlock", script)
+        self.assertIn("function trainingFirstTeamPlayers()", script)
+        self.assertIn("function trainingCurrentStaff()", script)
+        self.assertIn("function trainingStaffEligible(staff)", script)
+        self.assertIn("function trainingRoster(module)", script)
+        self.assertIn("function renderTrainingRoster()", script)
+        self.assertIn("function renderTrainingPersonDetail()", script)
+        self.assertIn("function trainingTaskEstimate(", script)
+        self.assertIn("function trainingFeeLabel(", script)
+        self.assertIn("task_price_minor", script)
+        self.assertIn("function trainingRunPayload(", script)
+        self.assertIn("project_sku:String(project.sku)", script)
+        self.assertIn('module:String(project.module || "")', script)
+        self.assertIn('client_submission_id:String(submissionId || "")', script)
+        self.assertIn('request("/api/training/run"', script)
+        self.assertIn('request("/api/training/cancel"', script)
+        self.assertIn('request("/api/training/settle"', script)
+        self.assertIn("training.cancel_message", script)
+        self.assertIn("training.cancel_keep", script)
+        self.assertIn("uiLegacy(cancelLabel)", script)
+        self.assertIn("function submitTrainingPerson()", script)
+        self.assertIn("function cancelTrainingTask(focus)", script)
+        self.assertIn("semantic.confirm_ca_over_pa = true;", script)
+        self.assertIn("training.reason_active", script)
+        self.assertIn("training.staff_ineligible", script)
+        self.assertIn("training.roster_error", script)
+        self.assertIn("data-training-roster-retry", script)
+        self.assertIn("trainingScopeKey()", script)
         self.assertIn(
-            'trainingManagedPlayers().filter((player) => !activeTrainingFocus(player.id))',
+            "if (scopeAtStart !== app.trainingScopeKey || seqAtStart !== app.trainingRequestSeq) return;",
             script,
         )
-        self.assertNotIn('.filter((item) => item.rating < 20)', script)
-        self.assertIn('满级约 ${positionTrainingDaysToMax', script)
-        self.assertNotIn('until_14:"练至 14"', script)
-        self.assertNotIn('until_16:"练至 16"', script)
-        self.assertNotIn('until_18:"练至 18"', script)
-        self.assertNotIn('目标 ${target}/20', script)
-        self.assertNotIn(' · 训练中', script)
-        self.assertIn('.position-training-roster>footer button{width:max-content;max-width:100%;min-width:0', styles)
-        self.assertIn('.position-training-roster{grid-template-rows:auto auto auto minmax(120px,1fr) auto auto}', styles)
-        self.assertIn('id="show-hidden-attributes"', page)
-        self.assertIn('localStorage.setItem("fm-odds-show-hidden-attributes"', script)
-        self.assertIn('app.showHiddenAttributes?` · CA ${Number(player.ca||0)}/PA ${Number(player.pa||0)}`:""', script)
-        self.assertIn('const playerPositionFilter = String(app.trainingPlayerPositionFilter || "all");', script)
-        self.assertIn('const idleCount = sortedPlayers.filter((player) => !activeTrainingFocus(player.id)).length;', script)
-        self.assertIn('trainingPlayerPositionFilter: app.trainingPlayerPositionFilter,', script)
-        self.assertIn('class="training-active-detail"', script)
-        self.assertIn('class="training-location-tag"', script)
-        self.assertIn('id="training-inline-player"', script)
-        self.assertNotIn('<select id="training-inline-player"', script)
         self.assertIn('interactiveSurfaceBusy($("#training-dock-content"))', script)
-        self.assertIn('.training-player-option {', styles)
-        self.assertIn('.training-player-picker-layer {', styles)
-        self.assertIn('.training-player-picker-filters button.active', styles)
-        self.assertIn('payload.client_submission_id = app.trainingSubmissionRetry.id;', script)
-        self.assertIn('timeoutMs:60000', script)
-        self.assertIn('path === "/api/training/run"\n      ? 60000', script)
-        self.assertIn('"正在安排..."', script)
-        self.assertIn('.training-person.occupied svg { fill:currentColor;', styles)
-        self.assertIn('.training-person.open svg { fill:none;', styles)
+        self.assertIn("ensureTrainingRosterLoaded(true, forceRoster)", script)
+        self.assertIn("timeoutMs:60000", script)
+        self.assertIn(".training-settle-button", styles)
+        self.assertIn(".training-roster {", styles)
+        self.assertIn(".training-person-row {", styles)
+        self.assertIn(".training-detail-panel {", styles)
+        self.assertIn(".training-task-summary {", styles)
 
-    def test_training_equipment_capacity_player_details_and_dock_hash(self) -> None:
+    def test_position_training_workspace_keeps_presets_custom_formations_and_drag(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-        markup = (root / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('renderCategory("available", "可供使用", available)', script)
-        self.assertIn('renderCategory("unavailable", "不可使用", unavailable)', script)
-        self.assertIn('partial: trainingIsUnlimited(product) ? used > 0 : capacity > 1 && used > 0 && used < capacity', script)
-        self.assertIn('function trainingIsFull(product, used)', script)
-        self.assertIn('unlimited ? "不限人数"', script)
-        self.assertIn('!item.built_in && item.available !== false', script)
-        self.assertNotIn('training.built_in_note', script)
-        self.assertNotIn('training-built-in-note', script)
-        self.assertIn('trainingEstimatedDays(player, attributeKey, mode, multiplier, direction)', script)
-        self.assertIn('trainingMultiplier: item.training_multiplier', script)
-        self.assertIn('visiblePlaced.map((facility)', script)
-        self.assertIn(
-            'const partialDifference = Number(right[1].some((row) => row.partial))',
-            script,
-        )
-        self.assertIn('const totalBySku = new Map();', script)
-        self.assertNotIn('facility._partialUse', script)
-        self.assertIn('class="training-target-attribute"', script)
-        self.assertIn('.training-player-option small.training-target-attribute', styles)
-        self.assertNotIn('facilityAttrKeys.map((key)', script)
-        self.assertIn('overflow-wrap:anywhere', styles)
-        self.assertIn('grid-auto-rows:max-content; align-content:start;', styles)
-        self.assertIn('height:max-content;', styles)
-        self.assertNotIn(
-            '.training-player-option small.training-idle-attrs { font-size:11px',
-            styles,
-        )
-        self.assertIn(
-            'const attributeRange = currentAttribute > 0 && targetAttribute > 0',
-            script,
-        )
-        self.assertIn('progressPoints: focus.progress_points', script)
-        self.assertIn('attributes: player.attributes', script)
-        self.assertIn('function renderTraining({skipStage = false} = {})', script)
-        self.assertIn('if (app._lastStageHash !== stageHash)', script)
-        self.assertIn('if (app._lastDockHash !== dockHash)', script)
-        self.assertIn('if (app._lastSelHash !== selHash)', script)
-        self.assertIn('function trainingDataIndex()', script)
-        self.assertIn('if (app.trainingIndexSource === data && app.trainingIndex)', script)
-        self.assertIn('activeFocusesByFacility.get(facilityId) || []', script)
-        self.assertIn('facilityOrdinalById.set(facility.id,index)', script)
-        helper_block = script.split('function trainingDataIndex()', 1)[1].split(
-            'function trainingIsUnlimited', 1,
-        )[0]
-        self.assertNotIn('.filter((item) => item.status === "active"', helper_block)
-        self.assertIn('submissionRetry: app.trainingSubmissionRetry', script)
-        self.assertIn('staffLoading: app.trainingStaffLoading', script)
-        self.assertIn('growth_hook:response.training_ground.growth_hook ?? growthHook', script)
-        self.assertIn('await ensureTrainingRosterLoaded(true);', script)
-        self.assertIn('const abilityLine = app.showHiddenAttributes', script)
-        self.assertNotIn('const abilityLine = app.showHiddenAttributes && habit', script)
-        self.assertIn('const selectedTargetSummary = selectedPlayer && selectedTargetKey', script)
-        self.assertIn('targetKey: app.trainingTargetKey,', script)
-        self.assertIn('showHiddenAttributes: app.showHiddenAttributes,', script)
-        self.assertIn('gameDate: String(app.gameClock?.date', script)
-        self.assertIn('function syncTrainingStatus()', script)
+        self.assertIn('data-training-module="${module.key}"', script)
+        self.assertIn("data-training-position-filter", script)
+        self.assertIn("data-position-training-set-position", script)
+        self.assertIn("function positionTrainingSetSlotPosition(position)", script)
+        self.assertIn("key:\"defence\",label:", script)
+        self.assertIn('"training.position_group.defenders"', script)
+        self.assertIn('positions:["GK","SW","DL","DC","DR","WBL","WBR"]', script)
+        self.assertIn("key:\"midfield\",label:", script)
+        self.assertIn('"training.position_group.midfielders"', script)
+        self.assertIn('positions:["DM","ML","MC","MR"]', script)
+        self.assertIn("key:\"attack\",label:", script)
+        self.assertIn('"training.position_group.forwards"', script)
+        self.assertIn('positions:["AML","AMC","AMR","ST"]', script)
+        self.assertIn('class="position-training-position-groups"', script)
+        self.assertIn("data-position-training-tray-slot", script)
+        self.assertIn("application/x-fmodd-position-slot", script)
+        self.assertIn("application/x-fmodd-player", script)
+        self.assertIn("data-position-training-edit-start", script)
+        self.assertIn("data-position-training-edit-finish", script)
+        self.assertIn("data-position-training-unplace", script)
+        self.assertIn("function positionTrainingUnplaceSlot(slotId)", script)
+        self.assertIn("customWorkflowVersion:2", script)
+        self.assertIn("customFormations:state.customFormations", script)
+        self.assertIn("data-position-training-custom-new", script)
+        self.assertIn("data-position-training-custom-select", script)
+        self.assertIn("data-position-training-custom-name", script)
+        self.assertIn("data-position-training-save-name", script)
+        self.assertIn("data-position-training-delete", script)
+        self.assertIn("function positionTrainingDeleteCustom()", script)
+        self.assertIn("state.editing = true;", script)
+        self.assertIn("position-training-workspace ${state.preset===\"custom\"?\"custom\":\"preset\"}", script)
+        self.assertIn("data-position-training-auto-add", script)
+        self.assertIn("function positionTrainingAutoAssign()", script)
+        self.assertIn("until_20:\"练至满级\"", script)
+        self.assertIn("durationMode:\"until_20\"", script)
+        self.assertIn("function positionTrainingDaysToMax", script)
+        self.assertIn("if (baseline >= 20) return 20;", script)
+        self.assertIn("focus.no_change && current >= 20", script)
+        self.assertIn("trainingPositionPlayers().filter((player) => !activeTrainingFocus(player.id))", script)
+        self.assertIn("满级约 ${positionTrainingDaysToMax", script)
+        self.assertIn("function positionTrainingPayload(player, slot, durationMode)", script)
+        self.assertIn('project_sku:"position_training_area"', script)
+        self.assertIn("function positionTrainingRows(state, playersById)", script)
+        self.assertIn("activeTrainingFocus(player.id)", script)
+        self.assertIn("function positionTrainingSaveCustomName(name)", script)
+        self.assertIn("localStorage.setItem(app.positionTrainingStorageKey", script)
+        self.assertIn(".position-training-workspace", styles)
+        self.assertIn(".position-training-workspace.preset{grid-template-columns:minmax(0,1fr)}", styles)
+        self.assertIn(".position-training-workspace.custom .position-training-pitch{width:min(94%,820px);margin:0 auto}", styles)
+        self.assertIn(".position-training-position-palette", styles)
+        self.assertIn(".position-training-position-group{", styles)
+        self.assertIn(".position-training-roster{grid-template-rows:auto auto auto minmax(120px,1fr) auto auto}", styles)
+        self.assertIn(".position-training-roster>footer button{width:max-content;max-width:100%;min-width:0", styles)
+
+
+
+    def test_training_data_index_and_mutation_guards_are_current(self) -> None:
+        root = (Path(__file__).resolve().parents[1] / "src")
+        script = (root / "web" / "app.js").read_text(encoding="utf-8")
+        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("function trainingDataIndex()", script)
+        self.assertIn("activeFocusByPlayer", script)
+        self.assertIn("activeFocusByStaff", script)
+        self.assertNotIn("activeFocusesByFacility", script)
+        self.assertNotIn("floorsByScene", script)
+        self.assertNotIn("facilitiesById", script)
+        self.assertIn("if (focus.focus_type === \"coaching_license\")", script)
+        self.assertIn("trainingMutationRevision", script)
+        self.assertIn("trainingRevisionAtStart !== Number(app.trainingMutationRevision || 0)", script)
+        self.assertIn("nextState.training_ground = app.state.training_ground", script)
+        self.assertIn("function updateTrainingResponse(response)", script)
+        self.assertIn("growth_hook:response.training_ground.growth_hook ?? growthHook", script)
+        self.assertIn("player_manager:response.training_ground.player_manager ?? playerManager", script)
+        self.assertIn("function syncTrainingStatus()", script)
         self.assertIn('root.setAttribute("aria-busy", "true")', script)
-        self.assertIn('正在结算训练进度', script)
-        self.assertIn('id="training-sync-status"', markup)
-        self.assertIn('.training-toolbar button:focus-visible', styles)
-        reduced_motion = styles.split('@media (prefers-reduced-motion: reduce)', 1)[1]
-        self.assertIn('.training-sync-status > i { animation:none; }', reduced_motion)
+        self.assertIn("app.trainingRequestSeq", script)
+        self.assertIn("content.dataset.signature", script)
+        self.assertIn("roster.dataset.signature", script)
+        self.assertIn("interactiveSurfaceBusy($(\"#training-dock-content\"))", script)
+        self.assertIn(".training-toolbar button:focus-visible", styles)
+        reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+        self.assertIn(".training-sync-status > i { animation:none; }", reduced_motion)
+
 
     def test_training_mutation_keeps_state_supplements_for_every_facility(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         prefix = "function updateTrainingResponse(response) {"
         function_body = script.split(prefix, 1)[1].split(
-            "\n}\nfunction firstTrainingPosition", 1,
+            "\n}\nfunction trainingPlayerMatchesPositionGroup", 1,
         )[0]
         function_source = f"{prefix}{function_body}\n}}"
         harness = f"""
@@ -2711,82 +2618,25 @@ if (app.state.training_ground.growth_hook.installed !== true) throw new Error("f
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_training_use_panel_executes_for_builtin_and_single_user_facilities(self) -> None:
+
+    def test_training_workspace_uses_server_catalog_price_and_submission_id(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        prefix = "function trainingUsePanel(facility) {"
-        function_body = script.split(prefix, 1)[1].split(
-            "\n}\n\nfunction selectedGameIsFm26", 1,
-        )[0]
-        function_source = f"{prefix}{function_body}\n}}"
-        harness = f"""
-const app = {{
-  trainingPlayerId:0, trainingActionBusy:false,
-  trainingPlayerGroupState:{{}}, trainingPlayerPickerOpen:false,
-  trainingRosterLoading:false, showHiddenAttributes:false,
-}};
-const products = {{
-  set_piece_area:{{
-    name:"定位球训练区", built_in:true, unlimited:true,
-    capacity:null, training_multiplier:2,
-    attributes:["定位球:任意球"], icon:"flag-triangle-right",
-  }},
-  leadership_desk:{{
-    name:"领导力训练桌", built_in:false, capacity:1,
-    attributes:["精神:领导力"],
-  }},
-  habit_lab:{{
-    name:"习惯塑形机", built_in:false, capacity:1,
-    attributes:[],
-  }},
-}};
-function trainingProduct(sku) {{ return products[sku] || {{}}; }}
-let focuses = [];
-function trainingFacilityFocuses() {{ return focuses; }}
-function trainingIsUnlimited(product) {{ return product?.unlimited === true; }}
-function trainingManagedPlayers() {{ return []; }}
-function trainingFacilityVisual() {{ return "<span></span>"; }}
-    function trainingFacilityLabel(facility) {{ return trainingProduct(facility.sku).name; }}
-    function localizedPreferredMove(focus) {{ return focus.preferred_move_name || ""; }}
-    function localizedTrainingAttribute(value) {{ return value || ""; }}
-    function trainingCapacityIcons() {{ return ""; }}
-function trainingMemberRows() {{ return ""; }}
-function escapeHtml(value) {{ return String(value ?? ""); }}
-function uiText(key, parameters = {{}}) {{
-  if (key === "training.people_training") return `${{parameters.used}}/${{parameters.capacity}} 人使用中`;
-  if (key === "training.player_active_summary") return `球员${{parameters.name}}使用中，训练${{parameters.target}}，还需${{parameters.days}}天`;
-  if (key === "training.multiplier") return `以 ${{parameters.value}} 倍速训练`;
-  return key;
-}}
-function uiPlural(key, count) {{
-  if (key === "training.people_studying") return `${{count}} 人训练中`;
-  return String(count);
-}}
-{function_source}
-const builtin = trainingUsePanel({{id:"area",sku:"set_piece_area"}});
-const leadership = trainingUsePanel({{id:"desk",sku:"leadership_desk"}});
-if (!builtin.includes("当前无人训练 · 不限人数")) throw new Error("builtin usage label missing");
-if (builtin.includes("以 2 倍速训练")) throw new Error("builtin note should be hidden");
-if (!leadership.includes("0/1 人使用中")) throw new Error("single-user usage label missing");
-focuses = [{{
-  focus_type:"preferred_move", player_id:10, player_name:"梅西",
-  preferred_move_name:"尝试倒钩", days_used:2,
-}}];
-const activeHabit = trainingUsePanel({{id:"habit",sku:"habit_lab"}});
-if (!activeHabit.includes("球员梅西使用中，训练尝试倒钩，还需5天")) throw new Error("active player summary missing");
-"""
-        result = subprocess.run(
-            ["node", "-"], input=harness, text=True, encoding="utf-8",
-            capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("function trainingFeeLabel(feeMinor)", script)
+        self.assertIn("formatPounds(Number(feeMinor) / 100)", script)
+        self.assertIn("function trainingRunPayload(", script)
+        self.assertIn('client_submission_id:String(submissionId || "")', script)
+        self.assertIn("client_submission_id:trainingSubmissionFor(semantic)", script)
+        self.assertNotIn("function trainingUsePanel(facility)", script)
+        self.assertNotIn("function trainingCoachingDeskPanel(facility)", script)
+
 
     def test_goalkeeper_training_selector_accepts_any_player_with_gk_ability(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         prefix = "function trainingPlayerMatchesPositionGroup(player, positionGroup) {"
         function_body = script.split(prefix, 1)[1].split(
-            "\n}\n\nfunction trainingUsePanel", 1,
+            "\n}\n\nfunction selectedGameIsFm26", 1,
         )[0]
         function_source = f"{prefix}{function_body}\n}}"
         harness = f"""
@@ -2846,19 +2696,28 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
             '<span>训练场</span></button>', facilities,
         )
 
-    def test_training_equipment_tabs_use_requested_text_without_icons(self) -> None:
+
+    def test_three_module_tabs_replace_legacy_equipment_tabs(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         index = (root / "web" / "index.html").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        for marker in (
-            'data-training-dock="available"', 'data-training-dock="shop"',
-            'data-training-dock="storage"',
+        self.assertIn('id="training-module-tabs"', index)
+        self.assertNotIn("data-training-dock=", index)
+        self.assertNotIn("training.available_equipment", script)
+        self.assertNotIn("training.equipment_shop", script)
+        self.assertNotIn("training.equipment_storage", script)
+        for key in (
+            "training.module.player_training",
+            "training.module.position_training",
+            "training.module.staff_training",
         ):
-            self.assertIn(marker, index)
-            self.assertIn(marker, script)
-        for key in ("training.available_equipment", "training.equipment_shop", "training.equipment_storage"):
             self.assertIn(key, script)
-        self.assertNotIn('data-training-dock="shop"><i ', index)
+        self.assertIn('data-training-module="${module.key}"', script)
+        self.assertIn('$("#training-module-tabs").addEventListener("click"', script)
+        self.assertIn("setTrainingModule(button.dataset.trainingModule)", script)
+        self.assertIn("function setTrainingModule(module)", script)
+        self.assertNotIn("data-training-scene", index)
+
 
     def test_training_dock_keeps_localised_copy_readable(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
@@ -2878,42 +2737,22 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         self.assertIn('<strong>执教管理</strong>', index)
         self.assertIn('<h1 id="club-title">执教管理</h1>', index)
 
-    def test_training_ground_has_independent_second_floor_scene(self) -> None:
+
+    def test_legacy_floor_scenes_and_equipment_shop_are_retired(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('data-training-scene="indoor_2f">室内 2F</button>', index)
-        self.assertIn(".training-stage.indoor_2f", styles)
-        self.assertIn('item.scene === app.trainingScene', script)
+        for scene in ("indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f", "office_3f", "comprehensive_7f"):
+            self.assertNotIn(f'data-training-scene="{scene}"', index)
+        self.assertNotIn("data-training-scene=", index)
+        self.assertNotIn("trainingFloorLabel", script)
+        self.assertNotIn("trainingSceneAcceptsProduct", script)
+        self.assertNotIn("requestTrainingFloorUnlock", script)
+        self.assertIn('"position_training_area"', script)
+        self.assertIn('module:"position_training"', script)
+        self.assertIn("TRAINING_FLOOR_LABEL_KEYS", script)
 
-    def test_training_ground_has_placeable_comprehensive_seventh_floor(self) -> None:
-        root = (Path(__file__).resolve().parents[1] / "src")
-        index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-        script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn(
-            'data-training-scene="comprehensive_7f">实验室 7F</button>', index,
-        )
-        self.assertIn(".training-stage.comprehensive_7f", styles)
-        self.assertIn(
-            ".training-stage.comprehensive_7f { background-image:url('/assets/training/comprehensive_7f.webp'); }",
-            styles,
-        )
-        self.assertTrue(
-            (root / "web" / "assets" / "training" / "comprehensive_7f.webp").is_file(),
-        )
 
-        self.assertNotIn(".training-facility.training-room", styles)
-        self.assertNotIn("training-room-icon", script)
-        for sku in (
-            "mind_room", "mentoring_room", "tactical_room",
-            "video_analysis_room", "sports_science_room",
-        ):
-            self.assertTrue((root / "web" / "assets" / "training" / f"{sku}.webp").is_file())
-        self.assertNotIn("trainingRoomAdvisorCandidates", script)
-        self.assertNotIn("payload.advisor_kind", script)
-        self.assertNotIn('id="training-inline-advisor"', script)
     def test_training_floor_backgrounds_keep_office_separate_from_training_halls(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
@@ -2930,28 +2769,26 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
             (root / "web" / "assets" / "training" / "office_3f.webp").is_file(),
         )
 
-    def test_training_ground_has_third_floor_coaching_office(self) -> None:
+
+    def test_staff_training_keeps_coaching_course_and_manager_path(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
-        index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('data-training-scene="office_3f">办公室 3F</button>', index)
-        self.assertIn(".training-stage.office_3f", styles)
-        self.assertIn('facility.sku === "coaching_desk"', script)
-        self.assertIn('operation:"coaching_license"', script)
-        self.assertIn('subject_type:String(staff.training_subject_type || "staff")', script)
+        self.assertIn("function trainingCurrentStaff()", script)
+        self.assertIn('training_subject_type:"staff"', script)
         self.assertIn('training_subject_type:"player_manager"', script)
+        self.assertIn('subject_type:String(person.training_subject_type || "staff")', script)
+        self.assertIn('operation:"coaching_license"', script)
+        self.assertIn("target_license_code:Number(person.coaching_license?.next_code || 0)", script)
+        self.assertIn("coaching_license_course_days", script)
+        self.assertIn("function trainingStaffEligible(staff)", script)
+        self.assertIn("COACHING_STAFF_JOB_TYPES.has(Number(staff.job_type || 0))", script)
         self.assertIn("managedCoachingRostersAreCurrent()", script)
-        self.assertIn('profile.profile_stage === "complete"', script)
-        self.assertIn("ensureTrainingCoachingRosterLoaded()", script)
-        self.assertIn("player_manager:response.training_ground.player_manager ?? playerManager", script)
-        self.assertIn('"training.sync_roster"', script)
-        self.assertIn('教练 / 玩家经理', script)
-        self.assertIn('已最高等级', script)
-        self.assertIn('id="training-inline-staff"', script)
-        self.assertIn('开始考证', script)
-        self.assertTrue((root / "web" / "assets" / "training" / "office_3f.webp").is_file())
-        self.assertTrue((root / "web" / "assets" / "training" / "coaching_desk.webp").is_file())
+        self.assertIn("ensureTrainingCoachingRosterLoaded(true)", script)
+        self.assertIn('module === "staff_training"', script)
+        self.assertIn("training.staff_ineligible", script)
+        self.assertIn("training.licence_target", script)
+        self.assertNotIn("function trainingCoachingDeskPanel(facility)", script)
+
 
     def test_training_dock_content_cannot_resize_desktop_stage(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
@@ -3032,52 +2869,41 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         self.assertEqual(FM24_VERIFIED_PREFERRED_MOVES[42], "第一时间射门")
 
 
-def test_training_compact_view_keeps_equipment_images_and_excludes_position_training() -> None:
+
+def test_training_compact_view_and_equipment_images_are_retired() -> None:
     root = (Path(__file__).resolve().parents[1] / "src")
     markup = (root / "web" / "index.html").read_text(encoding="utf-8")
     script = (root / "web" / "app.js").read_text(encoding="utf-8")
     styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-
-    page = markup.split('id="page-training"', 1)[1].split('</section>', 1)[0]
-    header = page.split('</header>', 1)[0]
-    assert '<label class="facility-view-toggle"><input type="checkbox" data-facility-view-page="training"' in header
-    assert header.rindex('class="facility-view-toggle"') > header.index('id="training-settle-button"')
-    assert 'if (mode === "text") app.trainingEditing = false;' in script
-    assert 'app._lastSelHash = null;' in script
-    assert 'if (page === "training" && app.trainingScene === "position_training") return "visual";' in script
-    assert 'const visual = `<img src="${trainingSprite(facility.sku, product)}" alt="">`;' in script
-    assert 'trainingFacilityVisual(product, sku)' in script
-    assert 'product?.built_in\n    ? `<span class="training-area-icon">' in script
-    assert 'training-text-facility-icon' not in script
-    assert 'const selHash = JSON.stringify({\n      viewMode,' in script
-    for dock in ('available', 'shop', 'storage'):
-        assert f'data-training-dock="{dock}"' in script or f'data-training-dock="{dock}"' in markup
-    for action in ('data-training-use=', 'data-training-buy=', 'data-training-place=', 'data-training-sell='):
-        assert action in script
-    assert '.training-page.facility-text-view .training-stage-items' in styles
-    assert '.training-page.facility-text-view .training-facility.indoor-equipment img' in styles
-    assert '.training-page.facility-text-view .training-dock-item{grid-template-columns:76px minmax(0,1fr) auto' in styles
-    assert '.training-page.facility-text-view .training-dock-item img{width:72px;height:72px;max-width:100%' in styles
-    assert '.training-page.facility-text-view .training-stage-panel{min-width:0;overflow:hidden' in styles
-    assert '.training-page.facility-text-view .training-toolbar #training-scene-tabs{width:100%;min-width:0;overflow-x:auto}' in styles
-    assert '.training-page.facility-text-view .training-dock{position:relative;z-index:3;min-width:0;overflow:hidden}' in styles
-    assert '.training-page.facility-text-view .training-selection{min-width:0;overflow:hidden}' in styles
-    assert '.training-page.facility-text-view .training-selection>div:first-child strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' in styles
-    assert '.training-page.facility-text-view .position-training-pitch' not in styles
+    assert 'data-facility-view-page="training"' not in markup
+    assert "trainingFacilityVisual" not in script
+    assert "trainingSprite" not in script
+    assert "training-dock-item" not in script
+    assert 'class="training-roster"' in markup
+    assert 'class="training-stage roster"' in markup
+    assert ".training-roster {" in styles
+    assert ".training-person-row {" in styles
+    assert "position-training-active" in script
+    assert "function renderPositionTrainingStudio()" in script
 
 
-def test_training_stage_equipment_click_opens_matching_available_detail() -> None:
+
+
+def test_training_roster_click_opens_detail_and_position_slots_stay_interactive() -> None:
     root = (Path(__file__).resolve().parents[1] / "src")
     script = (root / "web" / "app.js").read_text(encoding="utf-8")
+    assert 'data-training-person="${kind}:${Number(person.id)}"' in script
+    assert "openTrainingPerson(kind, Number(personId))" in script
+    assert 'data-training-cancel-focus="${escapeHtml(activeFocus.id)}"' in script
+    assert 'data-position-training-slot="${escapeHtml(slot.id)}"' in script
+    assert "positionTrainingPlaceSlot(positionSlotId" in script
+    assert "application/x-fmodd-position-slot" in script
+    assert "data-training-facility" not in script
+    assert "openTrainingDetail" not in script
+    assert "function renderTrainingModuleTabs()" in script
+    assert "function renderTrainingRoster()" in script
+    assert "function renderTrainingPersonDetail()" in script
 
-    click_handler = script.split('stage.addEventListener("click",(event)=>{', 1)[1].split("\n  });", 1)[0]
-    assert 'event.target.closest("[data-training-facility]")' in click_handler
-    assert 'app.trainingSelectedId=node.dataset.trainingFacility;' in click_handler
-    assert 'openTrainingDetail(node.dataset.trainingFacility)' in click_handler
-    assert "if (app.trainingEditing)" not in click_handler
-    assert 'app.trainingIgnoreFacilityClickUntil = Date.now() + 180;' in script
-    assert 'app.trainingDock = "available";' in script
-    assert 'app.trainingDetailId = facility.id;' in script
 
 
 if __name__ == "__main__":

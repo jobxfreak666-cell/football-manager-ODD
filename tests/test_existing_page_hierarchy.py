@@ -38,15 +38,8 @@ class ExistingPageHierarchyTests(unittest.TestCase):
         self.assertIn("economy?.bank_balance", self.script)
         self.assertNotIn("economy?.general_balance", self.script)
 
-    def test_outdoor_scenes_share_the_first_map_and_result_actions_are_text_only(self):
-        self.assertIn('data-training-scene="outdoor">1号室外</button>', self.index)
-        self.assertIn('data-training-scene="outdoor_2">2号室外</button>', self.index)
-        self.assertIn(
-            ".training-stage.outdoor,.training-stage.outdoor_2 { "
-            "background-image:url('/assets/training/outdoor.webp'); }",
-            self.styles,
-        )
-        self.assertNotIn("outdoor_2.webp", self.styles)
+
+    def test_result_actions_are_text_only_and_outdoor_maps_are_retired(self):
         self.assertIn(
             '<button class="results-button" id="results-button"><span>赛果</span></button>',
             self.index,
@@ -55,11 +48,22 @@ class ExistingPageHierarchyTests(unittest.TestCase):
             '<button class="results-button" id="manual-refund-button"><span>手动退款</span></button>',
             self.index,
         )
+        self.assertNotIn("data-training-scene=", self.index)
+        self.assertNotIn("data-training-scene", self.script)
 
-    def test_existing_storage_labels_match_their_state(self):
-        self.assertIn("使用中", self.index)
-        self.assertIn("器材仓库", self.index)
-        self.assertIn('"training.no_equipment"', self.script)
+
+
+    def test_training_page_uses_module_workspace_without_legacy_equipment(self):
+        self.assertIn('id="page-training"', self.index)
+        self.assertIn('id="training-module-tabs"', self.index)
+        self.assertIn('id="training-roster"', self.index)
+        self.assertNotIn('id="training-dock-tabs"', self.index)
+        self.assertNotIn("data-training-scene=", self.index)
+        self.assertNotIn("器材仓库", self.index)
+        self.assertIn("function renderTrainingRoster()", self.script)
+        self.assertIn("function renderTrainingPersonDetail()", self.script)
+        self.assertIn("function setTrainingModule(module)", self.script)
+
 
     def test_lottery_page_keeps_content_without_navigation_entry(self):
         self.assertNotIn('data-page="lottery"', self.index)
