@@ -12,7 +12,10 @@ from tools.account_store import load_document, save_document
 from tools.app_paths import save_data_root
 from tools.app_settings import load_settings, local_purchase_price
 from tools.training_archive import archive_training_focus
-from tools.training_catalog import build_training_project_catalog
+from tools.training_catalog import (
+    build_training_project_catalog,
+    training_module_for_product,
+)
 
 
 _LOCK = threading.RLock()
@@ -28,6 +31,8 @@ def _archive_completed_focus(focus: dict[str, Any]) -> None:
 TRAINING_MULTIPLIER = 3
 NO_EQUIPMENT_TRAINING_MULTIPLIER = 2
 POSITION_TRAINING_MULTIPLIER = 4
+TASK_RULES_VERSION = 1
+TRAINING_TASK_MIGRATION_REASON = "training_task_model_migration"
 INDOOR_FACILITY_LIMIT = 15
 TRAINING_FLOOR_UNLOCK_PRICE = 5_000_000.0
 TRAINING_FLOORS: dict[str, dict[str, Any]] = {
@@ -512,8 +517,9 @@ def _now() -> str:
 
 def _new_state() -> dict[str, Any]:
     return {
-        "schema_version": 12, "facilities": [], "sessions": [],
-        "focuses": [], "history": [], "unlocked_floors": [],
+        "schema_version": 12, "task_rules_version": TASK_RULES_VERSION,
+        "facilities": [], "sessions": [], "focuses": [], "history": [],
+        "unlocked_floors": [],
     }
 
 
@@ -632,6 +638,11 @@ def estimated_training_days_to_20(
 
 
 def _focus_training_multiplier(focus: dict[str, Any]) -> int:
+    project_sku = str(focus.get("project_sku") or "")
+    if project_sku in FACILITIES:
+        return max(1, int(
+            FACILITIES[project_sku].get("training_multiplier") or TRAINING_MULTIPLIER,
+        ))
     facility_id = str(focus.get("facility_id") or "")
     sku = _BUILT_IN_FACILITY_SKUS.get(facility_id)
     if sku:
@@ -788,6 +799,62 @@ def load_training_ground() -> dict[str, Any]:
 
 def save_training_ground(payload: dict[str, Any]) -> None:
     save_document("training_ground", payload, legacy_path=training_ground_path())
+
+
+def _training_project_identity(
+    facility: dict[str, Any], project_sku: str | None, module: str | None,
+) -> dict[str, Any]:
+    """Project identity for a new task; the facility instance stays historical only."""
+    sku = str(project_sku or facility.get("sku") or "")
+    product = FACILITIES.get(sku)
+    if not product:
+        raise ValueError("训练项目不存在")
+    expected_module = training_module_for_product(sku, product)
+    resolved_module = str(module or expected_module)
+    if resolved_module != expected_module:
+        raise ValueError("训练模块无效")
+    return {
+        "project_sku": sku,
+        "module": resolved_module,
+        "task_rules_version": TASK_RULES_VERSION,
+    }
+
+
+def migrate_training_tasks(payload: dict[str, Any], *, game_date: str = "") -> bool:
+    """Cancel pre-version-1 active tasks once and stamp the document.
+
+    Mutates only ``payload``; the caller saves it (together with released 8F
+    rooms) in one atomic account write. A failed save leaves the stored version
+    unstamped, so retrying repeats this same one-time cancellation.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("训练文档无效")
+    if int(payload.get("task_rules_version") or 0) >= TASK_RULES_VERSION:
+        return False
+    migrated_at = _now()
+    cancelled_ids: list[str] = []
+    for focus in payload.get("focuses") or []:
+        if (
+            focus.get("status") != "active"
+            or int(focus.get("task_rules_version") or 0) >= TASK_RULES_VERSION
+        ):
+            continue
+        focus["status"] = "cancelled"
+        focus["cancelled_at"] = migrated_at
+        focus["cancelled_on"] = game_date or None
+        focus["cancel_reason"] = TRAINING_TASK_MIGRATION_REASON
+        cancelled_ids.append(str(focus.get("id") or ""))
+    if cancelled_ids:
+        payload.setdefault("history", []).append({
+            "at": migrated_at,
+            "type": TRAINING_TASK_MIGRATION_REASON,
+            "game_date": game_date or None,
+            "count": len(cancelled_ids),
+            "focus_ids": cancelled_ids,
+        })
+        payload["history"] = payload["history"][-500:]
+    payload["task_rules_version"] = TASK_RULES_VERSION
+    return True
 
 
 def _training_floor_unlocked(payload: dict[str, Any], scene: str) -> bool:
@@ -1425,6 +1492,7 @@ def record_training_focus(
     *, player_address: Any = None, player_team_id: int | None = None,
     player_team_name: str | None = None, player_team_type: str | None = None,
     attribute_kind: str = "visible", direction: int = 1,
+    project_sku: str | None = None, module: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     with _LOCK:
         payload = load_training_ground()
@@ -1438,6 +1506,9 @@ def record_training_focus(
             duration_mode, int(initial_attribute), resolved_direction,
         )
         _assert_facility_capacity(payload, facility, product)
+        project_identity = _training_project_identity(
+            facility, project_sku, module,
+        )
         if not 1 <= int(initial_attribute) <= 20:
             raise ValueError("所选属性当前值无效")
         if resolved_direction > 0 and int(initial_attribute) >= 20:
@@ -1467,6 +1538,7 @@ def record_training_focus(
         focus = {
             "id": str(uuid.uuid4()), "at": _now(), "status": "active",
             "focus_type": "attribute",
+            **project_identity,
             "facility_id": facility_id, "player_id": int(player_id),
             "player_name": player_name, "attribute_key": attribute_key,
             "player_address": player_address,
@@ -1493,6 +1565,7 @@ def record_training_focus(
             "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
             "facility_id": facility_id, "player_id": int(player_id),
             "player_name": player_name, "operation": "attribute_focus",
+            **project_identity,
             "player_address": player_address,
             "player_team_id": int(player_team_id) if player_team_id else None,
             "player_team_name": player_team_name,
@@ -1514,6 +1587,7 @@ def record_position_training_focus(
     client_submission_id: str | None = None, *, player_address: Any = None,
     player_team_id: int | None = None, player_team_name: str | None = None,
     player_team_type: str | None = None,
+    project_sku: str | None = None, module: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     position = str(position_key or "").upper()
     if position not in TRAINING_POSITION_NAMES:
@@ -1530,6 +1604,9 @@ def record_position_training_focus(
             missing_message="位置训练场当前不可用",
         )
         _assert_facility_capacity(payload, facility, product)
+        project_identity = _training_project_identity(
+            facility, project_sku, module,
+        )
         required_points = position_training_points_required(current)
         previous = next((
             row for row in reversed(payload["focuses"])
@@ -1552,6 +1629,7 @@ def record_position_training_focus(
         focus = {
             "id": str(uuid.uuid4()), "at": _now(), "status": "active",
             "focus_type": "position", "facility_id": facility_id,
+            **project_identity,
             "player_id": int(player_id), "player_name": str(player_name),
             "player_address": player_address,
             "player_team_id": int(player_team_id) if player_team_id else None,
@@ -1576,6 +1654,7 @@ def record_position_training_focus(
             "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
             "facility_id": facility_id, "player_id": int(player_id),
             "player_name": str(player_name), "operation": "position_focus",
+            **project_identity,
             "player_address": player_address,
             "player_team_id": int(player_team_id) if player_team_id else None,
             "player_team_name": player_team_name,
@@ -1595,6 +1674,7 @@ def record_habit_training_focus(
     client_submission_id: str | None = None,
     *, player_address: Any = None, player_team_id: int | None = None,
     player_team_name: str | None = None, player_team_type: str | None = None,
+    project_sku: str | None = None, module: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if operation not in {"learn", "unlearn"}:
         raise ValueError("请选择学习或戒除个人习惯")
@@ -1608,11 +1688,15 @@ def record_habit_training_focus(
             missing_message="请先把习惯塑形机放置到场地",
         )
         _assert_facility_capacity(payload, facility, product)
+        project_identity = _training_project_identity(
+            facility, project_sku, module,
+        )
         started = date.fromisoformat(game_date)
         expires_on = (started + timedelta(days=7)).isoformat()
         focus = {
             "id": str(uuid.uuid4()), "at": _now(), "status": "active",
             "focus_type": "preferred_move", "facility_id": facility_id,
+            **project_identity,
             "player_id": int(player_id), "player_name": player_name,
             "player_address": player_address,
             "player_team_id": int(player_team_id) if player_team_id else None,
@@ -1631,6 +1715,7 @@ def record_habit_training_focus(
             "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
             "facility_id": facility_id, "player_id": int(player_id),
             "player_name": player_name, "operation": operation,
+            **project_identity,
             "player_address": player_address,
             "player_team_id": int(player_team_id) if player_team_id else None,
             "player_team_name": player_team_name,
@@ -1689,6 +1774,7 @@ def record_coaching_license_focus(
     staff_address: Any, team_id: int, team_name: str, game_date: str,
     current_code: int, target_code: int,
     client_submission_id: str | None = None, subject_type: str = "staff",
+    project_sku: str | None = None, module: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     current_code = int(current_code)
     target_code = int(target_code)
@@ -1703,9 +1789,13 @@ def record_coaching_license_focus(
         facility, product = _coaching_course_available(
             payload, facility_id, int(staff_id), game_date,
         )
+        project_identity = _training_project_identity(
+            facility, project_sku, module,
+        )
         focus = {
             "id": str(uuid.uuid4()), "at": _now(), "status": "active",
             "focus_type": "coaching_license", "facility_id": facility_id,
+            **project_identity,
             "subject_type": (
                 "player_manager" if subject_type == "player_manager" else "staff"
             ),
@@ -1726,6 +1816,7 @@ def record_coaching_license_focus(
             "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
             "facility_id": facility_id, "focus_id": focus["id"],
             "operation": "coaching_license", "staff_id": int(staff_id),
+            **project_identity,
             "subject_type": (
                 "player_manager" if subject_type == "player_manager" else "staff"
             ),
