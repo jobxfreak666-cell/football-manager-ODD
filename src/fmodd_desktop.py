@@ -23,10 +23,7 @@ CREATE_NO_WINDOW = 0x08000000
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
 _SINGLE_INSTANCE_MUTEX = "Local\\FMODD-Desktop"
 DEFAULT_DESKTOP_LOCALE = "en-GB"
-SUPPORTED_DESKTOP_LOCALES = (
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP",
-    "pt-BR", "pt-PT",
-)
+SUPPORTED_DESKTOP_LOCALES = ("en-GB", "zh-CN")
 
 
 DESKTOP_MESSAGE_CATALOGS = {
@@ -43,69 +40,6 @@ DESKTOP_MESSAGE_CATALOGS = {
         "startup.host_missing": "桌面窗口组件缺失，请重新下载 FMODD。",
         "startup.service_start_failed": "无法启动本地服务：{error}",
         "startup.host_start_failed": "桌面窗口启动失败：{error}",
-    },
-    "zh-TW": {
-        "startup.already_running": "FMODD 已在執行，請勿重複啟動。",
-        "startup.integrity_failed": "程式檔案完整性驗證失敗，請重新下載 FMODD。\n\n{details}",
-        "startup.host_missing": "桌面視窗元件缺失，請重新下載 FMODD。",
-        "startup.service_start_failed": "無法啟動本機服務：{error}",
-        "startup.host_start_failed": "桌面視窗啟動失敗：{error}",
-    },
-    "ko-KR": {
-        "startup.already_running": "FMODD가 이미 실행 중입니다. 다시 시작하지 마세요.",
-        "startup.integrity_failed": "프로그램 파일 무결성 검증에 실패했습니다. FMODD를 다시 다운로드하세요.\n\n{details}",
-        "startup.host_missing": "데스크톱 창 구성 요소가 없습니다. FMODD를 다시 다운로드하세요.",
-        "startup.service_start_failed": "로컬 서비스를 시작할 수 없습니다: {error}",
-        "startup.host_start_failed": "데스크톱 창을 시작할 수 없습니다: {error}",
-    },
-    "de-DE": {
-        "startup.already_running": "FMODD wird bereits ausgeführt. Starten Sie es nicht erneut.",
-        "startup.integrity_failed": "Die Integritätsprüfung der Programmdateien ist fehlgeschlagen. Laden Sie FMODD erneut herunter.\n\n{details}",
-        "startup.host_missing": "Die Desktopfenster-Komponente fehlt. Laden Sie FMODD erneut herunter.",
-        "startup.service_start_failed": "Der lokale Dienst konnte nicht gestartet werden: {error}",
-        "startup.host_start_failed": "Das Desktopfenster konnte nicht gestartet werden: {error}",
-    },
-    "es-ES": {
-        "startup.already_running": "FMODD ya está en ejecución. No lo inicies de nuevo.",
-        "startup.integrity_failed": "La comprobación de integridad de los archivos del programa ha fallado. Vuelve a descargar FMODD.\n\n{details}",
-        "startup.host_missing": "Falta el componente de la ventana de escritorio. Vuelve a descargar FMODD.",
-        "startup.service_start_failed": "No se ha podido iniciar el servicio local: {error}",
-        "startup.host_start_failed": "No se ha podido iniciar la ventana de escritorio: {error}",
-    },
-    "fr-FR": {
-        "startup.already_running": "FMODD est déjà en cours d’exécution. Ne le lancez pas à nouveau.",
-        "startup.integrity_failed": "La vérification de l’intégrité des fichiers du programme a échoué. Téléchargez de nouveau FMODD.\n\n{details}",
-        "startup.host_missing": "Le composant de la fenêtre de bureau est manquant. Téléchargez de nouveau FMODD.",
-        "startup.service_start_failed": "Impossible de démarrer le service local : {error}",
-        "startup.host_start_failed": "Impossible d’ouvrir la fenêtre de l’application : {error}",
-    },
-    "ru-RU": {
-        "startup.already_running": "FMODD уже запущен. Не запускайте его повторно.",
-        "startup.integrity_failed": "Проверка целостности файлов программы завершилась ошибкой. Скачайте FMODD повторно.\n\n{details}",
-        "startup.host_missing": "Компонент окна рабочего стола отсутствует. Скачайте FMODD повторно.",
-        "startup.service_start_failed": "Не удалось запустить локальную службу: {error}",
-        "startup.host_start_failed": "Не удалось открыть окно приложения: {error}",
-    },
-    "ja-JP": {
-        "startup.already_running": "FMODDはすでに実行中です。重複して起動しないでください。",
-        "startup.integrity_failed": "プログラムファイルの整合性を確認できませんでした。FMODDを再ダウンロードしてください。\n\n{details}",
-        "startup.host_missing": "デスクトップウィンドウのコンポーネントがありません。FMODDを再ダウンロードしてください。",
-        "startup.service_start_failed": "ローカルサービスを起動できませんでした：{error}",
-        "startup.host_start_failed": "デスクトップウィンドウを起動できませんでした：{error}",
-    },
-    "pt-BR": {
-        "startup.already_running": "O FMODD já está em execução. Não o inicie novamente.",
-        "startup.integrity_failed": "A verificação de integridade dos arquivos do programa falhou. Baixe o FMODD novamente.\n\n{details}",
-        "startup.host_missing": "O componente da janela do aplicativo está ausente. Baixe o FMODD novamente.",
-        "startup.service_start_failed": "Não foi possível iniciar o serviço local: {error}",
-        "startup.host_start_failed": "Não foi possível abrir a janela do aplicativo: {error}",
-    },
-    "pt-PT": {
-        "startup.already_running": "O FMODD já está em execução. Não o inicie novamente.",
-        "startup.integrity_failed": "A verificação da integridade dos ficheiros do programa falhou. Transfira novamente o FMODD.\n\n{details}",
-        "startup.host_missing": "O componente da janela da aplicação está em falta. Transfira novamente o FMODD.",
-        "startup.service_start_failed": "Não foi possível iniciar o serviço local: {error}",
-        "startup.host_start_failed": "Não foi possível abrir a janela da aplicação: {error}",
     },
 }
 

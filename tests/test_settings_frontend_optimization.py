@@ -146,19 +146,20 @@ def test_cjk_interface_font_controls_separate_locale_and_latin_glyphs() -> None:
     config = script.split("const LOCALE_FONT_CONFIGS", 1)[1].split(
         "const FONT_SIZE_ADJUST", 1
     )[0]
+    locale_set = script.split("const CJK_FONT_LOCALES", 1)[1].split(
+        "const LOCALE_FONT_CONFIGS", 1
+    )[0]
     controls = script.split("function syncLocaleFontControls", 1)[1].split(
         "function ensureFontControls", 1
     )[0]
 
-    for locale in ("en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"):
-        assert f'"{locale}": {{selectId:' in config
+    assert config.count('"en-GB": {selectId:') == 1
+    assert config.count('"zh-CN": {selectId:') == 1
     english = config.split('"en-GB":', 1)[1].split("},", 1)[0]
     assert 'selectId:"english-font"' in english
     assert "yahei-ui" not in english
     assert '"zh-CN": {selectId:"chinese-font"' in config
-    assert '"zh-TW": {selectId:"chinese-font"' in config
-    assert '"ko-KR": {selectId:"chinese-font"' in config
-    assert '"ja-JP": {selectId:"chinese-font"' in config
+    assert 'new Set(["zh-CN"])' in locale_set
     assert 'CJK_FONT_LOCALES.has(locale) && selectId === "english-font"' in controls
     assert 'const fontLocale = isLatinControl ? "en-GB" : locale;' in controls
     assert 'isLatinControl ? "settings.font.latin_and_numbers"' in controls
@@ -174,25 +175,36 @@ def test_cjk_interface_font_controls_separate_locale_and_latin_glyphs() -> None:
     assert "root.dataset.interfaceLatinFont = latinKey;" in apply_font
 
 
-def test_korean_and_japanese_font_controls_hide_missing_faces_and_keep_distinct_choices() -> None:
+def test_retained_font_profiles_use_only_available_english_and_chinese_fonts() -> None:
     script, styles = sources()
-    availability = script.split("const LOCALE_FONT_AVAILABILITY_SAMPLES", 1)[1].split(
-        "function localeFontStorageKey", 1,
+    options = script.split("const FONT_OPTIONS", 1)[1].split(
+        "const LATIN_FONT_KEYS", 1,
+    )[0]
+    latin_keys = script.split("const LATIN_FONT_KEYS", 1)[1].split(
+        "const CJK_FONT_LOCALES", 1,
+    )[0]
+    configs = script.split("const LOCALE_FONT_CONFIGS", 1)[1].split(
+        "// Latin fonts do not occupy", 1,
     )[0]
     controls = script.split("function syncLocaleFontControls", 1)[1].split(
         "function ensureFontControls", 1,
     )[0]
 
-    assert '"arial-unicode-ms": {source:\'"Arial Unicode MS"\'' in script
-    assert '"noto-serif-jp": {source:\'"Noto Serif JP"\'' in script
-    assert '"ko-KR": "한글 글꼴 선택"' in availability
-    assert '"ja-JP": "日本語フォント選択"' in availability
-    assert 'fontRasterSignature(`${source},${fallback}`, sample)' in availability
-    assert "fallback !== candidate" in availability
+    english = ["segoe-ui", "arial", "tahoma", "verdana", "trebuchet-ms", "times-new-roman"]
+    chinese = ["yahei-ui", "simhei", "simsun", "kaiti", "fangsong", "dengxian", "source-han-sans-sc"]
+    expected_latin_keys = 'Object.freeze([' + ', '.join(f'"{key}"' for key in english) + '])'
+    assert expected_latin_keys in latin_keys
+    assert "keys:LATIN_FONT_KEYS" in configs
+    expected_chinese_keys = 'keys:[' + ', '.join(f'"{key}"' for key in chinese) + ']'
+    assert expected_chinese_keys in configs
+    for key in english + chinese:
+        assert f'"{key}":' in options or f'  {key}:' in options
+    for removed_face in ("arial-unicode-ms", "noto-serif-jp", "malgun-gothic", "yu-gothic-ui"):
+        assert removed_face not in script
+    assert "return localeFontConfig(locale).keys;" in script
     assert "availableLocaleFontKeys(fontLocale)" in controls
     assert "availableKeys.map((fontKey)" in controls
     assert "button, input, select, textarea { font:inherit; }" in styles
-
 
 def test_interface_font_preferences_are_persisted_per_locale() -> None:
     script, _ = sources()

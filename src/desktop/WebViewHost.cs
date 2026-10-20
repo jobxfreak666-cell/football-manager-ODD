@@ -56,96 +56,6 @@ namespace FMODDDesktop
             { "dialog.portrait_graphics_root", "选择 Football Manager graphics 根目录（自动递归查找 XML）" },
             { "dialog.data_root", "选择 FMODD 数据保存目录（重启后生效）" },
         };
-
-        private static readonly Dictionary<string, string> TraditionalChineseUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "初始設定中..." },
-            { "startup.webview_failed", "內嵌瀏覽器啟動失敗，FMODD 已安全停止介面初始化。\n\n請確認 Microsoft Edge WebView2 Runtime 已安裝，並取消 Steam、Football Manager 與 FMODD 的以系統管理員身分執行設定後再試。\n詳細記錄：%LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "選擇球員頭像 UID 對應 XML" },
-            { "dialog.portrait_xml_filter", "XML 檔案 (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "選擇 Football Manager graphics 根目錄（自動遞迴尋找 XML）" },
-            { "dialog.data_root", "選擇 FMODD 資料儲存資料夾（重新啟動後生效）" },
-        };
-
-        private static readonly Dictionary<string, string> KoreanUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "초기화하는 중..." },
-            { "startup.webview_failed", "내장 브라우저를 시작할 수 없어 FMODD가 인터페이스 초기화를 안전하게 중지했습니다.\n\nMicrosoft Edge WebView2 Runtime이 설치되어 있는지 확인한 다음 Steam, Football Manager 및 FMODD의 관리자 실행 설정을 해제하고 다시 시도하세요.\n진단 로그: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "선수 초상화 UID 매핑 XML 선택" },
-            { "dialog.portrait_xml_filter", "XML 파일 (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Football Manager graphics 루트 폴더 선택(XML 파일을 재귀적으로 찾음)" },
-            { "dialog.data_root", "FMODD 데이터 저장 폴더 선택(재시작 후 적용)" },
-        };
-
-        private static readonly Dictionary<string, string> GermanUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "Wird initialisiert..." },
-            { "startup.webview_failed", "Der eingebettete Browser konnte nicht gestartet werden. FMODD hat die Initialisierung der Oberfläche deshalb sicher beendet.\n\nStellen Sie sicher, dass Microsoft Edge WebView2 Runtime installiert ist. Deaktivieren Sie anschließend die Ausführung als Administrator für Steam, Football Manager und FMODD und versuchen Sie es erneut.\nDiagnoseprotokoll: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "XML-Datei für die Spielerporträt-UID-Zuordnung auswählen" },
-            { "dialog.portrait_xml_filter", "XML-Dateien (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Football-Manager-Grafikstammordner auswählen (XML-Dateien werden rekursiv gesucht)" },
-            { "dialog.data_root", "FMODD-Datenspeicherordner auswählen (wird nach dem Neustart angewendet)" },
-        };
-
-        private static readonly Dictionary<string, string> SpanishUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "Inicializando..." },
-            { "startup.webview_failed", "No se ha podido iniciar el navegador integrado, por lo que FMODD ha detenido de forma segura la inicialización de la interfaz.\n\nComprueba que Microsoft Edge WebView2 Runtime esté instalado. Después, desactiva la ejecución como administrador de Steam, Football Manager y FMODD antes de volver a intentarlo.\nRegistro de diagnóstico: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "Seleccionar XML de asignación de UID de retratos de jugadores" },
-            { "dialog.portrait_xml_filter", "Archivos XML (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Seleccionar la carpeta raíz de gráficos de Football Manager (los archivos XML se buscan de forma recursiva)" },
-            { "dialog.data_root", "Seleccionar la carpeta de almacenamiento de datos de FMODD (se aplicará tras reiniciar)" },
-        };
-
-        private static readonly Dictionary<string, string> FrenchUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "Initialisation..." },
-            { "startup.webview_failed", "Le navigateur intégré n’a pas pu démarrer. FMODD a donc interrompu l’initialisation de l’interface en toute sécurité.\n\nVérifiez que Microsoft Edge WebView2 Runtime est installé, puis désactivez l’exécution en tant qu’administrateur pour Steam, Football Manager et FMODD avant de réessayer.\nJournal de diagnostic : %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "Sélectionner le fichier XML de correspondance des UID de portraits de joueurs" },
-            { "dialog.portrait_xml_filter", "Fichiers XML (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Sélectionner le dossier racine des graphismes de Football Manager (les fichiers XML sont recherchés récursivement)" },
-            { "dialog.data_root", "Sélectionner le dossier de stockage des données FMODD (appliqué après le redémarrage)" },
-        };
-
-        private static readonly Dictionary<string, string> RussianUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "Инициализация..." },
-            { "startup.webview_failed", "Не удалось запустить встроенный браузер, поэтому FMODD безопасно остановил инициализацию интерфейса.\n\nУбедитесь, что среда выполнения Microsoft Edge WebView2 установлена. Затем отключите запуск от имени администратора для Steam, Football Manager и FMODD и повторите попытку.\nЖурнал диагностики: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "Выберите XML-файл сопоставления UID портретов игроков" },
-            { "dialog.portrait_xml_filter", "Файлы XML (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Выберите корневую папку графики Football Manager (поиск XML-файлов выполняется рекурсивно)" },
-            { "dialog.data_root", "Выберите папку хранения данных FMODD (применяется после перезапуска)" },
-        };
-
-        private static readonly Dictionary<string, string> JapaneseUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "初期化しています..." },
-            { "startup.webview_failed", "内蔵ブラウザーを起動できなかったため、FMODDはインターフェイスの初期化を安全に停止しました。\n\nMicrosoft Edge WebView2 Runtimeがインストールされていることを確認してください。その後、Steam、Football Manager、FMODDの管理者として実行する設定を解除して、もう一度お試しください。\n診断ログ：%LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "選手ポートレートUID割り当てXMLを選択" },
-            { "dialog.portrait_xml_filter", "XMLファイル (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Football Managerのgraphicsルートフォルダーを選択（XMLファイルは再帰的に検索されます）" },
-            { "dialog.data_root", "FMODDデータ保存フォルダーを選択（再起動後に適用）" },
-        };
-
-        private static readonly Dictionary<string, string> BrazilianPortugueseUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "Inicializando..." },
-            { "startup.webview_failed", "Não foi possível iniciar o navegador integrado; por isso, o FMODD interrompeu com segurança a inicialização da interface.\n\nVerifique se o Microsoft Edge WebView2 Runtime está instalado. Em seguida, desative a opção de executar como administrador no Steam, no Football Manager e no FMODD antes de tentar novamente.\nLog de diagnóstico: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "Selecionar o XML de mapeamento de UID dos retratos dos jogadores" },
-            { "dialog.portrait_xml_filter", "Arquivos XML (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Selecionar a pasta raiz de gráficos do Football Manager (os arquivos XML são procurados em todas as subpastas)" },
-            { "dialog.data_root", "Selecionar a pasta de armazenamento de dados do FMODD (aplicada após reiniciar)" },
-        };
-
-        private static readonly Dictionary<string, string> EuropeanPortugueseUserText = new Dictionary<string, string>
-        {
-            { "startup.initialising", "A inicializar..." },
-            { "startup.webview_failed", "Não foi possível iniciar o navegador incorporado; por isso, o FMODD interrompeu em segurança a inicialização da interface.\n\nConfirme que o Microsoft Edge WebView2 Runtime está instalado. Em seguida, desative a execução como administrador no Steam, Football Manager e FMODD antes de tentar novamente.\nRegisto de diagnóstico: %LOCALAPPDATA%\\FMODD\\webview-startup-error.txt" },
-            { "dialog.portrait_xml_title", "Selecionar o XML de correspondência dos UID dos retratos dos jogadores" },
-            { "dialog.portrait_xml_filter", "Ficheiros XML (*.xml)|*.xml" },
-            { "dialog.portrait_graphics_root", "Selecionar a pasta raiz de gráficos do Football Manager (os ficheiros XML são procurados em todas as subpastas)" },
-            { "dialog.data_root", "Selecionar a pasta de armazenamento de dados do FMODD (aplicada após reiniciar)" },
-        };
         // END LOCALIZED USER TEXT
 
         internal MainWindow(string address, string profilePath, string iconPath, string locale)
@@ -195,15 +105,6 @@ namespace FMODDDesktop
         private static string NormalizeLocale(string requestedLocale)
         {
             if (String.Equals(requestedLocale, "zh-CN", StringComparison.OrdinalIgnoreCase)) return "zh-CN";
-            if (String.Equals(requestedLocale, "zh-TW", StringComparison.OrdinalIgnoreCase)) return "zh-TW";
-            if (String.Equals(requestedLocale, "ko-KR", StringComparison.OrdinalIgnoreCase)) return "ko-KR";
-            if (String.Equals(requestedLocale, "de-DE", StringComparison.OrdinalIgnoreCase)) return "de-DE";
-            if (String.Equals(requestedLocale, "es-ES", StringComparison.OrdinalIgnoreCase)) return "es-ES";
-            if (String.Equals(requestedLocale, "fr-FR", StringComparison.OrdinalIgnoreCase)) return "fr-FR";
-            if (String.Equals(requestedLocale, "ru-RU", StringComparison.OrdinalIgnoreCase)) return "ru-RU";
-            if (String.Equals(requestedLocale, "ja-JP", StringComparison.OrdinalIgnoreCase)) return "ja-JP";
-            if (String.Equals(requestedLocale, "pt-BR", StringComparison.OrdinalIgnoreCase)) return "pt-BR";
-            if (String.Equals(requestedLocale, "pt-PT", StringComparison.OrdinalIgnoreCase)) return "pt-PT";
             return "en-GB";
         }
 
@@ -211,15 +112,6 @@ namespace FMODDDesktop
         {
             Dictionary<string, string> catalog = EnglishUserText;
             if (locale == "zh-CN") catalog = ChineseUserText;
-            else if (locale == "zh-TW") catalog = TraditionalChineseUserText;
-            else if (locale == "ko-KR") catalog = KoreanUserText;
-            else if (locale == "de-DE") catalog = GermanUserText;
-            else if (locale == "es-ES") catalog = SpanishUserText;
-            else if (locale == "fr-FR") catalog = FrenchUserText;
-            else if (locale == "ru-RU") catalog = RussianUserText;
-            else if (locale == "ja-JP") catalog = JapaneseUserText;
-            else if (locale == "pt-BR") catalog = BrazilianPortugueseUserText;
-            else if (locale == "pt-PT") catalog = EuropeanPortugueseUserText;
             string text;
             if (catalog.TryGetValue(key, out text)) return text;
             return EnglishUserText.TryGetValue(key, out text) ? text : key;

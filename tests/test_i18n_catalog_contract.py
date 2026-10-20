@@ -9,11 +9,8 @@ import pytest
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
-LOCALES = ("en-GB", "zh-CN", "ko-KR")
-SUPPORTED_LOCALES = (
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR",
-    "ru-RU", "ja-JP", "pt-BR", "pt-PT",
-)
+LOCALES = ("en-GB", "zh-CN")
+SUPPORTED_LOCALES = LOCALES
 
 
 def _probe() -> dict[str, object]:
@@ -38,39 +35,17 @@ vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context, {filena
 const keyed = [...html.matchAll(/data-i18n(?:-aria-label|-placeholder|-title|-alt)?="([^"]+)"/g)].map((match) => match[1]);
 const missing = {};
 const supportedLocales = [...context.window.FMODDI18n.SUPPORTED_LOCALES];
+const rendered = {};
 for (const locale of supportedLocales) {
   context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
   missing[locale] = [...new Set(keyed.filter((key) => context.window.FMODDI18n.t(key) === key))].sort();
-}
-context.window.FMODDI18n.setLocale("ko-KR", {persist:false, root:null});
-const particles = {
-  vowelObject:context.window.FMODDI18n.t("manager.unemployed.message", {manager:"민수"}),
-  batchimObject:context.window.FMODDI18n.t("manager.unemployed.message", {manager:"박"}),
-  vowelRoute:context.window.FMODDI18n.t("manager.switching_game", {version:"FM24"}),
-  batchimRoute:context.window.FMODDI18n.t("manager.switching_game", {version:"FM26"}),
-};
-const cjkLabels = {};
-for (const locale of ["zh-CN", "zh-TW", "ko-KR", "ja-JP"]) {
-  context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
-  cjkLabels[locale] = {
-    saveChanges:context.window.FMODDI18n.t("common.save_changes"),
-    shopEyebrow:context.window.FMODDI18n.t("page.shop.eyebrow"),
-    relationshipReport:context.window.FMODDI18n.t("training.archive.relationship.kicker"),
-    abilityKicker:context.window.FMODDI18n.t("world.player_detail.kicker_ability"),
+  rendered[locale] = {
+    language:context.window.FMODDI18n.t("settings.language"),
+    groupTitle:context.window.FMODDI18n.t("page.my_clubs.title"),
+    gameDate:context.window.FMODDI18n.t("home.game_date", {date:"2026-07-01"}),
   };
 }
-const unresolvedParticles = [];
-for (const module of context.window.FMODDI18nModules) {
-  for (const [key, template] of Object.entries(module.messages?.["ko-KR"] || {})) {
-    if (!/을\(를\)|이\(가\)|은\(는\)|과\(와\)|\(으\)로/.test(template)) continue;
-    const parameters = Object.fromEntries(
-      [...template.matchAll(/\{([A-Za-z0-9_]+)\}/g)].map((match) => [match[1], "민수"]),
-    );
-    const rendered = context.window.FMODDI18n.t(key, parameters);
-    if (/을\(를\)|이\(가\)|은\(는\)|과\(와\)|\(으\)로/.test(rendered)) unresolvedParticles.push(key);
-  }
-}
-console.log(JSON.stringify({sources, modules, supportedLocales, missing, particles, cjkLabels, unresolvedParticles}));
+console.log(JSON.stringify({sources, modules, supportedLocales, missing, rendered}));
 '''
     result = subprocess.run(
         ["node", "-e", script, str(ROOT)],
@@ -87,27 +62,25 @@ def _parameters(value: str) -> set[str]:
 
 
 def _validate_domain_catalog(module: dict[str, dict[str, str]]) -> None:
-    assert set(LOCALES) <= set(module), "missing base locales"
-    assert set(module) <= set(SUPPORTED_LOCALES), "unsupported locales"
+    assert set(module) == set(LOCALES), "locale set differs from supported locales"
     reference = module["en-GB"]
     assert reference, "empty catalog"
-    for locale, translations in module.items():
+    for locale in LOCALES:
+        translations = module[locale]
         assert set(translations) == set(reference), f"{locale}: keys differ"
         for key, value in translations.items():
             assert isinstance(value, str) and value.strip(), f"{locale}:{key}: empty or non-string value"
-    for locale, translations in module.items():
-        for key, value in translations.items():
             assert _parameters(value) == _parameters(reference[key]), f"{locale}:{key}: parameters differ"
 
 
-@pytest.mark.parametrize("locales", [LOCALES, SUPPORTED_LOCALES])
-def test_domain_catalog_accepts_base_and_extended_locale_sets(locales) -> None:
+def test_domain_catalog_accepts_exact_bilingual_locale_set() -> None:
+    locales = LOCALES
     _validate_domain_catalog({locale: {"greeting": "Hello {name}"} for locale in locales})
 
 
 @pytest.mark.parametrize("defect, message", [
-    ("missing_base", "missing base locales"),
-    ("unsupported", "unsupported locales"),
+    ("missing_locale", "locale set differs"),
+    ("extra_locale", "locale set differs"),
     ("missing_key", "keys differ"),
     ("extra_key", "keys differ"),
     ("empty_value", "empty or non-string value"),
@@ -115,21 +88,21 @@ def test_domain_catalog_accepts_base_and_extended_locale_sets(locales) -> None:
     ("parameters", "parameters differ"),
 ])
 def test_domain_catalog_rejects_invalid_extra_locale_translations(defect, message) -> None:
-    module = {locale: {"greeting": "Hello {name}"} for locale in (*LOCALES, "ja-JP")}
-    if defect == "missing_base":
+    module = {locale: {"greeting": "Hello {name}"} for locale in LOCALES}
+    if defect == "missing_locale":
         del module["zh-CN"]
-    elif defect == "unsupported":
-        module["xx-XX"] = dict(module["en-GB"])
+    elif defect == "extra_locale":
+        module["ko-KR"] = dict(module["en-GB"])
     elif defect == "missing_key":
-        module["ja-JP"].clear()
+        module["zh-CN"].clear()
     elif defect == "extra_key":
-        module["ja-JP"]["extra"] = "Extra"
+        module["zh-CN"]["extra"] = "Extra"
     elif defect == "empty_value":
-        module["ja-JP"]["greeting"] = "   "
+        module["zh-CN"]["greeting"] = "   "
     elif defect == "non_string":
-        module["ja-JP"]["greeting"] = None
+        module["zh-CN"]["greeting"] = None
     else:
-        module["ja-JP"]["greeting"] = "Hello {other_name}"
+        module["zh-CN"]["greeting"] = "Hello {other_name}"
     with pytest.raises(AssertionError, match=message):
         _validate_domain_catalog(module)
 
@@ -138,7 +111,7 @@ def test_every_loaded_domain_catalog_has_locale_and_parameter_parity() -> None:
     output = _probe()
     modules = output["modules"]
     assert modules
-    assert set(output["supportedLocales"]) == set(SUPPORTED_LOCALES)
+    assert tuple(output["supportedLocales"]) == SUPPORTED_LOCALES
     for module in modules:
         _validate_domain_catalog(module)
 
@@ -153,42 +126,17 @@ def test_html_semantic_keys_resolve_and_catalogs_load_before_core() -> None:
     assert output["missing"] == {locale: [] for locale in SUPPORTED_LOCALES}
 
 
-def test_korean_particles_are_resolved_without_parenthetical_placeholders() -> None:
+def test_both_supported_catalogs_render_localized_copy_and_parameters() -> None:
     output = _probe()
-    particles = output["particles"]
-    assert "“민수”를" in particles["vowelObject"]
-    assert "“박”을" in particles["batchimObject"]
-    assert particles["vowelRoute"] == "FM24로 전환하는 중"
-    assert particles["batchimRoute"] == "FM26으로 전환하는 중"
-    assert all("(" not in value for value in particles.values())
-    assert output["unresolvedParticles"] == []
-
-
-def test_cjk_interfaces_keep_english_kickers_without_de_localising_controls() -> None:
-    output = _probe()
-    assert output["cjkLabels"] == {
+    assert output["rendered"] == {
+        "en-GB": {
+            "language": "Interface language",
+            "groupTitle": "My Group",
+            "gameDate": "Game date 2026-07-01",
+        },
         "zh-CN": {
-            "saveChanges": "保存修改",
-            "shopEyebrow": "CLUB ECONOMY",
-            "relationshipReport": "TRAINING COOPERATION REPORT",
-            "abilityKicker": "ABILITY",
-        },
-        "zh-TW": {
-            "saveChanges": "儲存修改",
-            "shopEyebrow": "CLUB ECONOMY",
-            "relationshipReport": "TRAINING COOPERATION REPORT",
-            "abilityKicker": "ABILITY",
-        },
-        "ko-KR": {
-            "saveChanges": "변경 사항 저장",
-            "shopEyebrow": "CLUB ECONOMY",
-            "relationshipReport": "TRAINING COOPERATION REPORT",
-            "abilityKicker": "ABILITY",
-        },
-        "ja-JP": {
-            "saveChanges": "変更を保存",
-            "shopEyebrow": "CLUB ECONOMY",
-            "relationshipReport": "TRAINING COOPERATION REPORT",
-            "abilityKicker": "ABILITY",
+            "language": "界面语言",
+            "groupTitle": "我的集团",
+            "gameDate": "游戏日期 2026-07-01",
         },
     }

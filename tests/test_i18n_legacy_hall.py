@@ -19,7 +19,7 @@ const module = context.window.FMODDI18nModules[0];
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context);
 const i18n = context.window.FMODDI18n;
 const output = {};
-for (const locale of ["en-GB", "zh-CN", "ko-KR"]) {
+for (const locale of ["en-GB", "zh-CN"]) {
   i18n.setLocale(locale, {persist:false, root:null});
     output[locale] = [
     i18n.t("legacy.home.loading_title"),
@@ -44,15 +44,15 @@ def test_legacy_hall_catalog_has_locale_and_placeholder_parity() -> None:
     result = _catalog_probe()
     messages = result["messages"]
     keys = set(messages["en-GB"])
-    assert keys == set(messages["zh-CN"]) == set(messages["ko-KR"])
+    assert keys == set(messages["zh-CN"])
     selected = {key for key in keys if key.startswith("legacy.home.") or key.startswith("legacy.world_search.") or key.startswith("legacy.name.") or key.startswith("legacy.status.") or key.startswith("legacy.moment.") or key.startswith("legacy.preference.") or key.startswith("legacy.profile.stats.")}
     assert selected
     for key in selected:
         placeholders = [
             set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", messages[locale][key]))
-            for locale in ("en-GB", "zh-CN", "ko-KR")
+            for locale in ("en-GB", "zh-CN")
         ]
-        assert placeholders[0] == placeholders[1] == placeholders[2], key
+        assert placeholders[0] == placeholders[1], key
 
 
 def test_legacy_hall_representative_runtime_copy() -> None:
@@ -74,15 +74,6 @@ def test_legacy_hall_representative_runtime_copy() -> None:
         "25–26赛季",
         "记录比赛时刻",
         "已读取 2 个原生进球 · 请填写对应分钟",
-    ]
-    assert output["ko-KR"] == [
-        "선수 기록을 정리하는 중",
-        "전 세계 선수를 검색해 계속 관심 목록에 추가",
-        "현재 가치",
-        "총 데이터",
-        "25–26 시즌",
-        "경기 순간 기록",
-        "원본 득점 2개를 읽음 · 해당 분을 입력하세요",
     ]
 
 

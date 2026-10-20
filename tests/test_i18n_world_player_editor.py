@@ -19,7 +19,7 @@ const module = context.window.FMODDI18nModules[0];
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context);
 const i18n = context.window.FMODDI18n;
 const output = {};
-for (const locale of ["en-GB", "zh-CN", "ko-KR"]) {
+for (const locale of ["en-GB", "zh-CN"]) {
   i18n.setLocale(locale, {persist:false, root:null});
   output[locale] = [
     i18n.t("economy.salary.schedule_weekly"),
@@ -41,7 +41,7 @@ def test_world_player_editor_catalogs_have_locale_and_placeholder_parity() -> No
     result = _probe()
     messages = result["messages"]
     keys = set(messages["en-GB"])
-    assert keys == set(messages["zh-CN"]) == set(messages["ko-KR"])
+    assert keys == set(messages["zh-CN"])
     selected = {
         key for key in keys
         if key.startswith(("economy.salary.", "world.editor.", "world.player_detail."))
@@ -51,9 +51,9 @@ def test_world_player_editor_catalogs_have_locale_and_placeholder_parity() -> No
     for key in selected:
         placeholders = [
             set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", messages[locale][key]))
-            for locale in ("en-GB", "zh-CN", "ko-KR")
+            for locale in ("en-GB", "zh-CN")
         ]
-        assert placeholders[0] == placeholders[1] == placeholders[2], key
+        assert placeholders[0] == placeholders[1], key
 
 
 def test_world_player_editor_representative_runtime_copy() -> None:
@@ -64,11 +64,11 @@ def test_world_player_editor_representative_runtime_copy() -> None:
         "Type 7",
         "2 items",
     ]
-    assert output["ko-KR"] == [
-        "주급을 은행으로 지급하도록 선택했습니다",
-        "Alex의 언어 숙련도를 8로 변경할까요?",
-        "유형 7",
-        "2개",
+    assert output["zh-CN"] == [
+        "已选择按周发放工资到银行",
+        "确认把 Alex 的语言熟练度改为 8？",
+        "类型 7",
+        "2 项",
     ]
 
 

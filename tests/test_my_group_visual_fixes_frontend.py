@@ -1,6 +1,4 @@
 """My group page fixes from the 2026-10-18 visual review."""
-import json
-import re
 from pathlib import Path
 
 WEB = Path(__file__).resolve().parents[1] / "src" / "web"
@@ -8,16 +6,6 @@ APP_CSS = (WEB / "app.css").read_text(encoding="utf-8")
 DARK_CSS = (WEB / "dark-theme.css").read_text(encoding="utf-8")
 APP_JS = (WEB / "app.js").read_text(encoding="utf-8")
 FIX_BLOCK = APP_CSS.split("/* My group card fixes (2026-10-18 visual review) */", 1)[1]
-LOCALES = ["de", "es", "fr", "ja", "ru", "tw", "pt-BR", "pt-PT"]
-
-
-def pack_value(locale, key):
-    text = (WEB / f"i18n.{locale}.js").read_text(encoding="utf-8")
-    match = re.search(re.escape(json.dumps(key, ensure_ascii=False)) + r'\s*:\s*("(?:[^"\\]|\\.)*")', text)
-    assert match, (locale, key)
-    return json.loads(match.group(1))
-
-
 def test_metric_rows_size_to_content_and_numbers_do_not_split():
     assert "grid-auto-rows: 1fr;" not in APP_CSS
     assert "  grid-auto-rows: auto;\n" in APP_CSS
@@ -68,10 +56,6 @@ def test_players_without_asking_price_show_dash():
     assert '${Number(player.asking_price) > 0 ? compactMoney(player.asking_price) : "-"}' in APP_JS
 
 
-def test_stale_sell_message_exists_in_every_locale():
+def test_stale_sell_message_exists_in_both_retained_catalogs():
     world = (WEB / "i18n.world.js").read_text(encoding="utf-8")
-    assert '"portfolio.sell.stale":["Data was refreshed. Please sell again", "数据已刷新，请重新出售",' in world
-    for locale in LOCALES:
-        assert pack_value(locale, "portfolio.sell.stale").strip()
-
-
+    assert '"portfolio.sell.stale":["Data was refreshed. Please sell again", "数据已刷新，请重新出售"]' in world

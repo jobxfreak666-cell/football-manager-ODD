@@ -69,12 +69,8 @@ record("axis-q", formatChartAxisMoney(2e30, 3e30));
 record("axis-promote", formatChartAxisMoney(999950, 999950));
 record("axis-promote-lower", formatChartAxisMoney(500000, 999950));
 record("axis-small", takeRateCalls(() => formatChartAxisMoney(12.5, 20)));
-window.FMODDI18n.locale = "de-DE";
-record("de-large", formatMoney(1500));
-record("de-small", formatFullMoney(12.5));
-record("de-negative-small", formatFullMoney(-12.5));
-record("de-history", formatCompactMoney(-1555000, 2));
-record("de-axis", formatChartAxisMoney(1500000, 2000000));
+
+
 window.FMODDI18n.locale = "en-GB";
 app.state.settings = {money_rate:2, money_symbol:"$", money_decimal_digits:2};
 record("converted-large", formatMoney(500000));
@@ -100,9 +96,8 @@ record("zero-digits-promote-negative", formatMoney(-999.99));
 record("zero-digits-below", formatMoney(999.49));
 record("axis-zero-promote", formatChartAxisMoney(999.99, 999.99));
 record("axis-zero-shared", formatChartAxisMoney(500, 999.99));
-window.FMODDI18n.locale = "de-DE";
-record("axis-zero-promote-de", formatChartAxisMoney(999.99, 999.99));
-record("axis-zero-shared-de", formatChartAxisMoney(500, 999.99));
+
+
 window.FMODDI18n.locale = "en-GB";
 app.state.settings.money_decimal_digits = 2;
 record("two-digits-promote", formatMoney(999.995));
@@ -245,11 +240,6 @@ class MoneyAbbreviationsFrontendTests(unittest.TestCase):
         self.assertEqual(runtime["axis-promote"], "£1.0M")
         self.assertEqual(runtime["axis-promote-lower"], "£0.5M")
         self.assertEqual(runtime["axis-small"], {"value": "£12.50", "calls": 2})
-        self.assertEqual(runtime["de-large"], "£1,5K")
-        self.assertEqual(runtime["de-small"], "£12,50")
-        self.assertEqual(runtime["de-negative-small"], "£-12,50")
-        self.assertEqual(runtime["de-history"], "-£1,56M")
-        self.assertEqual(runtime["de-axis"], "£1,5M")
         self.assertEqual(runtime["converted-large"], "$1.0M")
         self.assertEqual(runtime["converted-small"], "$20.00")
         self.assertEqual(runtime["player-converted"], {"value": "$1.0M", "calls": 1})
@@ -270,8 +260,6 @@ class MoneyAbbreviationsFrontendTests(unittest.TestCase):
         self.assertEqual(runtime["zero-digits-below"], "£999")
         self.assertEqual(runtime["axis-zero-promote"], "£1.0K")
         self.assertEqual(runtime["axis-zero-shared"], "£0.5K")
-        self.assertEqual(runtime["axis-zero-promote-de"], "£1,0K")
-        self.assertEqual(runtime["axis-zero-shared-de"], "£0,5K")
         self.assertEqual(runtime["two-digits-promote"], "£1.0K")
         self.assertEqual(runtime["two-digits-promote-negative"], "-£1.0K")
         self.assertEqual(runtime["two-digits-below"], "£999.99")

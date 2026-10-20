@@ -119,10 +119,7 @@ const USAGE_NOTICE_DISMISSED_UNTIL_STORAGE_KEY = "fmodd-usage-notice-dismissed-u
 const IGNORED_UPDATE_VERSION_STORAGE_KEY = "fmodd-ignored-update-version";
 const USAGE_NOTICE_DISMISS_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const UI_LOCALE_NATIVE_NAMES = Object.freeze([
-  ["en-GB", "English"], ["zh-CN", "简体中文"], ["zh-TW", "繁體中文"],
-  ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["de-DE", "Deutsch"],
-  ["es-ES", "Español"], ["fr-FR", "Français"], ["ru-RU", "Русский"],
-  ["pt-BR", "Português (Brasil)"], ["pt-PT", "Português (Portugal)"],
+  ["en-GB", "English"], ["zh-CN", "简体中文"],
 ]);
 const DATA_PREWARM_DELAY_MS = 900;
 const DATA_PREWARM_RETRY_MS = 5000;
@@ -147,46 +144,18 @@ const FONT_OPTIONS = Object.freeze({
   fangsong: {source:"FangSong", labelKey:"settings.font.family.fangsong"},
   dengxian: {source:"DengXian", labelKey:"settings.font.family.dengxian"},
   "source-han-sans-sc": {source:'"Source Han Sans SC"', labelKey:"settings.font.family.source_han_sans_sc"},
-  pmingliu: {source:"PMingLiU", label:"PMingLiU"},
-  mingliu: {source:"MingLiU", label:"MingLiU"},
-  "dfkai-sb": {source:'"DFKai-SB"', label:"DFKai-SB"},
-  "noto-sans-tc": {source:'"Noto Sans TC"', label:"Noto Sans TC"},
-  "source-han-sans-tc": {source:'"Source Han Sans TC"', label:"Source Han Sans TC"},
-  "malgun-gothic": {source:'"Malgun Gothic"', label:"Malgun Gothic"},
-  gulim: {source:"Gulim", label:"Gulim"},
-  dotum: {source:"Dotum", label:"Dotum"},
-  batang: {source:"Batang", label:"Batang"},
-  "noto-sans-kr": {source:'"Noto Sans KR"', label:"Noto Sans KR"},
-  "arial-unicode-ms": {source:'"Arial Unicode MS"', label:"Arial Unicode MS"},
-  "yu-gothic-ui": {source:'"Yu Gothic UI"', label:"Yu Gothic UI"},
-  "meiryo-ui": {source:'"Meiryo UI"', label:"Meiryo UI"},
-  meiryo: {source:"Meiryo", label:"Meiryo"},
-  "ms-pgothic": {source:'"MS PGothic"', label:"MS PGothic"},
-  "ms-gothic": {source:'"MS Gothic"', label:"MS Gothic"},
-  "noto-sans-jp": {source:'"Noto Sans JP"', label:"Noto Sans JP"},
-  "noto-serif-jp": {source:'"Noto Serif JP"', label:"Noto Serif JP"},
   "segoe-ui": {source:'"Segoe UI"', labelKey:"settings.font.family.segoe_ui"},
   arial: {source:"Arial", labelKey:"settings.font.family.arial"},
   tahoma: {source:"Tahoma", labelKey:"settings.font.family.tahoma"},
   verdana: {source:"Verdana", labelKey:"settings.font.family.verdana"},
   "trebuchet-ms": {source:'"Trebuchet MS"', labelKey:"settings.font.family.trebuchet_ms"},
   "times-new-roman": {source:'"Times New Roman"', labelKey:"settings.font.family.times_new_roman"},
-  calibri: {source:"Calibri", label:"Calibri"},
 });
 const LATIN_FONT_KEYS = Object.freeze(["segoe-ui", "arial", "tahoma", "verdana", "trebuchet-ms", "times-new-roman"]);
-const CJK_FONT_LOCALES = new Set(["zh-CN", "zh-TW", "ko-KR", "ja-JP"]);
+const CJK_FONT_LOCALES = new Set(["zh-CN"]);
 const LOCALE_FONT_CONFIGS = Object.freeze({
   "en-GB": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
   "zh-CN": {selectId:"chinese-font", defaultKey:"yahei-ui", keys:["yahei-ui", "simhei", "simsun", "kaiti", "fangsong", "dengxian", "source-han-sans-sc"]},
-  "zh-TW": {selectId:"chinese-font", defaultKey:"yahei", keys:["yahei", "pmingliu", "mingliu", "dfkai-sb", "noto-sans-tc", "source-han-sans-tc"]},
-  "ko-KR": {selectId:"chinese-font", defaultKey:"malgun-gothic", keys:["malgun-gothic", "arial-unicode-ms", "gulim", "dotum", "batang", "noto-sans-kr"]},
-  "de-DE": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "es-ES": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "fr-FR": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "ru-RU": {selectId:"english-font", defaultKey:"segoe-ui", keys:["segoe-ui", "calibri", "arial", "tahoma", "verdana", "times-new-roman"]},
-  "ja-JP": {selectId:"chinese-font", defaultKey:"yu-gothic-ui", keys:["yu-gothic-ui", "meiryo-ui", "meiryo", "ms-pgothic", "ms-gothic", "noto-sans-jp", "noto-serif-jp"]},
-  "pt-BR": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "pt-PT": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
 });
 // Latin fonts do not occupy the same visual height as Han glyphs at an equal
 // CSS size. Keep the selected family, but normalize its visible scale so
@@ -203,54 +172,8 @@ const FONT_SIZE_ADJUST = Object.freeze({
 function localeFontConfig(locale = activeUiLocale()) {
   return LOCALE_FONT_CONFIGS[locale] || LOCALE_FONT_CONFIGS["en-GB"];
 }
-const LOCALE_FONT_AVAILABILITY_SAMPLES = Object.freeze({
-  "ko-KR": "한글 글꼴 선택",
-  "ja-JP": "日本語フォント選択",
-});
-const localeFontAvailabilityCache = new Map();
-function fontRasterSignature(fontStack, sample) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 560;
-  canvas.height = 72;
-  const context = canvas.getContext("2d", {willReadFrequently:true});
-  if (!context) return null;
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#000";
-  context.font = `48px ${fontStack}`;
-  context.textBaseline = "top";
-  context.fillText(sample, 2, 2);
-  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  let hash = 2166136261;
-  for (let index = 3; index < pixels.length; index += 4) {
-    hash ^= pixels[index];
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-function localeFontIsAvailable(fontKey, locale = activeUiLocale()) {
-  const sample = LOCALE_FONT_AVAILABILITY_SAMPLES[locale];
-  if (!sample) return true;
-  const cacheKey = `${locale}:${fontKey}`;
-  if (localeFontAvailabilityCache.has(cacheKey)) return localeFontAvailabilityCache.get(cacheKey);
-  const source = FONT_OPTIONS[fontKey]?.source;
-  if (!source) return false;
-  let available = true;
-  try {
-    const comparisons = ["serif", "monospace"].map((fallback) => ({
-      fallback:fontRasterSignature(fallback, sample),
-      candidate:fontRasterSignature(`${source},${fallback}`, sample),
-    }));
-    available = comparisons.some(({fallback, candidate}) => (
-      fallback != null && candidate != null && fallback !== candidate
-    ));
-  } catch (_error) { /* keep the declared list when canvas inspection is unavailable */ }
-  localeFontAvailabilityCache.set(cacheKey, available);
-  return available;
-}
 function availableLocaleFontKeys(locale = activeUiLocale()) {
-  const config = localeFontConfig(locale);
-  const available = config.keys.filter((fontKey) => localeFontIsAvailable(fontKey, locale));
-  return available.length ? available : [config.defaultKey];
+  return localeFontConfig(locale).keys;
 }
 function localeFontStorageKey(locale = activeUiLocale()) {
   return `${FONT_STORAGE_PREFIX}${locale}`;

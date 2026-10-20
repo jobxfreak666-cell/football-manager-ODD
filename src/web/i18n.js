@@ -5,14 +5,11 @@
   const DEFAULT_LOCALE = "en-GB";
   const SOURCE_LOCALE = "zh-CN";
   const SUPPORTED_LOCALES = Object.freeze([
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP",
-    "pt-BR", "pt-PT",
+    "en-GB", "zh-CN",
   ]);
   const SUPPORTED_SET = new Set(SUPPORTED_LOCALES);
-  const ENGLISH_KICKER_LOCALES = new Set(["zh-CN", "zh-TW", "ko-KR", "ja-JP"]);
+  const ENGLISH_KICKER_LOCALES = new Set(["zh-CN"]);
   const ENGLISH_KICKER_KEY = /(\.eyebrow|_eyebrow|\.kicker|_kicker)(?:$|_)/;
-  const localePacks = window.FMODDLocalePacks && typeof window.FMODDLocalePacks === "object"
-    ? window.FMODDLocalePacks : {};
   const externalModules = Array.isArray(window.FMODDI18nModules)
     ? window.FMODDI18nModules.filter((entry) => entry && typeof entry === "object")
     : [];
@@ -239,13 +236,8 @@
   });
 
   function buildMessageCatalog(localeName) {
-    const catalog = Object.assign(
-      {},
-      messages[localeName] || {},
-      localeName === "ko-KR" ? (window.FMODDKoreanCatalog?.messages || {}) : {},
-    );
+    const catalog = Object.assign({}, messages[localeName] || {});
     externalModules.forEach((entry) => Object.assign(catalog, entry.messages?.[localeName] || {}));
-    Object.assign(catalog, localePacks[localeName]?.messages || {});
     return Object.freeze(catalog);
   }
 
@@ -264,46 +256,8 @@
 
   let locale = storedLocale();
 
-  function koreanEnding(value) {
-    const text = String(value ?? "")
-      .replace(/<[^>]*>/g, "")
-      .replace(/&[A-Za-z0-9#]+;/g, "")
-      .trim();
-    const character = [...text].reverse().find((entry) => /[가-힣A-Za-z0-9]/.test(entry));
-    if (!character) return {batchim:false, rieul:false};
-    const code = character.codePointAt(0);
-    if (code >= 0xAC00 && code <= 0xD7A3) {
-      const jongseong = (code - 0xAC00) % 28;
-      return {batchim:jongseong !== 0, rieul:jongseong === 8};
-    }
-    if (/\d/.test(character)) {
-      const batchimDigits = new Set(["0", "1", "3", "6", "7", "8"]);
-      return {batchim:batchimDigits.has(character), rieul:["1", "7", "8"].includes(character)};
-    }
-    return {batchim:false, rieul:false};
-  }
-
-  function koreanParticle(value, pattern) {
-    const ending = koreanEnding(value);
-    const particles = {
-      "을(를)": ending.batchim ? "을" : "를",
-      "이(가)": ending.batchim ? "이" : "가",
-      "은(는)": ending.batchim ? "은" : "는",
-      "과(와)": ending.batchim ? "과" : "와",
-      "(으)로": ending.batchim && !ending.rieul ? "으로" : "로",
-    };
-    return particles[pattern] || pattern;
-  }
-
   function interpolate(template, parameters = {}) {
-    const source = locale === "ko-KR"
-      ? String(template).replace(
-          /\{([A-Za-z0-9_]+)\}([”"'’』」】»]*)(을\(를\)|이\(가\)|은\(는\)|과\(와\)|\(으\)로)/g,
-          (match, key, punctuation, particle) => Object.prototype.hasOwnProperty.call(parameters, key)
-            ? `${String(parameters[key])}${punctuation}${koreanParticle(parameters[key], particle)}` : match,
-        )
-      : String(template);
-    return source.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
+    return String(template).replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(parameters, key) ? String(parameters[key]) : match
     ));
   }
@@ -363,12 +317,7 @@
   function translateLegacy(value) {
     const text = String(value ?? "");
     if (locale === SOURCE_LOCALE || !text) return text;
-    const isPtBR = locale === "pt-BR";
-    const isPtPT = locale === "pt-PT";
-    const ptCount = (count, singular, plural) => `${count} ${Number(count) === 1 ? singular : plural}`;
     const catalogs = [
-      localePacks[locale]?.legacy || {},
-      locale === "ko-KR" ? (window.FMODDKoreanCatalog?.legacy || {}) : {},
       ...externalModules.map((entry) => entry.legacy?.[locale] || {}),
     ];
     for (const catalog of catalogs) {
@@ -380,29 +329,29 @@
     match = text.match(/^共\s+(\d+)\s+场$/);
     if (match) return tp("home.matches_played", Number(match[1]));
     match = text.match(/^(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}경기` : isPtBR ? ptCount(match[1], "partida", "partidas") : isPtPT ? ptCount(match[1], "jogo", "jogos") : `${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
+    if (match) return `${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
     match = text.match(/^(\d+)\s*项$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개` : (isPtBR || isPtPT) ? ptCount(match[1], "item", "itens") : `${match[1]} item${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} item${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^(\d+)\s*天$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}일` : (isPtBR || isPtPT) ? ptCount(match[1], "dia", "dias") : `${match[1]} day${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} day${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^(\d+)\s*项选择$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개 선택` : (isPtBR || isPtPT) ? ptCount(match[1], "seleção", "seleções") : `${match[1]} selection${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} selection${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^已选\s*(\d+)\s*笔$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개 선택됨` : isPtBR ? `${match[1]} selecionadas` : isPtPT ? `${match[1]} selecionadas` : `${match[1]} selected`;
+    if (match) return `${match[1]} selected`;
     match = text.match(/^(\d+)个$/);
     if (match) return `${match[1]}`;
     match = text.match(/^正在刷新\s+(\d+)%$/);
-    if (match) return locale === "ko-KR" ? `새로 고치는 중 ${match[1]}%` : isPtBR ? `Atualizando ${match[1]}%` : isPtPT ? `A atualizar ${match[1]}%` : `Refreshing ${match[1]}%`;
+    if (match) return `Refreshing ${match[1]}%`;
     match = text.match(/^游戏时间\s+(.+)$/);
-    if (match) return locale === "ko-KR" ? `게임 시간 ${match[1]}` : (isPtBR || isPtPT) ? `Tempo de jogo ${match[1]}` : `Game time ${match[1]}`;
+    if (match) return `Game time ${match[1]}`;
     match = text.match(/^未来(\d+)天\s*[·・]\s*(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `향후 ${match[1]}일 · ${match[2]}경기` : isPtBR ? `Próximos ${match[1]} dias · ${ptCount(match[2], "partida", "partidas")}` : isPtPT ? `Próximos ${match[1]} dias · ${ptCount(match[2], "jogo", "jogos")}` : `Next ${match[1]} days · ${match[2]} match${Number(match[2]) === 1 ? "" : "es"}`;
+    if (match) return `Next ${match[1]} days · ${match[2]} match${Number(match[2]) === 1 ? "" : "es"}`;
     match = text.match(/^之前\s*[·・]\s*(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `이전 · ${match[1]}경기` : isPtBR ? `Anteriores · ${ptCount(match[1], "partida", "partidas")}` : isPtPT ? `Anteriores · ${ptCount(match[1], "jogo", "jogos")}` : `Previous · ${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
+    if (match) return `Previous · ${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
     match = text.match(/^已是最新\s*[·・]\s*已结算(\d+)个注单$/);
-    if (match) return locale === "ko-KR" ? `최신 상태 · 베팅 ${match[1]}건 정산됨` : isPtBR ? `Atualizado · ${ptCount(match[1], "aposta liquidada", "apostas liquidadas")}` : isPtPT ? `Atualizado · ${ptCount(match[1], "aposta liquidada", "apostas liquidadas")}` : `Up to date · ${match[1]} bet${Number(match[1]) === 1 ? "" : "s"} settled`;
+    if (match) return `Up to date · ${match[1]} bet${Number(match[1]) === 1 ? "" : "s"} settled`;
     match = text.match(/^钱包，余额\s+(.+)$/);
-    if (match) return locale === "ko-KR" ? `지갑, 잔액 ${match[1]}` : (isPtBR || isPtPT) ? `Carteira, saldo ${match[1]}` : `Wallet, balance ${match[1]}`;
+    if (match) return `Wallet, balance ${match[1]}`;
     return text;
   }
 
