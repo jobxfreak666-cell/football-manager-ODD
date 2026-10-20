@@ -1,6 +1,88 @@
 from tools import training_archive
 
 
+def test_archives_survive_task_model_migration(tmp_path, monkeypatch):
+    from tools import (
+        account_store, betting_account, club_economy, relationship_training,
+        training_ground,
+    )
+
+    account_path = tmp_path / "save.fmodd"
+    monkeypatch.setattr(
+        account_store, "account_save_path", lambda scope=None: account_path,
+    )
+    monkeypatch.setattr(
+        account_store, "save_data_root", lambda scope=None: tmp_path,
+    )
+    monkeypatch.setattr(training_ground, "save_data_root", lambda: tmp_path)
+    monkeypatch.setattr(club_economy, "save_data_root", lambda: tmp_path)
+    monkeypatch.setattr(betting_account, "save_data_root", lambda: tmp_path)
+
+    completed = {
+        "id": "legacy-done", "focus_type": "attribute", "scene": "indoor",
+        "floor": "1F", "facility_sku": "treadmill",
+        "facility_name": "专业跑步机", "player_id": 7, "player_name": "A",
+        "attribute_key": "身体:速度", "initial_attribute": 10,
+        "attribute_after": 11, "started_on": "2025-11-01",
+        "completed_on": "2025-12-01", "training_content": "身体:速度",
+    }
+    training_archive.archive_training_focus(completed)
+    before = training_archive.training_archive_summary()
+
+    payload = training_ground.load_training_ground()
+    payload["task_rules_version"] = 0
+    payload["focuses"].append({
+        "id": "legacy-active", "status": "active", "focus_type": "attribute",
+        "player_id": 8, "player_name": "B", "attribute_key": "身体:速度",
+        "initial_attribute": 10, "started_on": "2025-12-01",
+        "duration_mode": "until_increase", "direction": 1,
+    })
+    training_ground.save_training_ground(payload)
+    rooms = relationship_training.load_relationship_training_rooms()
+    rooms["rooms"].append({
+        "id": "room-legacy", "sku": next(iter(relationship_training.ROOMS)),
+        "scene": relationship_training.SCENE_KEY, "status": "occupied",
+        "participants": [
+            {"id": 7, "name": "A", "kind": "player"},
+            {"id": 8, "name": "B", "kind": "player"},
+        ],
+        "attributes": ["身体:速度"], "started_on": "2025-12-01",
+        "client_submission_id": "legacy-room-a",
+        "pending_session": {
+            "id": "legacy-room-session", "started_on": "2025-12-01",
+        },
+    })
+
+    migrated_payload = training_ground.load_training_ground()
+    assert training_ground.migrate_training_tasks(
+        migrated_payload, game_date="2026-01-01",
+    ) is True
+    training_ground.save_training_ground(migrated_payload)
+    assert relationship_training.migrate_relationship_training_rooms(
+        rooms, game_date="2026-01-01",
+    ) is True
+    account_store.save_documents({"relationship_training_rooms": rooms})
+
+    after = training_archive.training_archive_summary()
+    assert after["totals"] == before["totals"]
+    assert after["retained"] == before["retained"]
+    assert training_ground.load_training_ground()["facilities"] == []
+
+    room = next(
+        row for row in relationship_training.load_relationship_training_rooms()[
+            "rooms"
+        ] if row.get("id") == "room-legacy"
+    )
+    assert room["status"] == "idle"
+    assert room["cancelled_session"]["status"] == "cancelled"
+    assert room["cancelled_session"]["cancel_reason"] == (
+        relationship_training.RELATIONSHIP_TRAINING_MIGRATION_REASON
+    )
+    assert training_archive.training_archive_summary()["retained"] == (
+        before["retained"]
+    )
+
+
 def test_archive_routing_prioritizes_training_type_then_scene():
     assert training_archive.training_archive_category({"focus_type":"coaching_license","scene":"relationship_8f"}) == "coaching"
     assert training_archive.training_archive_category({"focus_type":"relationship_training","scene":"indoor"}) == "comprehensive"

@@ -234,9 +234,7 @@ from tools.preferred_moves import (
     restore_player_preferred_moves, update_player_preferred_move,
 )
 from tools.training_ground import (
-    FACILITIES as TRAINING_FACILITIES,
     TASK_RULES_VERSION as TRAINING_TASK_RULES_VERSION,
-    TRAINING_FLOORS,
     active_training_focuses, advance_training_focuses,
     cancel_training_focus,
     append_training_task, build_coaching_license_focus,
@@ -248,16 +246,14 @@ from tools.training_ground import (
     complete_attribute_training_focus, complete_coaching_license_focus,
     complete_position_training_focus,
     rebase_attribute_training_focus, rebase_position_training_focus,
-    complete_habit_training_focus, place_facility,
+    complete_habit_training_focus,
     due_coaching_license_focuses,
     public_training_ground,
-    purchase_facility,
     release_training_users,
-    remove_facility, restore_facility,
     rebind_training_focus_player, rebind_training_focus_staff,
-    rollback_training_focus, store_facility,
+    rollback_training_focus,
     training_target_attribute, training_points_required_for_direction,
-    assert_training_floor_unlocked, unlock_training_floor,
+    assert_training_floor_unlocked,
 )
 from tools.training_catalog import training_task_fee_minor
 from tools.training_runtime import TrainingRosterIndex
@@ -3831,6 +3827,12 @@ def _attach_optional_response_snapshot(
     return response
 
 
+TRAINING_EQUIPMENT_ROUTE_RETIRED = (
+    "训练场已改版，不再支持购买、解锁楼层、摆放、收纳或出售训练器材，"
+    "请刷新训练场后使用球员训练、位置训练或职员训练"
+)
+
+
 class LocalOddsState:
     club_deferred_refresh_reasons = frozenset(CLUB_DEFERRED_REFRESH_REASONS)
     temporary_bank_cheat = TEMPORARY_BANK_CHEAT
@@ -5601,6 +5603,25 @@ class LocalOddsState:
                         break
                     current = max(1, int(current_raw))
                     expected = max(1, int(target.get("initial_position") or 1))
+                    if int(target.get("required_points") or 0) <= 0:
+                        # Legacy full-level tasks have nothing left to earn;
+                        # finish them without another native write.
+                        try:
+                            settled = complete_position_training_focus(
+                                focus_id, game_date, {
+                                    "position_after": current,
+                                    "already_satisfied": True,
+                                },
+                            )
+                            if settled.get("status") == "completed":
+                                completed_position_focuses.append(focus_id)
+                            else:
+                                advanced_position_focuses.append(focus_id)
+                        except Exception as error:
+                            progress_errors.append(
+                                f"{target.get('player_name') or player_id}：{error}"
+                            )
+                        break
                     if current >= expected + 1:
                         target_position = min(
                             20,
@@ -18509,94 +18530,20 @@ class LocalOddsState:
                     player["training_ca"] = result["training_ca"]
             return {"economy": economy, "player": result}
 
-    def training_purchase(self, payload: dict[str, Any]) -> dict[str, Any]:
-        sku = str(payload.get("sku") or "")
-        product = TRAINING_FACILITIES.get(sku)
-        if not product:
-            raise ValueError("训练器材不存在")
-        if product.get("built_in"):
-            raise ValueError("该训练区域由场地自带，无需购买")
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-        payment = charge_combined_funds(
-            local_purchase_price(product["price"]), "training_facility_purchase", sku=sku,
-        )
-        try:
-            facility = purchase_facility(sku)
-        except Exception:
-            if payment["total"]:
-                refund_combined_funds(payment, "training_facility_purchase_rollback", sku=sku)
-            raise
-        return {
-            "training_ground": public_training_ground(game_date), "economy": public_economy(),
-            "facility": facility, "payment": payment,
-        }
+    def training_purchase(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
 
-    def training_floor_purchase(self, payload: dict[str, Any]) -> dict[str, Any]:
-        scene = str(payload.get("scene") or "")
-        floor = TRAINING_FLOORS.get(scene)
-        if not floor:
-            raise ValueError("训练场楼层无效")
-        if floor.get("unlocked_by_default"):
-            raise ValueError(f"{floor['name']}无需购买")
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-        payment = charge_combined_funds(
-            local_purchase_price(floor["price"]),
-            "training_floor_purchase", scene=scene,
-        )
-        try:
-            unlocked = unlock_training_floor(scene)
-        except Exception:
-            if payment["total"]:
-                refund_combined_funds(
-                    payment, "training_floor_purchase_rollback", scene=scene,
-                )
-            raise
-        return {
-            "training_ground": public_training_ground(game_date),
-            "economy": public_economy(), "floor": unlocked, "payment": payment,
-        }
+    def training_floor_purchase(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
 
-    def training_place(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-            facility = place_facility(
-                str(payload.get("facility_id") or ""), str(payload.get("scene") or ""),
-                payload.get("x"), payload.get("y"), payload.get("rotation", 0),
-                payload.get("scale"),
-            )
-        return {"training_ground": public_training_ground(game_date), "facility": facility}
+    def training_place(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
 
-    def training_store(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-            facility = store_facility(str(payload.get("facility_id") or ""))
-        return {"training_ground": public_training_ground(game_date), "facility": facility}
+    def training_store(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
 
-    def training_sell(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-        facility = remove_facility(str(payload.get("facility_id") or ""))
-        product = TRAINING_FACILITIES[facility["sku"]]
-        refund = scaled_money(local_purchase_price(product["price"]), 0.5)
-        try:
-            economy = adjust_bank_balance(
-                refund, "training_facility_sale", sku=facility["sku"],
-                facility_id=facility["id"],
-            )
-        except Exception:
-            restore_facility(facility)
-            raise
-        return {
-            "training_ground": public_training_ground(game_date), "economy": economy,
-            "refund": refund,
-        }
+    def training_sell(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
 
     def training_player_preferred_moves(self, payload: dict[str, Any]) -> dict[str, Any]:
         player_id = int(payload.get("player_id") or 0)
@@ -18618,10 +18565,19 @@ class LocalOddsState:
                 self._bind_current_save()
                 game_date = str(self.output.get("game_date") or "")
             focus = cancel_training_focus(focus_id, game_date)
-            hook_status = self.attribute_growth_hook.sync([])
+            try:
+                hook_status = self.attribute_growth_hook.sync([])
+            except Exception as error:
+                # The cancellation is already durable; report the hook problem
+                # instead of pretending the task was never cancelled.
+                hook_status = {"error": str(error), "retryable": True}
         training_ground = public_training_ground(game_date)
         training_ground["growth_hook"] = hook_status
-        return {"training_ground": training_ground, "focus": focus}
+        return {
+            "training_ground": training_ground,
+            "focus": focus,
+            "economy": public_economy(),
+        }
 
     def training_settle(self, _payload: dict[str, Any]) -> dict[str, Any]:
         """Run due training settlement as an explicit foreground operation."""

@@ -181,51 +181,22 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertIn("if has_verified_save:", block)
         self.assertNotIn("clear_training_ground()", block)
 
-    def test_training_purchase_ignores_forged_free_request_flag(self) -> None:
+    def test_legacy_equipment_routes_are_retired_without_side_effects(self) -> None:
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.output = {"game_date": "2030-01-01"}
         state._bind_current_save = MagicMock(return_value="save-a")
-        payment = {
-            "bank": 3_000_000.0, "wallet": 0.0, "total": 3_000_000.0,
-            "transaction_id": "payment-1",
-        }
-        with (
-            patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-            patch("fm_odds_web.purchase_facility", return_value={"id": "facility-1"}),
-            patch("fm_odds_web.public_training_ground", return_value={}),
-            patch("fm_odds_web.public_economy", return_value={}),
-        ):
-            result = state.training_purchase({
-                "sku": "treadmill", "free_purchase": True,
-            })
-
-        charge.assert_called_once_with(
-            800_000.0, "training_facility_purchase", sku="treadmill",
-        )
-        self.assertEqual(result["payment"], payment)
-
-    def test_training_floor_purchase_uses_five_million_price(self) -> None:
-        state = LocalOddsState.__new__(LocalOddsState)
-        state.lock = threading.RLock()
-        state.output = {"game_date": "2030-01-01"}
-        state._bind_current_save = MagicMock(return_value="save-a")
-        payment = {
-            "bank": 5_000_000.0, "wallet": 0.0, "total": 5_000_000.0,
-            "transaction_id": "payment-floor-1",
-        }
-        with (
-            patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-            patch("fm_odds_web.unlock_training_floor", return_value={"scene": "indoor_3f", "unlocked": True}),
-            patch("fm_odds_web.public_training_ground", return_value={}),
-            patch("fm_odds_web.public_economy", return_value={}),
-        ):
-            result = state.training_floor_purchase({"scene": "indoor_3f"})
-
-        charge.assert_called_once_with(
-            5_000_000.0, "training_floor_purchase", scene="indoor_3f",
-        )
-        self.assertEqual(result["payment"], payment)
+        with patch("fm_odds_web.charge_combined_funds") as charge:
+            for handler, payload in (
+                (state.training_purchase, {"sku": "treadmill"}),
+                (state.training_floor_purchase, {"scene": "indoor_3f"}),
+                (state.training_place, {"facility_id": "facility-1"}),
+                (state.training_store, {"facility_id": "facility-1"}),
+                (state.training_sell, {"facility_id": "facility-1"}),
+            ):
+                with self.assertRaisesRegex(ValueError, "不再支持"):
+                    handler(payload)
+        charge.assert_not_called()
 
     def test_training_run_schedules_coaching_license_course(self) -> None:
         desk = purchase_facility("coaching_desk")
@@ -953,7 +924,7 @@ class TrainingGroundTests(unittest.TestCase):
         public = public_training_ground("2026-07-19")["focuses"][0]
         self.assertEqual(public["estimated_days"], 68)
 
-    def test_maxed_position_training_stays_active_without_changes(self) -> None:
+    def test_maxed_position_legacy_focus_is_due_and_completes(self) -> None:
         self.assertEqual(position_training_points_required(20), 0)
         self.assertEqual(
             training_ground_module.estimated_position_training_days_to_target(20, 20),
@@ -967,10 +938,16 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertTrue(focus["no_change"])
         self.assertEqual(focus["target_position"], 20)
         self.assertEqual(focus["required_points"], 0)
-        self.assertEqual(focus["progress_points"], 0)
-        self.assertEqual(advance_training_focuses("2027-07-19"), [])
+        due = advance_training_focuses("2027-07-19")
+        self.assertEqual([row["id"] for row in due], [focus["id"]])
+        settled = complete_position_training_focus(
+            focus["id"], "2027-07-19",
+            {"position_after": 20, "already_satisfied": True},
+        )
+        self.assertEqual(settled["status"], "completed")
+        self.assertEqual(active_training_focuses("2027-07-19"), [])
         public = public_training_ground("2027-07-19")["focuses"][0]
-        self.assertEqual(public["status"], "active")
+        self.assertEqual(public["status"], "completed")
         self.assertEqual(public["estimated_days"], 0)
 
     def test_position_training_writer_changes_only_selected_position_byte(self) -> None:

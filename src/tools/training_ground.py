@@ -1008,6 +1008,10 @@ def advance_training_focuses(game_date: str) -> list[dict[str, Any]]:
                 _normalize_attribute_focus(focus, migrated=False)
             required = int(focus.get("required_points") or 0)
             if not required:
+                # A maxed position task has no points to earn; return it as due
+                # so the settlement pass can finish it instead of leaving it
+                # active forever.
+                due.append(dict(focus))
                 continue
             last_text = focus.get("last_progress_on")
             if not last_text:

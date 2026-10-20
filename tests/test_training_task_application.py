@@ -9,14 +9,16 @@ from unittest.mock import MagicMock, patch
 
 from fm_odds_web import LocalOddsState
 from tools import account_store
+from tools import training_ground as training_ground_module
 from tools.app_settings import load_settings
 from tools.betting_account import load_wallet, save_wallet
 from tools.club_economy import load_economy, save_economy
 from tools.money import read_minor, to_minor, write_minor
 from tools.training_catalog import training_task_fee_minor
 from tools.training_ground import (
-    FACILITIES, active_training_focuses, load_training_ground,
-    place_facility, purchase_facility, save_training_ground,
+    POSITION_TRAINING_AREA_ID, FACILITIES, active_training_focuses,
+    load_training_ground, place_facility, purchase_facility,
+    record_position_training_focus, save_training_ground,
 )
 
 
@@ -605,6 +607,253 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         state._ensure_training_task_migration("2026-01-02")
         active = active_training_focuses("2026-01-01")
         self.assertEqual([row["id"] for row in active], [result["focus"]["id"]])
+
+    def test_task_completes_at_target_without_renewal(self) -> None:
+        state = self.state()
+        player = self.player_target(state)
+        state.club_profiles = {1: {
+            "team": {"id": 1, "name": "测试队", "address": "0xteam",
+                     "team_type": "club"},
+            "players": [player],
+        }}
+        result = self.run_attribute(state, submission_id="complete-a")
+        focus_id = result["focus"]["id"]
+        fee_count = self.training_fee_count()
+        wallet_after = self.wallet_minor()
+        develop_result = {
+            "attributes": {"身体": {"强壮": 11, "速度": 10}},
+            "ca": 100, "pa": 130, "attribute_after": 11,
+            "_original_raw": b"raw", "_original_ca": 100, "_original_pa": 130,
+        }
+        with (
+            patch(
+                "fm_odds_web.read_player_training_attributes",
+                return_value={focus_id: 10},
+            ),
+            patch(
+                "fm_odds_web.develop_player",
+                return_value=develop_result,
+            ) as develop,
+        ):
+            status = state._sync_training_focuses("2026-01-10")
+
+        develop.assert_called_once_with(
+            10, "0xa", "身体:强壮", 10, "training", 1,
+            allow_ca_over_pa=False,
+        )
+        self.assertEqual(status["completed_attribute_focus_ids"], [focus_id])
+        self.assertEqual(active_training_focuses("2026-01-10"), [])
+        payload = load_training_ground()
+        completed = next(
+            row for row in payload["focuses"] if row["id"] == focus_id
+        )
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(payload["facilities"], [])
+        archived = account_store.load_document("training_archive", {})
+        event = archived["events"][-1]
+        self.assertEqual(event["details"]["facility_sku"], "strength_rack")
+        self.assertEqual(event["details"]["floor"], "1F")
+        self.assertEqual(event["details"]["training_content"], "身体:强壮")
+        self.assertEqual(
+            len([
+                row for row in payload["focuses"]
+                if int(row.get("player_id") or 0) == 10
+            ]), 1,
+        )
+        self.assertEqual(self.training_fee_count(), fee_count)
+        self.assertEqual(self.wallet_minor(), wallet_after)
+
+    def test_target_progress_and_native_guards_are_unchanged(self) -> None:
+        attribute = {
+            "id": "attribute-stage", "status": "active",
+            "focus_type": "attribute", "initial_attribute": 10,
+            "target_attribute": 14, "duration_mode": "until_14",
+            "direction": 1, "required_points": 14, "progress_points": 0,
+        }
+        settled = training_ground_module._settle_attribute_focus(
+            attribute, "2026-01-01", {"attribute_after": 11},
+        )
+        self.assertEqual(settled["status"], "active")
+        self.assertEqual(settled["initial_attribute"], 11)
+        self.assertEqual(settled["progress_points"], 0)
+
+        position = {
+            "id": "position-stage", "status": "active",
+            "focus_type": "position", "initial_position": 10,
+            "target_position": 14, "duration_mode": "until_14",
+            "required_points": 14, "progress_points": 0,
+        }
+        with self.assertRaisesRegex(ValueError, "每次只能提升1点"):
+            training_ground_module._settle_position_focus(
+                position, "2026-01-01",
+                {"position_before": 10, "position_after": 12},
+            )
+
+    def test_maxed_position_focus_completes_without_native_write(self) -> None:
+        state = self.state()
+        player = self.player_target(state)
+        state.club_profiles = {1: {
+            "team": {"id": 1, "name": "测试队", "address": "0xteam",
+                     "team_type": "club"},
+            "players": [player],
+        }}
+        focus, _session = record_position_training_focus(
+            POSITION_TRAINING_AREA_ID, 10, "球员10", "2026-01-01",
+            "ST", "until_20", 20,
+        )
+        with (
+            patch(
+                "fm_odds_web.read_player_training_positions",
+                return_value={focus["id"]: 20},
+            ),
+            patch("fm_odds_web.develop_player_position") as develop,
+        ):
+            status = state._sync_training_focuses("2026-01-02")
+
+        develop.assert_not_called()
+        self.assertEqual(
+            status["completed_position_focus_ids"], [focus["id"]],
+        )
+        self.assertEqual(active_training_focuses("2026-01-02"), [])
+        completed = next(
+            row for row in load_training_ground()["focuses"]
+            if row["id"] == focus["id"]
+        )
+        self.assertEqual(completed["status"], "completed")
+
+    def test_cancel_releases_person_without_refund(self) -> None:
+        state = self.state(staff=[{
+            "id": 88, "name": "测试教练", "role": "教练", "job_type": 2,
+            "address": "0xstaff", "coaching_license": {
+                "code": 2, "next_code": 1, "maximum": False,
+            },
+        }])
+        self.player_targets(state, 10, 11)
+        with (
+            patch(
+                "fm_odds_web.read_player_training_attributes",
+                return_value={"training-preview": 10},
+            ),
+            patch(
+                "fm_odds_web.estimate_player_training_ca",
+                return_value={
+                    "attribute_before": 10, "ca_cost": 1,
+                    "ca_before": 100, "pa": 130, "model": "test",
+                    "verified": True,
+                },
+            ),
+            patch(
+                "fm_odds_web.read_player_training_positions",
+                return_value={"position-training-preview": 8},
+            ),
+        ):
+            attribute = state.training_run({
+                "project_sku": "strength_rack", "player_id": 10,
+                "team_id": 1, "operation": "attribute",
+                "attribute_key": "身体:强壮",
+                "duration_mode": "until_increase",
+                "client_submission_id": "cancel-attr",
+            })
+            position = state.training_run({
+                "project_sku": "position_training_area", "player_id": 11,
+                "team_id": 1, "operation": "position",
+                "position_key": "AMC", "duration_mode": "until_14",
+                "client_submission_id": "cancel-position",
+            })
+            coaching = state.training_run({
+                "project_sku": "coaching_desk", "staff_id": 88,
+                "player_id": 88, "team_id": 1,
+                "operation": "coaching_license", "target_license_code": 1,
+                "client_submission_id": "cancel-coach",
+            })
+        wallet_after = self.wallet_minor()
+        fee_count = self.training_fee_count()
+        ids = [
+            attribute["focus"]["id"],
+            position["focus"]["id"],
+            coaching["focus"]["id"],
+        ]
+        for focus_id in ids:
+            response = state.training_cancel({"focus_id": focus_id})
+            self.assertEqual(response["focus"]["status"], "cancelled")
+            self.assertIn("economy", response)
+        self.assertEqual(active_training_focuses("2026-01-01"), [])
+        self.assertEqual(self.wallet_minor(), wallet_after)
+        self.assertEqual(self.training_fee_count(), fee_count)
+        self.assertEqual(self.training_fee_count(), 2)
+        with self.assertRaisesRegex(ValueError, "已不在使用"):
+            state.training_cancel({"focus_id": ids[0]})
+
+    def test_cancelled_task_cannot_be_settled_from_stale_snapshot(self) -> None:
+        state = self.state()
+        player = self.player_target(state)
+        state.club_profiles = {1: {
+            "team": {"id": 1, "name": "测试队", "address": "0xteam",
+                     "team_type": "club"},
+            "players": [player],
+        }}
+        result = self.run_attribute(state, submission_id="stale-a")
+        state.training_cancel({"focus_id": result["focus"]["id"]})
+        stale_focus = dict(result["focus"])
+        stale_focus["status"] = "active"
+        settle_result = {
+            "attributes": {"身体": {"强壮": 11}},
+            "ca": 100, "pa": 130, "attribute_after": 11,
+            "_original_raw": b"raw", "_original_ca": 100, "_original_pa": 130,
+        }
+        with (
+            patch(
+                "fm_odds_web.active_training_focuses",
+                return_value=[stale_focus],
+            ),
+            patch(
+                "fm_odds_web.advance_training_focuses",
+                return_value=[stale_focus],
+            ),
+            patch("fm_odds_web.due_coaching_license_focuses", return_value=[]),
+            patch(
+                "fm_odds_web.read_player_training_attributes",
+                return_value={stale_focus["id"]: 10},
+            ),
+            patch(
+                "fm_odds_web.develop_player",
+                return_value=settle_result,
+            ) as develop,
+            patch("fm_odds_web.restore_player_development") as restore,
+        ):
+            status = state._sync_training_focuses("2026-01-02")
+
+        self.assertEqual(status["completed_attribute_focus_ids"], [])
+        self.assertIn("已失效", str(status.get("progress_error") or ""))
+        develop.assert_called_once()
+        restore.assert_called_once()
+        persisted = next(
+            row for row in load_training_ground()["focuses"]
+            if row["id"] == stale_focus["id"]
+        )
+        self.assertEqual(persisted["status"], "cancelled")
+
+    def test_legacy_purchase_and_sale_routes_have_no_financial_effect(self) -> None:
+        state = self.state()
+        self.set_bank_balance(to_minor(1_000_000))
+        wallet_before = self.wallet_minor()
+        bank_before = read_minor(load_economy(), "general_balance")
+        training_before = load_training_ground()
+        for handler, payload in (
+            (state.training_purchase, {"sku": "treadmill"}),
+            (state.training_floor_purchase, {"scene": "indoor_3f"}),
+            (state.training_place, {"facility_id": "facility-1"}),
+            (state.training_store, {"facility_id": "facility-1"}),
+            (state.training_sell, {"facility_id": "facility-1"}),
+        ):
+            with self.assertRaisesRegex(ValueError, "不再支持"):
+                handler(payload)
+        self.assertEqual(self.wallet_minor(), wallet_before)
+        self.assertEqual(
+            read_minor(load_economy(), "general_balance"), bank_before,
+        )
+        self.assertEqual(load_training_ground(), training_before)
+        self.assertEqual(self.training_fee_count(), 0)
 
     def test_bank_is_charged_before_wallet(self) -> None:
         state = self.state(staff=[
