@@ -124,7 +124,8 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 
 | 领域 | 所有者 |
 | --- | --- |
-| 训练设施、任务、楼层与公共投影 | `src/tools/training_ground.py` |
+| 训练项目目录、三模块归属与单次固定费用 | `src/tools/training_catalog.py`；纯规则，只做模块归属与费用投影，不扣费、不读写 FM |
+| 训练任务、一次性旧任务迁移、公共目录投影与旧记录兼容 | `src/tools/training_ground.py` |
 | 训练结算期间的队伍索引和对象回绑 | `src/tools/training_runtime.py` |
 | 关系综训房间规则与专项进度 | `src/tools/relationship_training.py` |
 | 版本化训练档案、关系摘要索引与关系时间线 | `src/tools/training_archive.py` |

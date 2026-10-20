@@ -164,9 +164,32 @@ def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_all
         'uiText("canteen.per_game_day"',
         'uiText("canteen.open", {name:uiText(plan.nameKey)})',
         'uiText("canteen.ban_all_confirm", {count:players.length})',
-        'uiText("training.no_available_position_players", {position:restrictedPositionLabel})',
-        'uiText("training.active_attribute_status"',
-        'uiText("training.estimated_over_pa"',
+        'setAttribute("aria-label", uiText("training.modules"))',
+        'labelKey:"training.module.player_training"',
+        'labelKey:"training.module.position_training"',
+        'labelKey:"training.module.staff_training"',
+        'uiText(kind === "staff" ? "training.roster.staff_title" : "training.roster.player_title")',
+        'uiPlural(kind === "staff" ? "training.roster.staff_count" : "training.roster.player_count", people.length)',
+        'uiText("training.roster.loading")',
+        'uiText("training.roster_empty")',
+        'uiText("training.roster_error")',
+        'uiText("training.roster_retry")',
+        'uiText("training.select_person")',
+        'uiText(module === "staff_training" ? "training.select_staff_hint" : "training.select_player_hint")',
+        'uiText("training.project_label")',
+        'uiText("training.fee_label")',
+        'uiText("training.estimated_time")',
+        'uiText("training.current_target_label")',
+        'uiText("training.arrange")',
+        'uiText("training.active_task")',
+        'uiText("training.cancel_task")',
+        'uiText("training.reason_active")',
+        'uiText("training.staff_ineligible")',
+        'uiText("training.reason_no_project")',
+        'uiText("training.not_eligible")',
+        'uiText("training.idle")',
+        'uiText("training.arranged")',
+        'uiText("training.arrange_failed")',
         'uiPlural("training.position_roster_count", filteredPlayers.length)',
         'uiText(group.labelKey)',
         'uiText("activity.floor_entertainment_eyebrow")',
@@ -186,18 +209,21 @@ def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_all
     ):
         assert literal not in script
 
-    # These three migrated renderers may retain only API/user values (names,
+    # These migrated renderers may retain only API/user values (names,
     # descriptions, and fixture data) and stable CSS/data attributes. None is
     # a Chinese UI literal, so the explicit allowlist is intentionally empty.
     allowed_game_or_user_data: tuple[str, ...] = ()
-    for function in ("canteenRosterPanel", "renderHospital", "renderInventory"):
+    for function in (
+        "canteenRosterPanel", "renderHospital", "renderInventory",
+        "renderTrainingModuleTabs", "renderTrainingRoster", "renderTrainingPersonDetail",
+    ):
         body = re.search(rf"function {function}\([^)]*\) \{{(.*?)(?=\nfunction |\Z)", script, re.S)
         assert body, function
         residual = re.findall(r"[一-龥]+", body.group(1))
         assert residual == list(allowed_game_or_user_data), (function, residual)
 
 
-def test_training_ground_catalog_and_renderers_use_current_facility_semantic_keys() -> None:
+def test_training_ground_catalog_and_renderers_use_current_project_semantic_keys() -> None:
     output = facilities_probe()
     expected = {
         f"training.facility.{sku}.{field}"
@@ -211,10 +237,10 @@ def test_training_ground_catalog_and_renderers_use_current_facility_semantic_key
 
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     for call in (
-        "trainingFacilityName(item.sku,item)",
-        "trainingFacilityDescription(item.sku,item)",
-        "trainingFacilityDescription(facility.sku,item)",
-        "trainingFacilityName(facility.sku,product)",
+        "trainingProjectName(row)",
+        "trainingProjectName(project)",
+        "trainingFacilityName(project?.sku, project || {})",
+        "trainingFacilityDescription(project?.sku, project || {})",
         "trainingArchiveFacilityLabel(details.facility_sku,details.facility_name)",
     ):
         assert call in script
@@ -224,3 +250,64 @@ def test_training_ground_catalog_and_renderers_use_current_facility_semantic_key
         "<span>${escapeHtml(product.name || facility.sku)}</span>",
     ):
         assert bypass not in script
+    for stale in (
+        "training.equipment_shop",
+        "training.equipment_storage",
+        "training.floor_unlock_confirm",
+        "training.buy",
+        "training.place",
+        "training.sell",
+        "training.available_equipment",
+        "training.sell_confirm",
+        "training.repeat",
+    ):
+        assert stale not in script, stale
+        for locale in ("en-GB", "zh-CN"):
+            assert stale not in output["keys"][locale], (locale, stale)
+
+
+def test_three_module_training_copy_is_bilingual_and_cancel_copy_warns_no_refund() -> None:
+    output = facilities_probe()
+    messages = output["messages"]
+    expected = {
+        "training.modules": ("Training modules", "训练模块"),
+        "training.module.player_training": ("Player training", "球员训练"),
+        "training.module.position_training": ("Position training", "位置训练"),
+        "training.module.staff_training": ("Staff training", "职员训练"),
+        "training.roster.player_title": ("First-team players", "一线队球员"),
+        "training.roster.staff_title": ("Club staff", "球队职员"),
+        "training.fee_label": ("Fixed fee", "单次费用"),
+        "training.free": ("Free", "免费"),
+        "training.cancel_title": ("Cancel training task?", "取消训练任务？"),
+        "training.cancel_message": (
+            "Cancel this training task? The fee for this task will not be refunded.",
+            "取消这次训练任务？取消后不会退还本次训练费用。",
+        ),
+        "training.cancel_confirm": ("Confirm cancellation", "确认取消"),
+        "training.cancel_keep": ("Keep training", "继续训练"),
+        "training.active_summary": (
+            "{speed} {action} {attribute}{range}{guidance} · {status}",
+            "{speed}{action}{attribute}{range}{guidance} · {status}",
+        ),
+    }
+    for key, (english, chinese) in expected.items():
+        assert messages["en-GB"][key] == english, key
+        assert messages["zh-CN"][key] == chinese, key
+    for base in ("training.roster.player_count", "training.roster.staff_count"):
+        for suffix in ("one", "other"):
+            assert messages["en-GB"][f"{base}.{suffix}"].strip()
+            assert messages["zh-CN"][f"{base}.{suffix}"].strip()
+
+    # Cancel confirmation must pass the warning copy first and the keep-training
+    # action last; the fee must never be described as refundable.
+    script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    assert (
+        'uiText("training.cancel_message"),\n'
+        '    uiText("training.cancel_confirm"),\n'
+        '    uiText("training.cancel_title"),\n'
+        '    uiText("training.cancel_keep"),'
+    ) in script
+    assert "will not be refunded" in messages["en-GB"]["training.cancel_message"]
+    assert "不会退还" in messages["zh-CN"]["training.cancel_message"]
+    assert 'const key = "training.active_summary";' in script
+    assert "return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);" in script
