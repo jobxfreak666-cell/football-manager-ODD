@@ -16,6 +16,7 @@ import re
 import fm_odds_web
 from tools.i18n_runtime import MESSAGE_CATALOGS
 from tools.preferred_moves import PreferredMoveStateError
+from tools.player_departure_messages import MESSAGES as PLAYER_DEPARTURE_MESSAGES
 
 
 def _handler(locale: str | None = None, *, app_locale: str | None = None) -> fm_odds_web.Handler:
@@ -36,21 +37,22 @@ def test_unknown_locale_and_missing_key_fall_back_to_authoritative_english() -> 
     assert LocalizedMessage("error.unknown").render("zh-CN") == (
         "The request could not be completed."
     )
-    assert normalize_locale("de-DE,de;q=0.9") == "de-DE"
-    assert normalize_locale("zh-TW,zh;q=0.9") == "zh-TW"
-    assert normalize_locale("zh-Hant-TW") == "zh-TW"
-    assert normalize_locale("es-MX") == "es-ES"
-    assert normalize_locale("fr-CA") == "fr-FR"
-    assert normalize_locale("ru") == "ru-RU"
-    assert normalize_locale("ja_JP") == "ja-JP"
-    assert normalize_locale("pt-BR") == "pt-BR"
-    assert normalize_locale("pt_BR") == "pt-BR"
-    assert normalize_locale("pt-PT") == "pt-PT"
+    assert normalize_locale("en") == "en-GB"
+    assert normalize_locale("en_GB") == "en-GB"
+    assert normalize_locale("zh") == "zh-CN"
+    assert normalize_locale("zh_CN") == "zh-CN"
+    assert normalize_locale("zh-Hans") == "zh-CN"
+    for removed_locale in (
+        "zh-TW", "zh-TW,zh;q=0.9", "zh-Hant", "zh-Hant-TW", "zh_Hant_TW",
+        "ko-KR", "de-DE", "es-ES",
+        "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT",
+    ):
+        assert normalize_locale(removed_locale) == DEFAULT_LOCALE
 
 
 def test_api_catalog_keys_and_parameters_match_across_locales() -> None:
+    assert set(SUPPORTED_LOCALES) == {"en-GB", "zh-CN"}
     assert set(MESSAGE_CATALOGS) == set(SUPPORTED_LOCALES)
-    assert {"pt-BR", "pt-PT"} <= set(MESSAGE_CATALOGS)
     key_sets = {locale: set(catalog) for locale, catalog in MESSAGE_CATALOGS.items()}
     assert all(keys == key_sets["en-GB"] for keys in key_sets.values())
     for key in key_sets["en-GB"]:
@@ -67,16 +69,17 @@ def test_localized_message_interpolates_factual_parameters() -> None:
     ).render("en-GB") == "Team Aurora was not found."
 
 
-def test_korean_catalog_renders_the_same_semantic_key() -> None:
+def test_removed_locale_messages_render_in_english() -> None:
     assert LocalizedMessage("error.service_unavailable").render("ko-KR") == (
-        "로컬 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요."
+        "The local service is temporarily unavailable. Please try again."
     )
-
-
-def test_traditional_chinese_catalog_uses_taiwanese_system_terms() -> None:
     assert LocalizedMessage("error.service_unavailable").render("zh-TW") == (
-        "本機服務暫時無法使用，請稍後再試。"
+        "The local service is temporarily unavailable. Please try again."
     )
+
+
+def test_player_departure_messages_only_publish_supported_locales() -> None:
+    assert set(PLAYER_DEPARTURE_MESSAGES) == {"en-GB", "zh-CN"}
 
 
 def test_explicit_app_locale_overrides_browser_accept_language() -> None:
@@ -85,7 +88,7 @@ def test_explicit_app_locale_overrides_browser_accept_language() -> None:
         RuntimeError("diagnostic only"), operation="/api/funds",
     )
     assert payload["message"] == (
-        "로컬 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요."
+        "The local service is temporarily unavailable. Please try again."
     )
 
 
@@ -118,7 +121,7 @@ def test_localized_message_never_renders_raw_exception_text() -> None:
     assert "database password" not in payload["message"]
     assert "database password" not in payload["message_key"]
     assert "database password" not in str(payload["message_params"])
-    assert payload["message"] == "로컬 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도하세요."
+    assert payload["message"] == "The local service is temporarily unavailable. Please try again."
 
 
 def test_domain_errors_carry_semantic_message_metadata() -> None:
@@ -142,7 +145,7 @@ def test_preferred_move_state_uses_stable_codes_and_localized_messages() -> None
     assert payload["error_phase"] == "validate_state"
     assert payload["details"] == {"operation": "learn", "already_satisfied": True}
     assert payload["message_key"] == "training.preferred_move.already_known"
-    assert payload["message"] == "선수가 이미 이 개인 습관을 보유하고 있습니다."
+    assert payload["message"] == "The player already has this preferred move."
 
 
 def test_new_mail_metadata_uses_stable_versioned_semantic_keys() -> None:
@@ -174,5 +177,5 @@ def test_legacy_handcrafted_http_errors_gain_safe_localized_metadata() -> None:
 
     payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
     assert payload["error"] == "내부 raw 中文"
-    assert payload["message"] == "요청한 리소스를 찾을 수 없습니다."
+    assert payload["message"] == "The requested resource was not found."
     assert payload["message_key"] == "error.not_found"

@@ -150,7 +150,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 路径 | 所有权 |
 | --- | --- |
 | `src/web/index.html` | 页面和对话框结构 |
-| `src/web/i18n.js`、`src/web/i18n.ko.js` | 前端界面语言运行时、英文基准/中文过渡目录与韩语目录；界面语言不承载 FM 业务真值，缺失翻译统一回退英文 |
+| `src/web/i18n.js`、`src/web/i18n.<domain>.js` | 前端界面语言运行时及领域中英文目录；仅支持 `en-GB`、`zh-CN`，界面语言不承载 FM 业务真值，缺失翻译统一回退英文 |
 | `src/web/app.css` | 布局、主题、状态和动画 |
 | `src/web/app.js` | 状态同步、页面渲染和用户交互 |
 | `src/web/bet_analysis_page.js` | 收益分析只读视图；显式接收数据、范围、线模式和格式化能力，不访问全局应用状态或发起请求，历史控制器与事件仍由 `app.js` 持有 |

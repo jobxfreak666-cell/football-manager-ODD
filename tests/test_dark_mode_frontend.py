@@ -89,7 +89,6 @@ class DarkModeFrontendTests(unittest.TestCase):
             ".competition-parent.expanded",
             ".owned-club-row-identity",
             ".owned-club-row-form",
-            ".owned-club-row-toggle",
             ".bank-statement-pagination button",
             ".league-refresh-button",
             ".relations-tabs button",

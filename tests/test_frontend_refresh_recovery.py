@@ -302,7 +302,7 @@ class FrontendRefreshRecoveryTests(unittest.TestCase):
             ".money-currency-setting", ".save-account-setting",
             ".full-refresh-setting",
             ".odds-reading-setting", "#championship-enabled",
-            ".compact-money-setting", ".profit-loss-color-setting", "#show-hidden-attributes",
+            ".profit-loss-color-setting", "#show-hidden-attributes",
             ".cheat-setting", ".storage-setting", ".support-setting",
         ):
             self.assertIn(f'"{selector}"', tabs)
@@ -1270,15 +1270,17 @@ class FrontendRefreshRecoveryTests(unittest.TestCase):
         )
 
     def test_each_interface_language_has_a_scoped_font_list_and_default(self):
-        for locale in ("en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"):
+        for locale in ("en-GB", "zh-CN"):
             self.assertIn(f'"{locale}": {{selectId:', self.script)
-        self.assertIn('"en-GB": {selectId:"english-font", default:"segoe-ui"', self.script)
-        self.assertIn('"zh-CN": {selectId:"chinese-font", default:"yahei-ui"', self.script)
-        self.assertIn('"zh-TW": {selectId:"chinese-font", default:"yahei"', self.script)
-        self.assertIn('"ko-KR": {selectId:"chinese-font", default:"malgun-gothic"', self.script)
-        self.assertIn('"ja-JP": {selectId:"chinese-font", default:"yu-gothic-ui"', self.script)
-        english_config = self.script.split('"en-GB": {selectId:', 1)[1].split("},", 1)[0]
+        config = self.script.split("const LOCALE_FONT_CONFIGS", 1)[1].split("});", 1)[0]
+        self.assertTrue('"en-GB": {selectId:"english-font"' in config)
+        self.assertTrue('"zh-CN": {selectId:"chinese-font"' in config)
+        english_config = config.split('"en-GB": {selectId:', 1)[1].split("},", 1)[0]
+        chinese_config = config.split('"zh-CN": {selectId:', 1)[1].split("},", 1)[0]
+        self.assertIn('default:"segoe-ui"', english_config)
+        self.assertIn('default:"yahei-ui"', chinese_config)
         self.assertNotIn("yahei-ui", english_config)
+        self.assertIn('const CJK_FONT_LOCALES = new Set(["zh-CN"]);', self.script)
         self.assertIn('"yahei-ui": "100%"', self.script)
         self.assertIn('"settings.font.family.yahei_ui"', self.script)
         self.assertIn('FONT_STORAGE_PREFIX = "fmodd-interface-font-"', self.script)

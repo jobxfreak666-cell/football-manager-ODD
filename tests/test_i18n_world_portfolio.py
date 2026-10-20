@@ -23,9 +23,9 @@ const i18n = context.window.FMODDI18n;
 const keys = Object.fromEntries(Object.entries(module.messages).map(([locale, catalog]) => [locale, Object.keys(catalog).sort()]));
 i18n.setLocale("en-GB", {persist:false, root:null});
 const english = [i18n.t("world.players.range_invalid", {label:"Age"}), i18n.t("portfolio.brand_confirm", {price:"£500", team:"Ajax", before:"4,000", after:"4,050"}), i18n.t("world.nation.ranking_page", {page:2, total:4, count:91}), i18n.t("portfolio.order.saved", {club:"Ajax", position:2}), i18n.t("portfolio.more_data"), i18n.t("portfolio.collapse_data"), i18n.t("portfolio.card.relative_to_price")];
-i18n.setLocale("ko-KR", {persist:false, root:null});
-const korean = [i18n.t("world.players.range_invalid", {label:"나이"}), i18n.t("portfolio.brand_confirm", {price:"£500", team:"Ajax", before:"4,000", after:"4,050"}), i18n.t("world.nation.ranking_page", {page:2, total:4, count:91}), i18n.t("portfolio.order.saved", {club:"Ajax", position:2}), i18n.t("portfolio.more_data"), i18n.t("portfolio.collapse_data"), i18n.t("portfolio.card.relative_to_price")];
-console.log(JSON.stringify({keys, messages:module.messages, english, korean}));
+i18n.setLocale("zh-CN", {persist:false, root:null});
+const chinese = [i18n.t("world.players.range_invalid", {label:"年龄"}), i18n.t("portfolio.brand_confirm", {price:"£500", team:"Ajax", before:"4,000", after:"4,050"}), i18n.t("world.nation.ranking_page", {page:2, total:4, count:91}), i18n.t("portfolio.order.saved", {club:"Ajax", position:2}), i18n.t("portfolio.more_data"), i18n.t("portfolio.collapse_data"), i18n.t("portfolio.card.relative_to_price")];
+console.log(JSON.stringify({keys, messages:module.messages, english, chinese}));
 '''
     result = subprocess.run(
         ["node", "-e", probe, str(ROOT)], check=True, capture_output=True,
@@ -41,13 +41,14 @@ def placeholders(value: str) -> set[str]:
 def test_world_portfolio_catalogs_have_locale_and_placeholder_parity() -> None:
     output = world_probe()
     keys = output["keys"]
-    assert keys["en-GB"] == keys["zh-CN"] == keys["ko-KR"]
+    assert set(keys) == {"en-GB", "zh-CN"}
+    assert keys["en-GB"] == keys["zh-CN"]
     for key in keys["en-GB"]:
-        values = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN", "ko-KR")]
-        assert placeholders(values[0]) == placeholders(values[1]) == placeholders(values[2])
+        values = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN")]
+        assert placeholders(values[0]) == placeholders(values[1])
 
 
-def test_world_portfolio_representative_english_and_korean_output() -> None:
+def test_world_portfolio_representative_english_and_chinese_output() -> None:
     output = world_probe()
     assert output["english"] == [
         "Age: minimum cannot be greater than maximum",
@@ -56,12 +57,12 @@ def test_world_portfolio_representative_english_and_korean_output() -> None:
         "Ajax moved to position 2; order saved",
         "More", "Less", "vs purchase price",
     ]
-    assert output["korean"] == [
-        "나이: 최솟값은 최댓값보다 클 수 없습니다",
-        "투자 금액 £500. “Ajax”의 명성을 4,000에서 4,050으로 올릴까요?",
-        "2 / 4페이지 · 선수 91명",
-        "Ajax를 2번째로 이동했고 순서를 저장했습니다",
-        "더보기", "접기", "인수가 대비",
+    assert output["chinese"] == [
+        "年龄最低值不能高于最高值",
+        "确认投入 £500，将“Ajax”声望从 4,000 提升到 4,050？",
+        "第 2 / 4 页 · 共 91 人",
+        "Ajax已移至第 2 位，顺序已保存",
+        "更多", "收起", "相较收购价",
     ]
 
 

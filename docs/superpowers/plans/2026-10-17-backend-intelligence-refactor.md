@@ -1,5 +1,7 @@
 # Match intelligence backend refactor implementation plan
 
+> **Historical baseline (2026-10-17):** This record captures the imported baseline and its approved follow-up at that time. Test totals and locale references below describe that historical scope. Since commit `eaf59ad` (2026-10-20), current UI language support is `en-GB` and `zh-CN`; see [`AGENTS.md`](../../../AGENTS.md) and [`I18N_ARCHITECTURE.md`](../../I18N_ARCHITECTURE.md).
+
 > **For agentic workers:** Use superpowers:executing-plans to implement the tasks inline. Steps use checkbox syntax for tracking.
 
 **Goal:** Extract match-intelligence use cases from the HTTP/runtime entrypoint without changing behavior.

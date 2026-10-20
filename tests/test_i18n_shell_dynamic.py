@@ -27,9 +27,9 @@ const i18n = context.window.FMODDI18n;
 const keys = Object.fromEntries(Object.entries(module.messages).map(([locale, catalog]) => [locale, Object.keys(catalog).sort()]));
 i18n.setLocale("en-GB", {persist:false, root:null});
 const english = i18n.t("manager.club_change.message", {manager:"Alex", previous:"Old Town", next:"New Town"});
-i18n.setLocale("ko-KR", {persist:false, root:null});
-const korean = i18n.t("manager.club_change.message", {manager:"Alex", previous:"Old Town", next:"New Town"});
-console.log(JSON.stringify({keys, english, korean}));
+i18n.setLocale("zh-CN", {persist:false, root:null});
+const chinese = i18n.t("manager.club_change.message", {manager:"Alex", previous:"Old Town", next:"New Town"});
+console.log(JSON.stringify({keys, english, chinese}));
 '''
     result = subprocess.run(
         ["node", "-e", probe, str(ROOT)],
@@ -47,7 +47,7 @@ const fs = require("fs"), vm = require("vm"), root = process.argv[1];
 const html = fs.readFileSync(root + "/web/index.html", "utf8");
 const sources = [...html.matchAll(/<script\s+src="([^"]+)"/g)].map((match) => match[1]);
 const context = {
-  window:{FMODDI18nModules:[],FMODDLocalePacks:{}},
+  window:{FMODDI18nModules:[]},
   document:{documentElement:{dataset:{}},querySelector:()=>null,dispatchEvent:()=>{}},
   NodeFilter:{SHOW_TEXT:4}, CustomEvent:class CustomEvent {},
 };
@@ -64,7 +64,7 @@ const helper = appSource.slice(
 );
 vm.runInContext('const uiText = (key, parameters = {}) => window.FMODDI18n.t(key, parameters);', context);
 vm.runInContext(helper, context);
-context.window.FMODDI18n.setLocale("ko-KR", {persist:false, root:null});
+context.window.FMODDI18n.setLocale("zh-CN", {persist:false, root:null});
 context.app = {state:{}};
 context.sourceState = {
   refreshing:true,
@@ -91,14 +91,15 @@ console.log(JSON.stringify({
 def test_shell_catalog_has_complete_locale_parity_and_parameterised_output() -> None:
     output = run_catalog_probe()
     keys = output["keys"]
-    assert keys["en-GB"] == keys["zh-CN"] == keys["ko-KR"]
+    assert set(keys) == {"en-GB", "zh-CN"}
+    assert keys["en-GB"] == keys["zh-CN"]
     assert output["english"] == (
         "Alex’s managed club changed from “Old Town” to “New Town”. "
         "Switch to the new club? FMODD will read its data and keep the current manager account."
     )
-    assert output["korean"] == (
-        "Alex의 담당 클럽 변경: “Old Town” → “New Town”. "
-        "새 클럽으로 전환할까요? FMODD가 데이터를 읽고 현재 감독 계정을 유지합니다."
+    assert output["chinese"] == (
+        "检测到Alex的执教俱乐部已从“Old Town”变为“New Town”。"
+        "是否切换到新俱乐部？确认后将读取新俱乐部资料，并沿用当前经理账户。"
     )
 
 
@@ -195,7 +196,7 @@ def test_runtime_refresh_copy_never_displays_backend_source_language_text() -> N
     assert 'uiText("refresh.stage.championship_markets")' in progress
 
 
-def test_korean_refresh_status_ignores_backend_chinese_progress_text() -> None:
+def test_supported_refresh_status_ignores_backend_chinese_progress_text() -> None:
     output = run_refresh_progress_probe()
-    assert output["known"] == "우승팀 베팅을 생성하고 정산하는 중 3/10"
-    assert output["unknown"] == "배당률을 새로 고치는 중"
+    assert output["known"] == "正在生成并结算冠军盘 3/10"
+    assert output["unknown"] == "正在刷新盘口"

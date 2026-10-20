@@ -230,6 +230,7 @@ def test_sale_requires_verified_transfer_budget_field_without_balance_fallback()
 
 
 def test_localizations_have_complete_keys_and_placeholders():
+    assert set(MESSAGES) == {'en-GB', 'zh-CN'}
     expected = set(MESSAGES['en-GB'])
     for locale, messages in MESSAGES.items():
         assert set(messages) == expected, locale

@@ -140,13 +140,14 @@ class GlobalStatisticsTests(unittest.TestCase):
         units = script.split("const MONEY_ABBREVIATION_UNITS", 1)[1].split(
             "const MONEY_ABBREVIATION_MULTIPLIERS", 1
         )[0]
-        formatter = script.split("const formatGlobalStatisticMoney", 1)[1].split(
-            "const formatMoney", 1
+        formatter = script.split("const MONEY_ABBREVIATION_UNITS", 1)[1].split(
+            "const formatPounds", 1
         )[0]
 
         for suffix in ('"K"', '"M"', '"B"', '"T"', '"P"', '"E"', '"Z"', '"Y"', '"R"', '"Q"'):
             self.assertIn(suffix, units)
-        self.assertIn("moneyAbbreviationUnit(absolute)", formatter)
+        self.assertIn("const formatGlobalStatisticMoney", formatter)
+        self.assertIn("moneyAbbreviationUnit(amount)", formatter)
         self.assertNotIn("app.compactMoney", formatter)
         self.assertIn("formatGlobalStatisticMoney(Number(value || 0))", script)
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
-LOCALES = ("en-GB", "zh-CN", "ko-KR")
+LOCALES = ("en-GB", "zh-CN")
 ATTRIBUTE_KEYS = {
     "aria-label": "data-i18n-aria-label",
     "placeholder": "data-i18n-placeholder",
@@ -71,7 +71,7 @@ const files = [
 for (const file of files) {
   vm.runInContext(fs.readFileSync(root + "/web/" + file, "utf8"), context, {filename:file});
 }
-const combined = {messages:{"en-GB":{}, "zh-CN":{}, "ko-KR":{}}, legacy:{"en-GB":{}, "zh-CN":{}, "ko-KR":{}}};
+const combined = {messages:{"en-GB":{}, "zh-CN":{}}, legacy:{"en-GB":{}, "zh-CN":{}}};
 for (const module of context.window.FMODDI18nModules) {
   for (const locale of Object.keys(combined.messages)) {
     Object.assign(combined.messages[locale], module.messages?.[locale] || {});
@@ -99,11 +99,11 @@ def test_static_catalog_is_complete_and_isomorphic() -> None:
     messages = module["messages"]
     assert set(messages) == set(LOCALES)
     key_sets = {locale: set(messages[locale]) for locale in LOCALES}
-    assert key_sets["en-GB"] == key_sets["zh-CN"] == key_sets["ko-KR"]
+    assert key_sets["en-GB"] == key_sets["zh-CN"]
     for key in key_sets["en-GB"]:
         values = [messages[locale][key] for locale in LOCALES]
         assert all(isinstance(value, str) and value for value in values), key
-        assert _parameters(values[0]) == _parameters(values[1]) == _parameters(values[2]), key
+        assert _parameters(values[0]) == _parameters(values[1]), key
     assert set(module["legacy"]) == set(LOCALES)
 
 
@@ -184,20 +184,13 @@ def test_index_loads_all_localization_modules_before_core_and_app() -> None:
         "/i18n.items.js",
         "/i18n.settings.js",
         "/i18n.facilities.js",
+        "/i18n.departure.js",
         "/i18n.world.js",
-        "/i18n.ko.js",
         "/i18n.relationship.js",
-        "/i18n.tw.js",
-        "/i18n.de.js",
-        "/i18n.es.js",
-        "/i18n.fr.js",
-        "/i18n.ru.js",
-        "/i18n.ja.js",
-        "/i18n.pt-BR.js",
-        "/i18n.pt-PT.js",
         "/i18n.enums.js",
         "/i18n.js",
         "/bet_analysis_page.js",
+        "/player_departure_page.js",
         "/app.js",
     ]
     assert sources[-len(expected):] == expected

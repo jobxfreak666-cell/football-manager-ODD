@@ -10,6 +10,6 @@ These rules apply to this source repository.
 - Use the active `GameLayout` for version-dependent offsets. Preserve object identity checks, expected-old-value checks, readback, and rollback.
 - Prefer focused, isolated tests. Do not automatically run all tests, restart services, or build a release for a documentation or source-publication change.
 - Development serves `src/web/` directly. Do not hand-edit generated asset bundles. User-visible font sizes must be at least 13px.
-- User-visible copy must support en-GB, zh-CN, zh-TW, ko-KR, de-DE, es-ES, fr-FR, ru-RU, ja-JP, pt-BR, and pt-PT.
+- User-visible copy must support only en-GB and zh-CN.
 - Update architecture, runtime contracts, or feature-index entries when their corresponding behavior or ownership changes.
 - This repository provides development source and source runtime instructions. A passing static or mock test does not prove live-game behavior.
