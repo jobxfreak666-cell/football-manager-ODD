@@ -32,6 +32,7 @@ def extract(start: str, end: str) -> str:
 
 HELPERS = extract("const TRAINING_MODULES = [", "function managedFixtures() {")
 DATA_INDEX = extract("function trainingDataIndex() {", "function trainingProduct(sku)")
+FOCUS_SUMMARY = extract("function trainingFocusSummaryText(", "async function settleTrainingProgress")
 POSITION_RUNTIME = extract(
     "function positionTrainingPayload(player, slot, durationMode) {",
     "async function startPositionTrainingAssignments(button)",
@@ -95,7 +96,8 @@ const trainingAttributeAffectsCa = (key, product = {}, caCosts = {}) => (
 const TRAINING_FIXED_TARGETS = [14,16,18,20];
 const TRAINING_REDUCTION_TARGETS = [10,5,1];
 const COACHING_STAFF_JOB_TYPES = new Set([2,20,22,26,34,64]);
-const uiText = (key, values = {}) => key + (Object.keys(values).length ? "|" + JSON.stringify(values) : "");
+let uiTextImpl = (key, values = {}) => key + (Object.keys(values).length ? "|" + JSON.stringify(values) : "");
+const uiText = (key, values = {}) => uiTextImpl(key, values);
 const uiPlural = (key, count) => `${key}.${Number(count) === 1 ? "one" : "other"}`;
 const escapeHtml = (value) => String(value);
 const formatPounds = (value) => `GBP${Number(value)}`;
@@ -130,6 +132,8 @@ const clientSubmissionId = () => `submission-${localSubmit += 1}`;
 const ensurePlayerDevelopmentRosterLoaded = async () => ensureDevelopmentRosterImpl();
 const ensureTrainingCoachingRosterLoaded = async () => ensureCoachingRosterImpl();
 const ensureTrainingRosterLoaded = async () => ensureRosterImpl();
+const COACHING_LICENSE_NAMES = {0:"training.licence.none",7:"training.licence.national_c",6:"training.licence.national_b",5:"training.licence.national_a",4:"training.licence.continental_c",3:"training.licence.continental_b",2:"training.licence.continental_a",1:"training.licence.continental_pro"};
+const trainingPlayerContext = (id) => (fixtures.players || []).find((row) => Number(row.id) === Number(id)) || null;
 const managedCoachingRostersAreCurrent = () => fixtures.coachingCurrent;
 const trainingRosterIsCurrent = () => fixtures.rosterCurrent;
 const $ = (selector) => fixtures.dom[selector] || null;
@@ -158,6 +162,7 @@ function staff(id, name, extra = {}) {
 __HELPERS__
 __DATA_INDEX__
 __POSITION_RUNTIME__
+__FOCUS_SUMMARY__
 (() => {
 (async () => {
 __TEST__
@@ -171,6 +176,7 @@ def harness(test_code: str) -> subprocess.CompletedProcess[str]:
         BASE.replace("__HELPERS__", HELPERS)
         .replace("__DATA_INDEX__", DATA_INDEX)
         .replace("__POSITION_RUNTIME__", POSITION_RUNTIME)
+        .replace("__FOCUS_SUMMARY__", FOCUS_SUMMARY)
         .replace("__TEST__", test_code)
     )
     if os.environ.get("T5_DUMP_SOURCE"):
@@ -506,6 +512,54 @@ class TrainingTaskFrontendTests(unittest.TestCase):
     assert.equal(attempts, 2);
         ''')
         assert_node_ok(result)
+
+    def test_active_task_summary_uses_spaced_template_and_safe_fallback(self) -> None:
+        result = harness(r"""
+    const templates = {
+      "training.speed_three":"3x speed",
+      "training.raise":"Increase",
+      "training.about_days":"About {days} days remaining",
+      "training.active_summary":"{speed} {action} {attribute}{range}{guidance} · {status}",
+    };
+    uiTextImpl = (key, values = {}) => {
+      const template = templates[key];
+      if (template === undefined) return key;
+      return template.replace(/\{([a-z_]+)\}/gi, (match, name) => (
+        Object.hasOwn(values, name) ? String(values[name]) : match
+      ));
+    };
+    const focus = {
+      focus_type:"attribute", attribute_key:"身体:强壮", multiplier:3,
+      initial_attribute:13, target_attribute:14, duration_mode:"until_increase",
+      estimated_days:10, direction:1,
+    };
+    const english = trainingFocusUsage(focus);
+    assert.equal(english, "3x speed Increase 身体:强壮 13→14 · About 10 days remaining");
+    delete templates["training.active_summary"];
+    const fallback = trainingFocusUsage(focus);
+    assert.ok(!fallback.includes("training.active_summary"), fallback);
+    assert.equal(fallback, "3x speed Increase 身体:强壮 13→14 · About 10 days remaining");
+    templates["training.active_summary"] = "{speed}{action}{attribute}{range}{guidance} · {status}";
+    templates["training.speed_three"] = "三倍速";
+    templates["training.raise"] = "提升";
+    templates["training.about_days"] = "约还需{days}天";
+    assert.equal(trainingFocusUsage(focus), "三倍速提升身体:强壮 13→14 · 约还需10天");
+        """)
+        assert_node_ok(result)
+
+    def test_other_active_summaries_use_localised_templates(self) -> None:
+        self.assertIn("training.active_summary", APP_JS)
+        for key in (
+            "training.position_progress",
+            "training.licence_study",
+            "training.habit_study",
+        ):
+            self.assertIn(f'uiText("{key}"', APP_JS, key)
+        self.assertIn(
+            "trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining)",
+            APP_JS,
+        )
+        self.assertIn('return `${speed} ${action} ${attribute}${range}${guidance} · ${status}`;', APP_JS)
 
     def test_app_js_passes_node_syntax_check(self) -> None:
         node = shutil.which("node")

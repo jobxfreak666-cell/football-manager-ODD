@@ -11146,6 +11146,12 @@ function activeTrainingStaffFocus(staffId) {
   return trainingDataIndex().activeFocusByStaff.get(Number(staffId)) || null;
 }
 
+function trainingFocusSummaryText(speed, action, attribute, range, guidance, status) {
+  const key = "training.active_summary";
+  const localized = uiText(key, {speed, action, attribute, range, guidance, status});
+  if (localized && localized !== key && !/\{[a-z_]+\}/i.test(localized)) return localized;
+  return `${speed} ${action} ${attribute}${range}${guidance} · ${status}`;
+}
 function trainingFocusUsage(focus) {
   const days = Number(focus.days_used || 0);
   if (focus.focus_type === "coaching_license") {
@@ -11191,10 +11197,10 @@ function trainingFocusUsage(focus) {
     const remaining = estimatedDays > 0
       ? uiText("training.until_target", {target, days:totalDays})
       : uiText("training.until_settling", {target});
-    return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
+    return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
   }
   const remaining = estimatedDays > 0 ? uiText("training.about_days", {days:estimatedDays}) : uiText("training.points_settling");
-  return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
+  return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
 }
 async function settleTrainingProgress({forceRoster = false, notify = false} = {}) {
   if (app.trainingSettlementReloading) return;
