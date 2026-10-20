@@ -144,6 +144,8 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 比赛情报单次探测、公共状态与购买用例 | `src/tools/match_intelligence_application.py`；`LocalOddsState` 保留门面、后台循环和唯一运行时状态，通过显式 `MatchIntelligenceIO` 提供调用依赖 |
 | 比赛/球员道具 | `src/tools/*hook*.py`、`src/tools/*nuclear*.py` |
 
+训练接口失败以稳定语义键返回：服务端提供 `message_key`（训练为 `training.error.*`）与 `message_params`，按请求头 `X-FMODD-Locale` 渲染 `message`（仅 `en-GB`、`zh-CN`）；保留的中文 legacy `error` 仅作诊断，前端优先显示 `message`。
+
 业务文档、原生对象地址和前端选中状态属于不同层。训练、活动或医疗优化不能通过复用旧地址、吞掉等待状态、缓存伤病真值或绕过写后回读来换取速度。
 
 ### 3.6 前端与资源

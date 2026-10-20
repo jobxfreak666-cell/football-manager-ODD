@@ -91,7 +91,7 @@ JSON 业务分派只经过上述注册表；HTTP 修改响应来源契约在 [st
 | 数据与副作用 | `app.state.training_ground` 是展示快照：`catalog` 为三模块项目与报价投影，`floors`/`facilities` 仅保留历史兼容；任务、付款与进度按经理账户隔离；多人可同项目，不检查器械容量；到期效果可能写 FM 属性/位置/关系，修改 UI 不授予实机结算权限 |
 | 初始测试候选 | [test_training_task_rules.py](../tests/test_training_task_rules.py)、[test_training_task_application.py](../tests/test_training_task_application.py)、[test_training_task_frontend.py](../tests/test_training_task_frontend.py)、[test_training_ground.py](../tests/test_training_ground.py)、[test_training_archive.py](../tests/test_training_archive.py)；只在涉及综训时选 [test_relationship_training.py](../tests/test_relationship_training.py)、[test_relationship_training_frontend.py](../tests/test_relationship_training_frontend.py) |
 
-三模块名单→人物详情、任务进度、原生效果、档案投影分别定位，不把存档数据或后台结算真值放进前端。详细边界见运行时契约“Hook、活动、训练与医疗运行时契约”。
+三模块名单→人物详情、任务进度、原生效果、档案投影分别定位，不把存档数据或后台结算真值放进前端。接口错误统一返回 `message_key`（训练为 `training.error.*`）与 `message_params`，服务端按 `X-FMODD-Locale` 渲染 `message`；中文 legacy `error` 仅作诊断。详细边界见运行时契约“Hook、活动、训练与医疗运行时契约”。
 
 ## legacy
 
