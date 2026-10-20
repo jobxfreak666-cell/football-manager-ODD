@@ -12,6 +12,7 @@ from tools.account_store import load_document, save_document
 from tools.app_paths import save_data_root
 from tools.app_settings import load_settings, local_purchase_price
 from tools.training_archive import archive_training_focus
+from tools.training_catalog import build_training_project_catalog
 
 
 _LOCK = threading.RLock()
@@ -1258,13 +1259,7 @@ def public_training_ground(game_date: str = "") -> dict[str, Any]:
         ][:50]
         return {
             "floors": _training_floor_status(payload, settings),
-            "catalog": [
-                {
-                    "sku": sku, **details,
-                    "price": local_purchase_price(details["price"], settings),
-                }
-                for sku, details in FACILITIES.items()
-            ],
+            "catalog": build_training_project_catalog(FACILITIES, settings),
             "facilities": [
                 *[dict(row) for row in payload["facilities"]],
                 *_built_in_facilities(),
