@@ -2450,8 +2450,17 @@ class WorldClubDirectoryTests(unittest.TestCase):
         detail_renderer = script.split("function renderWorldClubDetailContent", 1)[1].split(
             "async function openWorldClubDetail", 1,
         )[0]
-        self.assertIn("const displayName = club.display_name", card_renderer)
-        self.assertIn("club.renamed_short_name || club.short_name", card_renderer)
+        self.assertIn(
+            "portfolio ? ownedClubPortfolioDisplayName(club)",
+            " ".join(card_renderer.split()),
+        )
+        self.assertIn("club.display_name || club.name || club.short_name", card_renderer)
+        name_helper = script.split("function ownedClubPortfolioDisplayName", 1)[1].split(
+            "\n}", 1,
+        )[0]
+        self.assertIn(
+            "club.renamed_short_name || club.short_name", " ".join(name_helper.split()),
+        )
         self.assertIn("escapeHtml(displayName)", card_renderer)
         self.assertNotIn('data-lucide="eye"', card_renderer)
         self.assertIn('<span>查看</span>', card_renderer)
@@ -2588,9 +2597,10 @@ class WorldClubDirectoryTests(unittest.TestCase):
         sale = script.split("async function sellOwnedClub", 1)[1].split(
             "async function repayOwnedClubDebt", 1,
         )[0]
-        self.assertIn("const confirmed = await fmoddConfirm", sale)
+        self.assertRegex(sale, r"\bconfirmed\s*=\s*await\s+fmoddConfirm\s*\(")
         self.assertIn('"确认出售"', sale)
-        confirm_guard = "if (!confirmed || !scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return"
+        confirm_guard = "if (!confirmed || !scopeStillCurrent()) return;"
+        ownership_guard = "if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent())"
         result_guard = "if (!result || !scopeStillCurrent()) return;"
         self.assertEqual(sale.count(confirm_guard), 1)
         self.assertEqual(sale.count(result_guard), 1)
@@ -2599,17 +2609,25 @@ class WorldClubDirectoryTests(unittest.TestCase):
             sale,
         )
         self.assertIn("if (!preSaleListReads.length && worldClubsRequestStillCurrent() && ownershipStillCurrent())", sale)
-        self.assertIn("await Promise.allSettled(preSaleListReads)", sale)
-        self.assertIn("await loadState({fresh:true})", sale)
-        self.assertIn("await loadWorldClubs()", sale)
-        self.assertNotIn("refreshOwnedClubCards", sale)
+        # Completed sales reconcile through the shared read-only sync helper.
+        self.assertIn("await syncCompletedOwnedClubSales()", sale)
+        sync = script.split("async function syncCompletedOwnedClubSales", 1)[1].split(
+            "async function retryOwnedClubSaleSync", 1,
+        )[0]
+        self.assertRegex(sync, r"await\s+Promise\.allSettled\s*\(")
+        self.assertIn("await loadState({fresh:true})", sync)
+        self.assertIn("await loadWorldClubs({background:true})", sync)
+        self.assertNotIn("/api/world-clubs/sell", sync)
+        self.assertNotIn("refreshOwnedClubCards", sale + sync)
         self.assertNotIn("if (!confirmed) return", sale)
         sell_post = sale.index('"/api/world-clubs/sell"')
         self.assertLess(sale.index("fmoddConfirm"), sell_post)
         self.assertLess(sale.index(confirm_guard), sell_post)
+        self.assertLess(sale.index(ownership_guard), sell_post)
         self.assertLess(sell_post, sale.index(result_guard))
-        self.assertLess(sale.index("preSaleListReads"), sale.index("await loadState({fresh:true})"))
-        self.assertLess(sale.index("await loadState({fresh:true})"), sale.index("await loadWorldClubs()"))
+        self.assertLess(sale.index("preSaleListReads"), sale.index("await syncCompletedOwnedClubSales()"))
+        self.assertLess(sync.index("Promise.allSettled"), sync.index("await loadState({fresh:true})"))
+        self.assertLess(sync.index("await loadState({fresh:true})"), sync.index("await loadWorldClubs({background:true})"))
 
     def test_owned_club_detail_header_shows_revenue_instead_of_ownership(self) -> None:
         from frontend_source import read_frontend_source
