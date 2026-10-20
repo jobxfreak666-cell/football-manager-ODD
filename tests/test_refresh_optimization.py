@@ -4680,9 +4680,17 @@ class RefreshOptimizationTests(unittest.TestCase):
     @staticmethod
     def _attribute_training_state() -> LocalOddsState:
         state = RefreshOptimizationTests._state(verified=True)
+        state.output["managed_teams"] = [{
+            "id": 100, "name": "测试队", "address": "0xteam",
+            "team_type": "club",
+        }]
         state.club_profile = None
         state.club_profiles = {
             100: {
+                "team": {
+                    "id": 100, "name": "测试队", "address": "0xteam",
+                    "team_type": "club",
+                },
                 "players": [{
                     "id": 10, "name": "A", "address": "0x1234",
                     "attributes": {"身体": {"速度": 17}}, "ca": 150, "pa": 180,
@@ -4779,13 +4787,24 @@ class RefreshOptimizationTests(unittest.TestCase):
         state.output["game_date"] = "2026-07-26"
         player = state.club_profiles[100]["players"][0]
         player["attributes"] = {"身体": {"速度": 10}}
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [], "unlocked_floors": [],
+        }
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.assert_training_available",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
                 return_value=(
                     {"id": "facility-1", "sku": "treadmill"},
-                    {"attributes": ["身体:速度"], "session_fee": 0},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
                 ),
             ),
             patch(
@@ -4796,15 +4815,26 @@ class RefreshOptimizationTests(unittest.TestCase):
                     "model": "fm24-verified", "verified": True,
                 },
             ),
-            patch("fm_odds_web.record_training_focus") as record,
+            patch.object(
+                state, "_prepare_training_payment",
+                return_value=(
+                    {"bank": 0.0, "wallet": 0.0, "total": 0.0}, None, [],
+                ),
+            ),
+            patch("fm_odds_web.build_training_focus") as build,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
         ):
             with self.assertRaisesRegex(ValueError, "可能触发属性重新分配"):
                 state.training_run({
-                    "facility_id": "facility-1", "player_id": 10,
+                    "project_sku": "treadmill", "player_id": 10,
                     "operation": "attribute", "attribute_key": "身体:速度",
                     "duration_mode": "until_increase", "free_purchase": True,
+                    "client_submission_id": "ca-risk-a",
                 })
-        record.assert_not_called()
+        build.assert_not_called()
+        commit.assert_not_called()
 
     def test_training_run_persists_confirmed_ca_over_pa_risk(self):
         state = self._attribute_training_state()
@@ -4813,16 +4843,32 @@ class RefreshOptimizationTests(unittest.TestCase):
         state.attribute_growth_hook.status = MagicMock(return_value={"installed": False})
         player = state.club_profiles[100]["players"][0]
         player["attributes"] = {"身体": {"速度": 10}}
-        focus = {"id": "focus-1", "multiplier": 3, "expires_on": None,
-                 "duration_mode": "until_increase", "duration_days": None,
-                 "required_points": 14, "progress_points": 0}
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [], "unlocked_floors": [],
+        }
+        focus = {
+            "id": "focus-1", "multiplier": 3, "expires_on": None,
+            "duration_mode": "until_increase", "duration_days": None,
+            "required_points": 14, "progress_points": 0,
+            "focus_type": "attribute", "status": "active", "player_id": 10,
+            "project_sku": "treadmill", "module": "player_training",
+        }
+        session = {"id": "session-1", "focus_id": "focus-1"}
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.assert_training_available",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
                 return_value=(
                     {"id": "facility-1", "sku": "treadmill"},
-                    {"attributes": ["身体:速度"], "session_fee": 0},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
                 ),
             ),
             patch(
@@ -4833,53 +4879,86 @@ class RefreshOptimizationTests(unittest.TestCase):
                     "model": "fm24-verified", "verified": True,
                 },
             ),
+            patch.object(
+                state, "_prepare_training_payment",
+                return_value=(
+                    {"bank": 0.0, "wallet": 0.0, "total": 0.0}, None, [],
+                ),
+            ),
             patch(
-                "fm_odds_web.record_training_focus",
-                return_value=(focus, {"id": "session-1"}),
-            ) as record,
+                "fm_odds_web.build_training_focus",
+                return_value=(focus, session),
+            ) as build,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
             patch("fm_odds_web.public_training_ground", return_value={}),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
             response = state.training_run({
-                "facility_id": "facility-1", "player_id": 10,
+                "project_sku": "treadmill", "player_id": 10,
                 "operation": "attribute", "attribute_key": "身体:速度",
                 "duration_mode": "until_increase", "free_purchase": True,
+                "client_submission_id": "ca-risk-b",
                 "confirm_ca_over_pa": True,
             })
 
-        record.assert_called_once_with(
-            "facility-1", 10, "A", "2026-07-26", "身体:速度", 0x35,
-            "until_increase", 10, allow_ca_over_pa=True,
-            attribute_kind="visible", direction=1,
-            player_address="0x1234", player_team_id=None,
-            player_team_name=None, player_team_type="club",
+        build.assert_called_once()
+        self.assertTrue(build.call_args.kwargs["allow_ca_over_pa"])
+        commit.assert_called_once()
+        self.assertEqual(
+            response["training_ground"]["growth_hook"],
+            {"installed": False, "error": None},
         )
-        self.assertEqual(response["training_ground"]["growth_hook"], {"installed": False})
 
     def test_training_run_retry_returns_existing_submission_without_charge(self):
         state = self._attribute_training_state()
         state.memory_lock = threading.RLock()
         state.output["game_date"] = "2026-07-26"
         state.attribute_growth_hook.status = MagicMock(return_value={"installed": False})
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [], "unlocked_floors": [],
+        }
         focus = {
             "id": "focus-1", "focus_type": "attribute", "status": "active",
-            "facility_id": "facility-1", "player_id": 10,
-            "attribute_key": "身体:速度", "duration_mode": "until_increase",
+            "task_rules_version": 1, "project_sku": "treadmill",
+            "module": "player_training", "facility_id": "facility-1",
+            "player_id": 10, "attribute_key": "身体:速度",
+            "duration_mode": "until_increase", "attribute_kind": "visible",
+            "direction": 1,
+            "payment": {"bank": 0.0, "wallet": 0.0, "total": 0.0},
         }
         session = {"id": "session-1", "focus_id": "focus-1"}
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.find_training_submission",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
+                return_value=(
+                    {"id": "facility-1", "sku": "treadmill"},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
+                ),
+            ),
+            patch(
+                "fm_odds_web.find_training_submission_in",
                 return_value=(focus, session),
             ),
-            patch("fm_odds_web.assert_training_available") as available,
-            patch("fm_odds_web.charge_combined_funds") as charge,
+            patch.object(state, "_prepare_training_payment") as prepare,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
             patch("fm_odds_web.public_training_ground", return_value={}),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
             response = state.training_run({
-                "facility_id": "facility-1", "player_id": 10,
+                "project_sku": "treadmill", "player_id": 10,
                 "operation": "attribute", "attribute_key": "身体:速度",
                 "duration_mode": "until_increase",
                 "client_submission_id": "training-request-1",
@@ -4887,8 +4966,8 @@ class RefreshOptimizationTests(unittest.TestCase):
 
         self.assertTrue(response["duplicate"])
         self.assertEqual(response["focus"]["id"], "focus-1")
-        available.assert_not_called()
-        charge.assert_not_called()
+        prepare.assert_not_called()
+        commit.assert_not_called()
 
     def test_until_20_attribute_training_advances_without_releasing_focus(self):
         state = self._attribute_training_state()

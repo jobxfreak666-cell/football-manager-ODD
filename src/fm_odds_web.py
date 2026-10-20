@@ -70,6 +70,7 @@ from tools.betting_account import (
     available_balance,
     cheat_balance,
     betting_profit_analysis,
+    commit_documents_with_wallet_adjustments,
     credit_effective_bet_count,
     clear_settled_bet_history,
     claim_version_update_reward,
@@ -115,6 +116,8 @@ from tools.club_economy import (
     salary_status, set_salary_schedule, transfer_wallet, credit_status,
     adjust_bank_balance,
     charge_combined_funds, refund_combined_funds, collect_match_integrity_penalty,
+    economy_path,
+    _collect_combined_funds,
     borrow_credit, repay_credit, process_credit_due,
     clear_credit_cheat,
     record_credit_default_notice, acknowledge_credit_default_notice,
@@ -232,17 +235,23 @@ from tools.preferred_moves import (
 )
 from tools.training_ground import (
     FACILITIES as TRAINING_FACILITIES,
+    TASK_RULES_VERSION as TRAINING_TASK_RULES_VERSION,
     TRAINING_FLOORS,
-    active_training_focuses, advance_training_focuses, assert_training_available,
-    assert_coaching_course_available, cancel_training_focus,
+    active_training_focuses, advance_training_focuses,
+    cancel_training_focus,
+    append_training_task, build_coaching_license_focus,
+    build_habit_training_focus, build_position_training_focus,
+    build_training_focus, expire_training_focuses,
+    find_training_submission_in,
+    load_training_ground, migrate_training_tasks,
+    training_project_for_request,
     complete_attribute_training_focus, complete_coaching_license_focus,
     complete_position_training_focus,
     rebase_attribute_training_focus, rebase_position_training_focus,
     complete_habit_training_focus, place_facility,
     due_coaching_license_focuses,
-    find_training_submission, public_training_ground,
-    purchase_facility, record_training_focus, record_position_training_focus,
-    record_coaching_license_focus, record_habit_training_focus,
+    public_training_ground,
+    purchase_facility,
     release_training_users,
     remove_facility, restore_facility,
     rebind_training_focus_player, rebind_training_focus_staff,
@@ -250,6 +259,7 @@ from tools.training_ground import (
     training_target_attribute, training_points_required_for_direction,
     assert_training_floor_unlocked, unlock_training_floor,
 )
+from tools.training_catalog import training_task_fee_minor
 from tools.training_runtime import TrainingRosterIndex
 from tools.manager_record import sync_player_manager_record
 from tools.attribute_growth_hook import AttributeGrowthHookController
@@ -308,6 +318,7 @@ from tools.relationship_training import (
     compute_team_capabilities, deterministic_settlement_roll,
     commit_relationship_training_settlement, enter_relationship_training_room,
     directed_progress_key, estimate_player_status_tier,
+    load_relationship_training_rooms, migrate_relationship_training_rooms,
     relationship_intimacy_bonus, relationship_training_catalog,
     relationship_training_effect_plan, relationship_training_progress,
     release_relationship_training_room, restore_relationship_training_room,
@@ -424,7 +435,9 @@ from tools.app_settings import (
     set_portrait_sources,
     set_championship_enabled,
 )
-from tools.account_store import load_document, merge_account_containers, save_document
+from tools.account_store import (
+    load_document, merge_account_containers, save_document, save_documents,
+)
 from tools.preview_cup_odds import (
     MODEL_VERSION,
     apply_competition_reputation_delta,
@@ -5275,6 +5288,8 @@ class LocalOddsState:
         self.start_world_club_scan()
 
     def _sync_training_focuses(self, game_date: str) -> dict[str, Any]:
+        if game_date:
+            self._ensure_training_task_migration(game_date)
         focuses = active_training_focuses(game_date) if game_date else []
         due_focus_ids = {
             str(row.get("id") or "") for row in advance_training_focuses(game_date)
@@ -18629,11 +18644,221 @@ class LocalOddsState:
             "settlement": settlement,
         }
 
+    def _training_current_team(self) -> tuple[int, dict[str, Any]]:
+        managed = [
+            dict(row) for row in managed_team_rows(self.output)
+            if str(row.get("team_type") or "club") == "club"
+        ]
+        context = getattr(self, "club_context", None)
+        context_team = (
+            dict(context.get("team") or {}) if isinstance(context, dict) else {}
+        )
+        current_id = int(context_team.get("id") or 0)
+        contexts = getattr(self, "club_contexts", None)
+        if current_id <= 0 and isinstance(contexts, dict):
+            for team in managed:
+                team_id = int(team.get("id") or 0)
+                context_row = contexts.get(team_id)
+                row_team = (
+                    dict(context_row.get("team") or {})
+                    if isinstance(context_row, dict) else {}
+                )
+                if team_id > 0 and row_team.get("address"):
+                    current_id = team_id
+                    context_team = {**team, **row_team}
+                    break
+        if current_id <= 0:
+            for team in managed:
+                if int(team.get("id") or 0) > 0:
+                    current_id = int(team.get("id") or 0)
+                    context_team = dict(team)
+                    break
+        managed_ids = {int(team.get("id") or 0) for team in managed}
+        if managed_ids and current_id not in managed_ids:
+            current_id = next(
+                int(team.get("id") or 0)
+                for team in managed if int(team.get("id") or 0) > 0
+            )
+            context_team = {}
+        if current_id <= 0:
+            raise ValueError("尚未识别当前执教的俱乐部球队，请刷新我的队伍")
+        resolved = next(
+            (team for team in managed if int(team.get("id") or 0) == current_id),
+            {},
+        )
+        team = {**resolved, **context_team}
+        if str(team.get("team_type") or "club") != "club":
+            raise ValueError("只能为当前执教的俱乐部球队安排训练")
+        return current_id, team
+
+    @staticmethod
+    def _assert_training_first_team_player(
+        profile: dict[str, Any] | None, player_id: int,
+    ) -> None:
+        first_team = {
+            int(row.get("id") or 0)
+            for row in (profile or {}).get("players") or []
+        }
+        if int(player_id) not in first_team:
+            raise ValueError("只能为当前一线队球员安排该训练，请刷新我的队伍")
+
+    @staticmethod
+    def _training_replay_matches(
+        focus: dict[str, Any], request: dict[str, Any],
+    ) -> bool:
+        if int(focus.get("task_rules_version") or 0) < TRAINING_TASK_RULES_VERSION:
+            return False
+        if str(focus.get("project_sku") or "") != request["project_sku"]:
+            return False
+        if str(focus.get("module") or "") != request["module"]:
+            return False
+        if str(focus.get("focus_type") or "") != request["focus_type"]:
+            return False
+        if request["focus_type"] == "coaching_license":
+            return (
+                int(focus.get("staff_id") or 0) == request["staff_id"]
+                and str(focus.get("subject_type") or "staff")
+                == request["subject_type"]
+                and int(focus.get("target_license_code") or 0)
+                == request["target_license_code"]
+            )
+        if int(focus.get("player_id") or 0) != request["player_id"]:
+            return False
+        if request.get("team_id") and int(focus.get("player_team_id") or 0) not in {
+            0, request["team_id"],
+        }:
+            return False
+        if request["focus_type"] == "position":
+            return (
+                str(focus.get("position_key") or "") == request["position_key"]
+                and str(focus.get("duration_mode") or "") == request["duration_mode"]
+            )
+        if request["focus_type"] == "preferred_move":
+            return (
+                str(focus.get("operation") or "") == request["operation"]
+                and int(focus.get("preferred_move_bit") or -1)
+                == request["preferred_move_bit"]
+            )
+        return (
+            str(focus.get("attribute_key") or "") == request["attribute_key"]
+            and str(focus.get("duration_mode") or "") == request["duration_mode"]
+            and str(focus.get("attribute_kind") or "visible")
+            == request["attribute_kind"]
+            and int(focus.get("direction") or 1) == request["direction"]
+        )
+
+    def _training_replay_response(
+        self, focus: dict[str, Any], session: dict[str, Any], game_date: str,
+    ) -> dict[str, Any]:
+        focus_type = str(focus.get("focus_type") or "")
+        try:
+            hook_status = (
+                self.attribute_growth_hook.sync([])
+                if focus_type == "attribute"
+                else self.attribute_growth_hook.status()
+            )
+        except Exception as error:
+            raise ValueError(
+                "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
+                f"{error}"
+            ) from error
+        training_ground = public_training_ground(game_date)
+        training_ground["growth_hook"] = hook_status
+        result: dict[str, Any] = {
+            "training_ground": training_ground,
+            "economy": public_economy(),
+            "session": session,
+            "focus": focus,
+            "payment": dict(focus.get("payment") or {
+                "bank": 0.0, "wallet": 0.0, "total": 0.0,
+            }),
+            "duplicate": True,
+        }
+        if focus_type == "coaching_license":
+            result["staff"] = {
+                "staff_id": int(focus.get("staff_id") or 0),
+                "scheduled": True,
+                "current_license_code": int(focus.get("initial_license_code") or 0),
+                "target_license_code": int(focus.get("target_license_code") or 0),
+                "due_on": focus.get("due_on"),
+            }
+        else:
+            result["player"] = {
+                "player_id": int(focus.get("player_id") or 0),
+                "focus": focus,
+            }
+        return result
+
+    def _prepare_training_payment(
+        self, fee_minor: int, *, project_sku: str, module: str, subject: str,
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, list[dict[str, Any]]]:
+        if int(fee_minor) <= 0:
+            return {"bank": 0.0, "wallet": 0.0, "total": 0.0}, None, []
+        # Canonical bank-then-wallet split; the single account write happens in
+        # commit_documents_with_wallet_adjustments when the task is committed.
+        economy_payload = load_economy()
+        metadata = {
+            "project_sku": str(project_sku),
+            "module": str(module),
+            "subject": str(subject),
+        }
+        payment = _collect_combined_funds(
+            economy_payload, from_minor(int(fee_minor)), "training_task_fee",
+            **metadata,
+        )
+        adjustments: list[dict[str, Any]] = []
+        if payment["wallet"]:
+            adjustments.append({
+                "amount": -payment["wallet"], "type": "training_task_fee",
+                "metadata": metadata,
+            })
+        return payment, economy_payload, adjustments
+
+    def _commit_training_task(
+        self, *, training_payload: dict[str, Any], focus: dict[str, Any],
+        session: dict[str, Any], client_submission_id: str,
+        rooms_payload: dict[str, Any] | None = None,
+        rooms_changed: bool = False,
+        economy_payload: dict[str, Any] | None = None,
+        adjustments: list[dict[str, Any]] | None = None,
+    ) -> None:
+        append_training_task(
+            training_payload, focus, session, client_submission_id or None,
+        )
+        documents: dict[str, Any] = {"training_ground": training_payload}
+        if rooms_changed and isinstance(rooms_payload, dict):
+            documents["relationship_training_rooms"] = rooms_payload
+        if economy_payload is not None:
+            documents["economy"] = economy_payload
+        commit_documents_with_wallet_adjustments(
+            documents, list(adjustments or []), legacy_path=economy_path(),
+        )
+
+    def _ensure_training_task_migration(self, game_date: str) -> bool:
+        """Cancel pre-rule-1 tasks once and stamp the marker in one account write."""
+        payload = load_training_ground()
+        if int(payload.get("task_rules_version") or 0) >= TRAINING_TASK_RULES_VERSION:
+            return False
+        rooms_payload = load_relationship_training_rooms()
+        rooms_changed = migrate_relationship_training_rooms(
+            rooms_payload, game_date=game_date,
+        )
+        changed = migrate_training_tasks(payload, game_date=game_date)
+        documents: dict[str, Any] = {}
+        if changed:
+            documents["training_ground"] = payload
+        if rooms_changed:
+            documents["relationship_training_rooms"] = rooms_payload
+        if documents:
+            save_documents(documents)
+        return bool(documents)
+
     def training_run(self, payload: dict[str, Any]) -> dict[str, Any]:
-        facility_id = str(payload.get("facility_id") or "")
+        project_sku = str(payload.get("project_sku") or "").strip()
+        facility_id = str(payload.get("facility_id") or "").strip()
         staff_id = int(payload.get("staff_id") or 0)
         player_id = int(payload.get("player_id") or staff_id or 0)
-        team_id = int(payload.get("team_id") or 0)
+        requested_team_id = int(payload.get("team_id") or 0)
         operation = str(payload.get("operation") or "attribute")
         subject_type = str(payload.get("subject_type") or "staff")
         duration_mode = str(payload.get("duration_mode") or "until_increase")
@@ -18645,90 +18870,124 @@ class LocalOddsState:
             with self.lock:
                 self._bind_current_save()
                 game_date = str(self.output.get("game_date") or "")
-                previous = (
-                    find_training_submission(client_submission_id)
-                    if client_submission_id else None
-                )
-                if previous:
-                    previous_focus, previous_session = previous
-                    same_request = (
-                        str(previous_focus.get("facility_id") or "") == facility_id
-                        and int(previous_focus.get("player_id") or 0) == player_id
-                        and (
-                            not team_id
-                            or not int(previous_focus.get("player_team_id") or 0)
-                            or int(previous_focus.get("player_team_id") or 0) == team_id
-                        )
+                if not game_date:
+                    raise ValueError("尚未读取当前游戏日期")
+                team_id, _current_team = self._training_current_team()
+                if requested_team_id and requested_team_id != team_id:
+                    raise ValueError("只能为当前执教球队安排训练，请刷新我的队伍后重试")
+                training_payload = load_training_ground()
+                rooms_payload: dict[str, Any] | None = None
+                rooms_changed = False
+                if int(
+                    training_payload.get("task_rules_version") or 0
+                ) < TRAINING_TASK_RULES_VERSION:
+                    rooms_payload = load_relationship_training_rooms()
+                    rooms_changed = migrate_relationship_training_rooms(
+                        rooms_payload, game_date=game_date,
                     )
-                    if previous_focus.get("focus_type") == "coaching_license":
-                        same_request = same_request and (
-                            operation == "coaching_license"
-                            and int(previous_focus.get("staff_id") or 0) == staff_id
-                            and str(previous_focus.get("subject_type") or "staff")
-                            == (
-                                "player_manager"
-                                if subject_type == "player_manager" else "staff"
+                    migrate_training_tasks(training_payload, game_date=game_date)
+                expire_training_focuses(training_payload, game_date)
+                facility, product, module = training_project_for_request(
+                    training_payload, project_sku=project_sku,
+                    facility_id=facility_id,
+                )
+                project_sku = str(facility.get("sku") or "")
+                if module == "staff_training":
+                    focus_type = "coaching_license"
+                    if operation != "coaching_license":
+                        raise ValueError("该训练项目只支持教练考证")
+                elif module == "position_training":
+                    focus_type = "position"
+                    if operation != "position":
+                        raise ValueError("位置训练场只支持位置熟练度训练")
+                elif project_sku == "habit_lab":
+                    focus_type = "preferred_move"
+                    if operation not in {"learn", "unlearn"}:
+                        raise ValueError("请选择学习或戒除个人习惯")
+                else:
+                    focus_type = "attribute"
+                    if operation != "attribute":
+                        raise ValueError("该训练项目不支持个人习惯训练")
+                attribute_key = str(payload.get("attribute_key") or "")
+                position_key = str(payload.get("position_key") or "").upper()
+                preferred_move_bit = int(payload.get("preferred_move_bit", -1))
+                target_license_code = int(payload.get("target_license_code") or 0)
+                attribute_kind = str(product.get("attribute_kind") or "visible")
+                direction = 1
+                if focus_type == "attribute":
+                    lab_hidden_training = (
+                        attribute_kind == "hidden"
+                        and str(product.get("scene") or "") == "comprehensive_7f"
+                    )
+                    if lab_hidden_training:
+                        try:
+                            direction = int(
+                                payload.get("direction", product.get("direction", 1))
                             )
-                            and int(previous_focus.get("target_license_code") or 0)
-                            == int(payload.get("target_license_code") or 0)
-                        )
-                    elif previous_focus.get("focus_type") == "preferred_move":
-                        same_request = same_request and (
-                            operation in {"learn", "unlearn"}
-                            and str(previous_focus.get("operation") or "") == operation
-                            and int(previous_focus.get("preferred_move_bit") or -1)
-                            == int(payload.get("preferred_move_bit", -1))
-                        )
-                    elif previous_focus.get("focus_type") == "position":
-                        same_request = same_request and (
-                            operation == "position"
-                            and str(previous_focus.get("position_key") or "")
-                            == str(payload.get("position_key") or "").upper()
-                            and str(previous_focus.get("duration_mode") or "")
-                            == duration_mode
-                        )
+                        except (TypeError, ValueError) as error:
+                            raise ValueError("请选择增加或减少属性") from error
+                        if direction not in {-1, 1}:
+                            raise ValueError("请选择增加或减少属性")
                     else:
-                        same_request = same_request and (
-                            operation == "attribute"
-                            and str(previous_focus.get("attribute_key") or "")
-                            == str(payload.get("attribute_key") or "")
-                            and str(previous_focus.get("duration_mode") or "")
-                            == duration_mode
+                        direction = -1 if int(product.get("direction") or 1) < 0 else 1
+                fee_minor = int(training_task_fee_minor(product, load_settings()))
+                if fee_minor > 0 and not client_submission_id:
+                    raise ValueError(
+                        "训练场已改版，请刷新页面后重新提交训练安排"
+                    )
+                if client_submission_id:
+                    previous = find_training_submission_in(
+                        training_payload, client_submission_id,
+                    )
+                    if previous:
+                        previous_focus, previous_session = previous
+                        request_identity = {
+                            "project_sku": project_sku, "module": module,
+                            "focus_type": focus_type, "player_id": player_id,
+                            "staff_id": staff_id, "subject_type": subject_type,
+                            "team_id": team_id, "operation": operation,
+                            "attribute_key": attribute_key,
+                            "attribute_kind": attribute_kind,
+                            "direction": direction,
+                            "duration_mode": duration_mode,
+                            "position_key": position_key,
+                            "preferred_move_bit": preferred_move_bit,
+                            "target_license_code": target_license_code,
+                        }
+                        if not self._training_replay_matches(
+                            previous_focus, request_identity,
+                        ):
+                            raise ValueError(
+                                "训练请求编号已用于其他安排，请重新提交"
+                            )
+                        return self._training_replay_response(
+                            previous_focus, previous_session, game_date,
                         )
-                    if not same_request:
-                        raise ValueError("训练请求编号已用于其他安排，请重新提交")
-                    training_ground = public_training_ground(game_date)
-                    training_ground["growth_hook"] = self.attribute_growth_hook.status()
-                    return {
-                        "training_ground": training_ground,
-                        "economy": public_economy(),
-                        "session": previous_session,
-                        "focus": previous_focus,
-                        "player": {
-                            "player_id": player_id, "focus": previous_focus,
-                        },
-                        "payment": {"bank": 0.0, "wallet": 0.0, "total": 0.0},
-                        "duplicate": True,
-                    }
-                if operation == "coaching_license":
+                if focus_type == "coaching_license":
                     is_player_manager = subject_type == "player_manager"
                     if is_player_manager:
                         staff = self._player_manager_training_candidate(team_id)
                         profile = {
                             "team": {
                                 "id": int((staff or {}).get("training_team_id") or 0),
-                                "name": str((staff or {}).get("training_team_name") or ""),
+                                "name": str(
+                                    (staff or {}).get("training_team_name") or ""
+                                ),
                                 "address": (staff or {}).get("team_address"),
                                 "team_type": "club",
                             },
                         } if staff else None
                     else:
-                        profile, staff = self._cached_staff_profile(staff_id, team_id)
+                        profile, staff = self._cached_staff_profile(
+                            staff_id, team_id,
+                        )
                     if (
                         not profile or not staff
                         or int(staff.get("id") or 0) != staff_id
                     ):
-                        raise ValueError("所选教练不属于当前执教俱乐部，请刷新我的队伍")
+                        raise ValueError(
+                            "所选教练不属于当前执教俱乐部，请刷新我的队伍"
+                        )
                     if (
                         not is_player_manager
                         and int(staff.get("job_type") or 0)
@@ -18737,110 +18996,111 @@ class LocalOddsState:
                         raise ValueError("所选职员当前不是可参加考证的教练")
                     license_row = staff.get("coaching_license") or {}
                     current_code = int(license_row.get("code", -1))
-                    target_code = int(payload.get("target_license_code") or 0)
                     if license_row.get("maximum") or not license_row.get("next_code"):
                         raise ValueError("该教练已经取得最高等级证书")
-                    if int(license_row.get("next_code") or 0) != target_code:
+                    if int(license_row.get("next_code") or 0) != target_license_code:
                         raise ValueError("教练证书已发生变化，请重新打开学习桌")
-                    facility, _product = assert_coaching_course_available(
-                        facility_id, staff_id, game_date,
-                    )
-                    team = profile.get("team") or {}
+                    profile_team = profile.get("team") or {}
                     staff_address = staff.get("address")
-                    if not staff_address or not team.get("address"):
-                        raise ValueError("教练或俱乐部地址不可用，请刷新我的队伍")
-                    record_kwargs: dict[str, Any] = {}
-                    if client_submission_id:
-                        record_kwargs["client_submission_id"] = client_submission_id
-                    focus, session = record_coaching_license_focus(
-                        facility["id"], staff_id,
-                        str(staff.get("name") or staff_id),
-                        str(staff.get("role") or "教练"), staff_address,
-                        int(team.get("id") or 0), str(team.get("name") or ""),
-                        game_date, current_code, target_code,
-                        subject_type=(
-                            "player_manager" if is_player_manager else "staff"
-                        ),
-                        **record_kwargs,
+                    if not staff_address or not profile_team.get("address"):
+                        raise ValueError(
+                            "教练或俱乐部地址不可用，请刷新我的队伍"
+                        )
+                else:
+                    target = self._live_player_effect_target(
+                        player_id, team_id,
+                        missing_message="所选球员不属于当前队伍，请刷新我的队伍",
                     )
-                    training_ground = public_training_ground(game_date)
-                    training_ground["growth_hook"] = self.attribute_growth_hook.status()
-                    return {
-                        "training_ground": training_ground,
-                        "economy": public_economy(), "session": session,
-                        "focus": focus,
-                        "staff": {
-                            "staff_id": staff_id, "scheduled": True,
-                            "current_license_code": current_code,
-                            "target_license_code": target_code,
-                            "due_on": focus["due_on"],
-                        },
-                        "payment": {"bank": 0.0, "wallet": 0.0, "total": 0.0},
-                        "duplicate": False,
-                    }
-                target = self._live_player_effect_target(
-                    player_id, team_id,
-                    missing_message="所选球员不属于当前队伍，请刷新我的队伍",
-                )
-                profile, player = target.profile, target.player
-                facility, product = assert_training_available(facility_id, player_id, game_date)
-                required_position_group = str(product.get("position_group") or "")
-                if required_position_group:
-                    primary_positions = {
-                        str(position).upper()
-                        for position in (player.get("primary_positions") or [])
-                    }
-                    ratings = player.get("position_ratings") or {}
-                    if not primary_positions and ratings:
-                        best_position = max(
-                            ratings.items(), key=lambda row: int(row[1] or 0),
-                        )[0]
-                        primary_positions = {str(best_position).upper()}
-                    position_group = (
-                        "goalkeepers" if "GK" in primary_positions
-                        else "forwards" if primary_positions & {"ST", "AML", "AMC", "AMR"}
-                        else "midfielders" if primary_positions & {"DM", "ML", "MC", "MR"}
-                        else "defenders" if primary_positions & {"SW", "DL", "DC", "DR", "WBL", "WBR"}
-                        else ""
+                    profile, player = target.profile, target.player
+                    if focus_type != "position":
+                        self._assert_training_first_team_player(
+                            profile, player_id,
+                        )
+                    required_position_group = str(
+                        product.get("position_group") or ""
                     )
-                    if position_group != required_position_group:
-                        label = "门将" if required_position_group == "goalkeepers" else "后卫"
-                        raise ValueError(f"{label}训练器材只适用于{label}")
-                player_address = target.address
-                player_name = str(player.get("name") or player_id)
-                player_team = (profile or {}).get("team") or {}
-                player_team_id = int(player_team.get("id") or 0) or None
-                player_team_name = str(player_team.get("name") or "") or None
-                player_team_type = str(player_team.get("team_type") or "club")
+                    if required_position_group:
+                        primary_positions = {
+                            str(position).upper()
+                            for position in (player.get("primary_positions") or [])
+                        }
+                        ratings = player.get("position_ratings") or {}
+                        if not primary_positions and ratings:
+                            best_position = max(
+                                ratings.items(),
+                                key=lambda row: int(row[1] or 0),
+                            )[0]
+                            primary_positions = {str(best_position).upper()}
+                        position_group = (
+                            "goalkeepers" if "GK" in primary_positions
+                            else "forwards"
+                            if primary_positions & {"ST", "AML", "AMC", "AMR"}
+                            else "midfielders"
+                            if primary_positions & {"DM", "ML", "MC", "MR"}
+                            else "defenders"
+                            if primary_positions & {
+                                "SW", "DL", "DC", "DR", "WBL", "WBR",
+                            }
+                            else ""
+                        )
+                        if position_group != required_position_group:
+                            label = (
+                                "门将" if required_position_group == "goalkeepers"
+                                else "后卫"
+                            )
+                            raise ValueError(f"{label}训练器材只适用于{label}")
+                    player_address = target.address
+                    player_name = str(player.get("name") or player_id)
+                    player_team = (profile or {}).get("team") or {}
+                    player_team_id = int(player_team.get("id") or 0) or None
+                    if int(player_team_id or 0) != team_id:
+                        raise ValueError(
+                            "所选球员不属于当前执教球队，请刷新我的队伍"
+                        )
+                    player_team_name = str(player_team.get("name") or "") or None
+                    player_team_type = str(player_team.get("team_type") or "club")
             memory_result: dict[str, Any]
-            focus: dict[str, Any] | None = None
-            attribute_key = None
-            preferred_move_bit = None
-            if facility["sku"] == "habit_lab":
-                if operation not in {"learn", "unlearn"}:
-                    raise ValueError("请选择学习或戒除个人习惯")
-                preferred_move_bit = int(payload.get("preferred_move_bit", -1))
-                move_names = {
-                    int(row["bit"]): str(row["name"])
-                    for row in preferred_move_catalog_for_current_game()
-                }
-                if preferred_move_bit not in move_names:
-                    raise ValueError("该个人习惯编号尚未在当前版本验证")
-                current_moves = read_player_preferred_moves(player_id, player_address)
-                current_bits = {int(row["bit"]) for row in current_moves.get("moves") or []}
-                if operation == "learn" and preferred_move_bit in current_bits:
-                    raise PreferredMoveStateError("learn")
-                if operation == "unlearn" and preferred_move_bit not in current_bits:
-                    raise PreferredMoveStateError("unlearn")
-                memory_result = {
-                    "player_id": player_id, "bit": preferred_move_bit,
-                    "name": move_names[preferred_move_bit], "operation": operation,
-                    "scheduled": True,
-                }
-            elif facility["sku"] == "position_training_area":
-                if operation != "position":
-                    raise ValueError("位置训练场只支持位置熟练度训练")
-                position_key = str(payload.get("position_key") or "").upper()
+            focus: dict[str, Any]
+            payment: dict[str, Any]
+            session: dict[str, Any]
+            if focus_type == "coaching_license":
+                payment, economy_payload, adjustments = (
+                    self._prepare_training_payment(
+                        fee_minor, project_sku=project_sku, module=module,
+                        subject=(
+                            "player_manager"
+                            if subject_type == "player_manager" else "staff"
+                        ),
+                    )
+                )
+                focus, session = build_coaching_license_focus(
+                    training_payload, project_sku=project_sku, module=module,
+                    facility_id=str(facility.get("id") or facility_id),
+                    facility=facility,
+                    staff_id=staff_id,
+                    staff_name=str(staff.get("name") or staff_id),
+                    staff_role=str(staff.get("role") or "教练"),
+                    staff_address=staff_address,
+                    team_id=int(profile_team.get("id") or team_id),
+                    team_name=str(profile_team.get("name") or ""),
+                    game_date=game_date, current_code=current_code,
+                    target_code=target_license_code,
+                    subject_type=(
+                        "player_manager"
+                        if subject_type == "player_manager" else "staff"
+                    ),
+                    client_submission_id=client_submission_id,
+                    payment=payment,
+                )
+                self._commit_training_task(
+                    training_payload=training_payload, focus=focus,
+                    session=session,
+                    client_submission_id=client_submission_id,
+                    rooms_payload=rooms_payload, rooms_changed=rooms_changed,
+                    economy_payload=economy_payload, adjustments=adjustments,
+                )
+                memory_result = {}
+            elif focus_type == "position":
                 try:
                     live_position = read_player_training_positions([{
                         "id": "position-training-preview",
@@ -18852,39 +19112,108 @@ class LocalOddsState:
                     live_position = None
                 if live_position is None:
                     raise ValueError("无法读取球员当前的位置熟练度")
+                if int(live_position) >= 20:
+                    raise ValueError("该位置熟练度已经达到20，无需继续训练")
                 expected = max(1, int(live_position))
-                target_position = (
-                    20 if expected >= 20 else
-                    training_target_attribute(duration_mode, expected)
+                payment, economy_payload, adjustments = (
+                    self._prepare_training_payment(
+                        fee_minor, project_sku=project_sku, module=module,
+                        subject="player",
+                    )
+                )
+                focus, session = build_position_training_focus(
+                    training_payload, project_sku=project_sku, module=module,
+                    facility_id=str(facility.get("id") or facility_id),
+                    facility=facility,
+                    player_id=player_id, player_name=player_name,
+                    game_date=game_date, position_key=position_key,
+                    duration_mode=duration_mode, initial_position=expected,
+                    client_submission_id=client_submission_id,
+                    payment=payment,
+                    player_address=player_address,
+                    player_team_id=player_team_id,
+                    player_team_name=player_team_name,
+                    player_team_type=player_team_type,
+                )
+                self._commit_training_task(
+                    training_payload=training_payload, focus=focus,
+                    session=session,
+                    client_submission_id=client_submission_id,
+                    rooms_payload=rooms_payload, rooms_changed=rooms_changed,
+                    economy_payload=economy_payload, adjustments=adjustments,
                 )
                 memory_result = {
                     "player_id": player_id, "position_key": position_key,
                     "position_before": int(live_position),
                     "position_after": int(live_position),
-                    "target_position": target_position,
+                    "target_position": int(focus["target_position"]),
                     "ca_affected": False, "scheduled": True,
                 }
+                memory_result.update({
+                    "focus": focus,
+                    "growth_multiplier": focus["multiplier"],
+                    "duration_mode": focus["duration_mode"],
+                    "required_points": focus["required_points"],
+                    "progress_points": focus["progress_points"],
+                })
+            elif focus_type == "preferred_move":
+                move_names = {
+                    int(row["bit"]): str(row["name"])
+                    for row in preferred_move_catalog_for_current_game()
+                }
+                if preferred_move_bit not in move_names:
+                    raise ValueError("该个人习惯编号尚未在当前版本验证")
+                current_moves = read_player_preferred_moves(
+                    player_id, player_address,
+                )
+                current_bits = {
+                    int(row["bit"]) for row in current_moves.get("moves") or []
+                }
+                if operation == "learn" and preferred_move_bit in current_bits:
+                    raise PreferredMoveStateError("learn")
+                if operation == "unlearn" and preferred_move_bit not in current_bits:
+                    raise PreferredMoveStateError("unlearn")
+                payment, economy_payload, adjustments = (
+                    self._prepare_training_payment(
+                        fee_minor, project_sku=project_sku, module=module,
+                        subject="player",
+                    )
+                )
+                focus, session = build_habit_training_focus(
+                    training_payload, project_sku=project_sku, module=module,
+                    facility_id=str(facility.get("id") or facility_id),
+                    facility=facility,
+                    player_id=player_id, player_name=player_name,
+                    game_date=game_date, preferred_move_bit=preferred_move_bit,
+                    preferred_move_name=move_names[preferred_move_bit],
+                    operation=operation,
+                    client_submission_id=client_submission_id,
+                    payment=payment,
+                    player_address=player_address,
+                    player_team_id=player_team_id,
+                    player_team_name=player_team_name,
+                    player_team_type=player_team_type,
+                )
+                self._commit_training_task(
+                    training_payload=training_payload, focus=focus,
+                    session=session,
+                    client_submission_id=client_submission_id,
+                    rooms_payload=rooms_payload, rooms_changed=rooms_changed,
+                    economy_payload=economy_payload, adjustments=adjustments,
+                )
+                memory_result = {
+                    "player_id": player_id, "bit": preferred_move_bit,
+                    "name": move_names[preferred_move_bit],
+                    "operation": operation, "scheduled": True,
+                }
+                memory_result.update({
+                    "focus": focus, "expires_on": focus["expires_on"],
+                    "duration_mode": "week", "duration_days": 7,
+                })
             else:
-                if operation != "attribute":
-                    raise ValueError("该训练器材不支持个人习惯训练")
-                attribute_key = str(payload.get("attribute_key") or "")
                 if attribute_key not in product.get("attributes", []):
                     raise ValueError("所选属性不属于该训练器材")
                 group, name = attribute_key.split(":", 1)
-                attribute_kind = str(product.get("attribute_kind") or "visible")
-                lab_hidden_training = (
-                    attribute_kind == "hidden"
-                    and str(product.get("scene") or "") == "comprehensive_7f"
-                )
-                if lab_hidden_training:
-                    try:
-                        direction = int(payload.get("direction", product.get("direction", 1)))
-                    except (TypeError, ValueError) as error:
-                        raise ValueError("请选择增加或减少属性") from error
-                    if direction not in {-1, 1}:
-                        raise ValueError("请选择增加或减少属性")
-                else:
-                    direction = -1 if int(product.get("direction") or 1) < 0 else 1
                 hidden_name = "争论" if name == "争议性" else name
                 visible_attributes = player.get("attributes") or {}
                 expected = int(
@@ -18918,7 +19247,9 @@ class LocalOddsState:
                     if attribute_kind == "hidden":
                         player.setdefault("hidden_attributes", {})[hidden_name] = expected
                     else:
-                        player.setdefault("attributes", {}).setdefault(group, {})[name] = expected
+                        player.setdefault("attributes", {}).setdefault(
+                            group, {},
+                        )[name] = expected
                 if expected < 1:
                     raise ValueError("该球员没有所选训练属性")
                 if direction > 0 and expected >= 20:
@@ -18934,13 +19265,15 @@ class LocalOddsState:
                 if attribute_kind == "hidden":
                     memory_result = {
                         "player_id": player_id, "attribute_key": attribute_key,
-                        "attribute_before": expected, "attribute_after": expected,
+                        "attribute_before": expected,
+                        "attribute_after": expected,
                         "target_attribute": target_attribute,
                         "ca_affected": False,
                     }
                 else:
                     ca_estimate = estimate_player_training_ca(
-                        player_id, player_address, attribute_key, target_attribute,
+                        player_id, player_address, attribute_key,
+                        target_attribute,
                     )
                     if int(ca_estimate["attribute_before"]) != expected:
                         raise ValueError(f"{name} 已发生变化，请重新打开面板")
@@ -18949,17 +19282,20 @@ class LocalOddsState:
                     current_pa = int(ca_estimate["pa"])
                     if current_ca + required_ca > 200:
                         raise ValueError(
-                            f"本次训练预计需要{required_ca}点 CA，完成后 CA 将超过200"
+                            f"本次训练预计需要{required_ca}点 CA，"
+                            "完成后 CA 将超过200"
                         )
                     if current_ca + required_ca > current_pa:
                         if not confirm_ca_over_pa:
                             raise ValueError(
-                                "接下来的锻炼会导致 CA 超过 PA，可能触发属性重新分配。"
-                                "请确认后继续"
+                                "接下来的锻炼会导致 CA 超过 PA，"
+                                "可能触发属性重新分配。请确认后继续"
                             )
                     memory_result = {
-                        "player_id": player_id, "attribute_key": attribute_key,
-                        "attribute_before": expected, "attribute_after": expected,
+                        "player_id": player_id,
+                        "attribute_key": attribute_key,
+                        "attribute_before": expected,
+                        "attribute_after": expected,
                         "ca_before": current_ca,
                         "ca_after": current_ca,
                         "pa_before": current_pa,
@@ -18968,89 +19304,84 @@ class LocalOddsState:
                         "ca_model": ca_estimate["model"],
                         "ca_model_verified": bool(ca_estimate["verified"]),
                     }
-            payment = {"bank": 0.0, "wallet": 0.0, "total": 0.0}
+                payment, economy_payload, adjustments = (
+                    self._prepare_training_payment(
+                        fee_minor, project_sku=project_sku, module=module,
+                        subject="player",
+                    )
+                )
+                focus, session = build_training_focus(
+                    training_payload, project_sku=project_sku, module=module,
+                    facility_id=str(facility.get("id") or facility_id),
+                    facility=facility,
+                    player_id=player_id, player_name=player_name,
+                    game_date=game_date, attribute_key=attribute_key,
+                    attribute_id=attribute_id, duration_mode=duration_mode,
+                    initial_attribute=expected,
+                    allow_ca_over_pa=(
+                        confirm_ca_over_pa
+                        if attribute_kind == "visible" else False
+                    ),
+                    attribute_kind=attribute_kind, direction=direction,
+                    client_submission_id=client_submission_id,
+                    payment=payment,
+                    player_address=player_address,
+                    player_team_id=player_team_id,
+                    player_team_name=player_team_name,
+                    player_team_type=player_team_type,
+                )
+                self._commit_training_task(
+                    training_payload=training_payload, focus=focus,
+                    session=session,
+                    client_submission_id=client_submission_id,
+                    rooms_payload=rooms_payload, rooms_changed=rooms_changed,
+                    economy_payload=economy_payload, adjustments=adjustments,
+                )
+                memory_result.update({
+                    "focus": focus,
+                    "growth_multiplier": focus["multiplier"],
+                    "expires_on": focus["expires_on"],
+                    "duration_mode": focus["duration_mode"],
+                    "duration_days": focus["duration_days"],
+                    "required_points": focus["required_points"],
+                    "progress_points": focus["progress_points"],
+                })
             try:
-                if facility["sku"] == "habit_lab":
-                    record_kwargs = {
-                        "player_address": player_address,
-                        "player_team_id": player_team_id,
-                        "player_team_name": player_team_name,
-                        "player_team_type": player_team_type,
-                    }
-                    if client_submission_id:
-                        record_kwargs["client_submission_id"] = client_submission_id
-                    focus, session = record_habit_training_focus(
-                        facility_id, player_id, player_name, game_date,
-                        int(preferred_move_bit), str(memory_result["name"]), operation,
-                        **record_kwargs,
-                    )
-                    memory_result.update({
-                        "focus": focus, "expires_on": focus["expires_on"],
-                        "duration_mode": "week", "duration_days": 7,
-                    })
-                elif facility["sku"] == "position_training_area":
-                    record_kwargs = {
-                        "player_address": player_address,
-                        "player_team_id": player_team_id,
-                        "player_team_name": player_team_name,
-                        "player_team_type": player_team_type,
-                    }
-                    if client_submission_id:
-                        record_kwargs["client_submission_id"] = client_submission_id
-                    focus, session = record_position_training_focus(
-                        facility_id, player_id, player_name, game_date,
-                        str(memory_result["position_key"]), duration_mode,
-                        int(memory_result["position_before"]),
-                        **record_kwargs,
-                    )
-                    memory_result.update({
-                        "focus": focus,
-                        "growth_multiplier": focus["multiplier"],
-                        "duration_mode": focus["duration_mode"],
-                        "required_points": focus["required_points"],
-                        "progress_points": focus["progress_points"],
-                    })
-                else:
-                    record_kwargs = {
-                        "player_address": player_address,
-                        "player_team_id": player_team_id,
-                        "player_team_name": player_team_name,
-                        "player_team_type": player_team_type,
-                    }
-                    if client_submission_id:
-                        record_kwargs["client_submission_id"] = client_submission_id
-                    focus, session = record_training_focus(
-                        facility_id, player_id, player_name, game_date,
-                        str(attribute_key), attribute_id, duration_mode, expected,
-                        allow_ca_over_pa=(
-                            confirm_ca_over_pa if attribute_kind == "visible" else False
-                        ),
-                        attribute_kind=attribute_kind, direction=direction,
-                        **record_kwargs,
-                    )
-                    hook_status = self.attribute_growth_hook.sync([])
-                    memory_result.update({
-                        "focus": focus,
-                        "growth_multiplier": focus["multiplier"],
-                        "expires_on": focus["expires_on"],
-                        "duration_mode": focus["duration_mode"],
-                        "duration_days": focus["duration_days"],
-                        "required_points": focus["required_points"],
-                        "progress_points": focus["progress_points"],
-                    })
-            except Exception:
-                if focus is not None:
-                    rollback_training_focus(str(focus["id"]))
+                hook_status = (
                     self.attribute_growth_hook.sync([])
-                raise
-            hook_status = self.attribute_growth_hook.status()
-        training_ground = public_training_ground(game_date)
-        training_ground["growth_hook"] = hook_status
-        return {
-            "training_ground": training_ground, "economy": public_economy(),
-            "session": session, "focus": focus, "player": memory_result,
-            "payment": payment, "duplicate": False,
-        }
+                    if focus_type == "attribute"
+                    else self.attribute_growth_hook.status()
+                )
+            except Exception as error:
+                raise ValueError(
+                    "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
+                    f"{error}"
+                ) from error
+            training_ground = public_training_ground(game_date)
+            training_ground["growth_hook"] = hook_status
+            result: dict[str, Any] = {
+                "training_ground": training_ground,
+                "economy": public_economy(),
+                "session": session,
+                "focus": focus,
+                "payment": payment,
+                "duplicate": False,
+            }
+            if focus_type == "coaching_license":
+                result["staff"] = {
+                    "staff_id": staff_id, "scheduled": True,
+                    "current_license_code": int(
+                        focus.get("initial_license_code") or 0
+                    ),
+                    "target_license_code": int(
+                        focus.get("target_license_code") or 0
+                    ),
+                    "due_on": focus.get("due_on"),
+                }
+            else:
+                memory_result.setdefault("focus", focus)
+                result["player"] = memory_result
+            return result
 
     def update_player_name(self, payload: dict[str, Any]) -> dict[str, Any]:
         player_id = int(payload.get("player_id", 0))

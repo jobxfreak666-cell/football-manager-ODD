@@ -11,7 +11,10 @@ from unittest.mock import MagicMock, patch
 
 from fm_odds_web import LocalOddsState
 from tools.app_paths import active_save_id
+from tools import account_store, betting_account, club_economy
 from tools import training_ground as training_ground_module
+from tools.betting_account import load_wallet, save_wallet
+from tools.money import to_minor, write_minor
 
 from tools.club_reader import (
     adjust_player_training_condition, develop_player,
@@ -75,11 +78,31 @@ from tools.training_ground import (
 class TrainingGroundTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.path = Path(self.temporary.name) / "training_ground.json"
-        self.path_patch = patch("tools.training_ground.training_ground_path", return_value=self.path)
+        self.root = Path(self.temporary.name)
+        self.path = self.root / "training_ground.json"
+        self.account_path = self.root / "save.fmodd"
+        self.path_patch = patch(
+            "tools.training_ground.training_ground_path", return_value=self.path,
+        )
         self.path_patch.start()
+        self.storage_patches = [
+            patch.object(
+                account_store, "account_save_path",
+                return_value=self.account_path,
+            ),
+            patch.object(account_store, "save_data_root", return_value=self.root),
+            patch("tools.club_economy.save_data_root", return_value=self.root),
+            patch("tools.betting_account.save_data_root", return_value=self.root),
+        ]
+        for storage_patch in self.storage_patches:
+            storage_patch.start()
+        wallet = load_wallet()
+        write_minor(wallet, "balance", to_minor(100_000_000))
+        save_wallet(wallet)
 
     def tearDown(self) -> None:
+        for storage_patch in reversed(self.storage_patches):
+            storage_patch.stop()
         self.path_patch.stop()
         self.temporary.cleanup()
 
@@ -210,7 +233,13 @@ class TrainingGroundTests(unittest.TestCase):
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 679, "name": "曼城", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state.club_profile = None
         state.club_profiles = {
             679: {
@@ -283,7 +312,13 @@ class TrainingGroundTests(unittest.TestCase):
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.status.return_value = {"installed": False}
@@ -322,11 +357,17 @@ class TrainingGroundTests(unittest.TestCase):
         )
         self.assertFalse(result["player"]["ca_affected"])
 
-    def test_training_run_schedules_maxed_position_as_no_change_focus(self) -> None:
+    def test_training_run_rejects_maxed_position_without_charge(self) -> None:
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.status.return_value = {"installed": False}
@@ -341,6 +382,7 @@ class TrainingGroundTests(unittest.TestCase):
         state._live_player_effect_target = MagicMock(return_value=SimpleNamespace(
             profile=profile, player=player, address="0x1000",
         ))
+        wallet_before = to_minor(load_wallet()["balance"])
 
         with (
             patch(
@@ -349,18 +391,16 @@ class TrainingGroundTests(unittest.TestCase):
             ),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
-            result = state.training_run({
-                "facility_id": POSITION_TRAINING_AREA_ID,
-                "player_id": 10, "team_id": 1, "operation": "position",
-                "position_key": "ST", "duration_mode": "until_20",
-                "client_submission_id": "position-maxed-a",
-            })
+            with self.assertRaisesRegex(ValueError, "已经达到20"):
+                state.training_run({
+                    "project_sku": "position_training_area",
+                    "player_id": 10, "team_id": 1, "operation": "position",
+                    "position_key": "ST", "duration_mode": "until_20",
+                    "client_submission_id": "position-maxed-a",
+                })
 
-        self.assertFalse(result["duplicate"])
-        self.assertTrue(result["focus"]["no_change"])
-        self.assertEqual(result["focus"]["target_position"], 20)
-        self.assertEqual(result["focus"]["required_points"], 0)
-        self.assertFalse(result["player"]["ca_affected"])
+        self.assertEqual(to_minor(load_wallet()["balance"]), wallet_before)
+        self.assertEqual(active_training_focuses("2026-01-01"), [])
 
     def test_training_run_schedules_hidden_attribute_without_ca_estimate(self) -> None:
         desk = purchase_facility("adaptation_pod")
@@ -368,7 +408,13 @@ class TrainingGroundTests(unittest.TestCase):
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.sync.return_value = {"installed": False}
@@ -396,6 +442,7 @@ class TrainingGroundTests(unittest.TestCase):
                 "team_id": 1, "operation": "attribute",
                 "attribute_key": "隐藏:适应性", "duration_mode": "until_10",
                 "direction": -1,
+                "client_submission_id": "hidden-attribute-a",
             })
 
         estimate_ca.assert_not_called()
@@ -411,7 +458,13 @@ class TrainingGroundTests(unittest.TestCase):
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.sync.return_value = {"installed": False}
