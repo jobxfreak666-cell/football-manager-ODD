@@ -171,7 +171,7 @@ def test_dynamic_renderers_resolve_stable_enum_ids_instead_of_raw_labels() -> No
         'localizedNationName(nation)',
         'localizedContinentName(row.name)',
         'localizedContinentName(nation.continent)',
-        'localizedTrainingAttribute(selectedTargetKey)',
+        'localizedTrainingAttribute(key)',
         'localizedTrainingAttributeGroup(group)',
         'localizedClubNature(status)',
         'localizedStadiumState(stadium)',

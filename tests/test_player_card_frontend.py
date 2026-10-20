@@ -490,8 +490,8 @@ class PlayerCardFrontendTests(unittest.TestCase):
 
     def test_owned_club_team_uses_season_rating_injury_and_manager_records(self):
         self.assertIn("function ownedPlayerSeasonRating(player)", self.script)
-        player_rows = self.script.split("const playerRows =", 1)[1].split(
-            "const staffRows =", 1,
+        player_rows = self.script.split("const renderOwnedPlayerRow =", 1)[1].split(
+            "const squadRows =", 1,
         )[0]
         self.assertIn("const abilityMetrics = app.showHiddenAttributes", player_rows)
         self.assertIn('ownedClubMetric("CA", value(player.ca))', player_rows)
