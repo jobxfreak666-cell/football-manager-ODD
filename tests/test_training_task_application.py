@@ -7,12 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from fm_odds_web import LocalOddsState
+from fm_odds_web import Handler, LocalOddsState, _training_error
 from tools import account_store
 from tools import training_ground as training_ground_module
 from tools.app_settings import load_settings
 from tools.betting_account import load_wallet, save_wallet
 from tools.club_economy import load_economy, save_economy
+from tools.i18n_runtime import MESSAGE_CATALOGS
 from tools.money import read_minor, to_minor, write_minor
 from tools.training_catalog import training_task_fee_minor
 from tools.training_ground import (
@@ -854,6 +855,109 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         )
         self.assertEqual(load_training_ground(), training_before)
         self.assertEqual(self.training_fee_count(), 0)
+
+    @staticmethod
+    def _error_payload(error: Exception, locale: str) -> dict:
+        handler = Handler.__new__(Handler)
+        handler.headers = {"X-FMODD-Locale": locale}
+        return Handler._localized_error_payload(
+            handler, error, operation="/api/training/run",
+        )
+
+    def test_training_errors_render_localized_messages(self) -> None:
+        error = _training_error(
+            "training.error.current_team_only",
+            "只能为当前执教的俱乐部球队安排训练",
+        )
+        self.assertIn("只能为当前执教的俱乐部球队安排训练", str(error))
+        english = self._error_payload(error, "en-GB")
+        chinese = self._error_payload(error, "zh-CN")
+        self.assertEqual(
+            english["message_key"], "training.error.current_team_only",
+        )
+        self.assertEqual(
+            english["message"],
+            MESSAGE_CATALOGS["en-GB"]["training.error.current_team_only"],
+        )
+        self.assertEqual(
+            chinese["message"],
+            MESSAGE_CATALOGS["zh-CN"]["training.error.current_team_only"],
+        )
+        self.assertEqual(
+            english["error"], "只能为当前执教的俱乐部球队安排训练",
+        )
+        self.assertNotIn("error_detail_safe", english)
+        self.assertNotIn("error_detail_safe", chinese)
+
+    def test_training_validation_errors_carry_message_keys(self) -> None:
+        state = self.state()
+        self.player_target(state)
+        with self.assertRaises(ValueError) as captured:
+            state.training_run({
+                "project_sku": "strength_rack", "player_id": 10,
+                "team_id": 999, "operation": "attribute",
+                "attribute_key": "身体:强壮",
+                "duration_mode": "until_increase",
+                "client_submission_id": "localized-team",
+            })
+        self.assertEqual(
+            captured.exception.message_key,
+            "training.error.current_team_mismatch",
+        )
+        payload = self._error_payload(captured.exception, "en-GB")
+        self.assertEqual(
+            payload["message"],
+            MESSAGE_CATALOGS["en-GB"]["training.error.current_team_mismatch"],
+        )
+
+        state = self.state()
+        self.player_target(state)
+        self.set_wallet_balance(0)
+        with self.assertRaisesRegex(ValueError, "余额合计不足") as captured:
+            self.run_attribute(state, submission_id="localized-funds")
+        self.assertEqual(
+            captured.exception.message_key,
+            "training.error.insufficient_funds",
+        )
+        payload = self._error_payload(captured.exception, "en-GB")
+        self.assertEqual(
+            payload["message_key"], "training.error.insufficient_funds",
+        )
+        self.assertEqual(
+            payload["message"],
+            MESSAGE_CATALOGS["en-GB"]["training.error.insufficient_funds"],
+        )
+
+        with self.assertRaises(ValueError) as captured:
+            state.training_cancel({"focus_id": "missing-task"})
+        self.assertEqual(
+            captured.exception.message_key, "training.error.task_not_found",
+        )
+
+        with self.assertRaises(ValueError) as captured:
+            state.training_purchase({})
+        self.assertEqual(
+            captured.exception.message_key,
+            "training.error.equipment_route_retired",
+        )
+
+    def test_training_error_catalog_covers_both_locales(self) -> None:
+        import re
+
+        english = MESSAGE_CATALOGS["en-GB"]
+        chinese = MESSAGE_CATALOGS["zh-CN"]
+        keys = sorted(
+            key for key in english if key.startswith("training.error.")
+        )
+        self.assertGreaterEqual(len(keys), 30)
+        placeholder = re.compile(r"\{(\w+)\}")
+        for key in keys:
+            self.assertIn(key, chinese)
+            self.assertEqual(
+                placeholder.findall(english[key]),
+                placeholder.findall(chinese[key]),
+                key,
+            )
 
     def test_bank_is_charged_before_wallet(self) -> None:
         state = self.state(staff=[

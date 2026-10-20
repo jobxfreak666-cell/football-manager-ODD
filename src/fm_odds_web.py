@@ -3833,6 +3833,49 @@ TRAINING_EQUIPMENT_ROUTE_RETIRED = (
 )
 
 
+def _training_error(
+    message_key: str, legacy_message: str, **params: Any,
+) -> ValueError:
+    """Return the preserved Chinese ValueError plus a safe localization key."""
+    error = ValueError(legacy_message)
+    error.message_key = str(message_key)
+    error.message_params = dict(params)
+    return error
+
+
+_TRAINING_ERROR_FRAGMENTS = (
+    ("训练项目不存在", "training.error.project_not_found"),
+    ("训练项目已下架", "training.error.project_retired"),
+    ("训练项目不匹配", "training.error.project_mismatch"),
+    ("训练模块无效", "training.error.project_invalid"),
+    ("位置训练场当前不可用", "training.error.project_not_found"),
+    ("请选择有效的训练时长", "training.error.duration_mode_invalid"),
+    ("所选训练位置无效", "training.error.position_key_invalid"),
+    ("该属性已经达到20，不能继续训练", "training.error.attribute_maxed"),
+    ("该属性已经达到20，无法继续专项训练", "training.error.attribute_maxed"),
+    ("该属性已经达到1，不能继续降低", "training.error.attribute_minimum"),
+    ("该属性已经达到1，无法继续降低", "training.error.attribute_minimum"),
+    ("所选属性当前值无效", "training.error.attribute_missing"),
+    ("教练证书只能按顺序提升一级", "training.error.coaching_license_changed"),
+    ("该教练已有进行中的考证课程或综合训练指导任务", "training.error.coach_task_exists"),
+    ("该球员已有进行中的专项训练", "training.error.player_task_exists"),
+    ("训练记录不存在", "training.error.task_not_found"),
+    ("已不在使用此器材", "training.error.task_not_active"),
+    ("所选属性尚未验证成长编号", "training.error.attribute_id_unverified"),
+)
+
+
+def _training_mapped_error(error: ValueError) -> ValueError:
+    """Attach the closest safe localization key to one training validation error."""
+    if getattr(error, "message_key", None):
+        return error
+    text = str(error)
+    for fragment, key in _TRAINING_ERROR_FRAGMENTS:
+        if fragment in text:
+            return _training_error(key, text)
+    return _training_error("training.error.request_invalid", text)
+
+
 class LocalOddsState:
     club_deferred_refresh_reasons = frozenset(CLUB_DEFERRED_REFRESH_REASONS)
     temporary_bank_cheat = TEMPORARY_BANK_CHEAT
@@ -18531,19 +18574,34 @@ class LocalOddsState:
             return {"economy": economy, "player": result}
 
     def training_purchase(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
+        raise _training_error(
+            "training.error.equipment_route_retired",
+            TRAINING_EQUIPMENT_ROUTE_RETIRED,
+        )
 
     def training_floor_purchase(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
+        raise _training_error(
+            "training.error.equipment_route_retired",
+            TRAINING_EQUIPMENT_ROUTE_RETIRED,
+        )
 
     def training_place(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
+        raise _training_error(
+            "training.error.equipment_route_retired",
+            TRAINING_EQUIPMENT_ROUTE_RETIRED,
+        )
 
     def training_store(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
+        raise _training_error(
+            "training.error.equipment_route_retired",
+            TRAINING_EQUIPMENT_ROUTE_RETIRED,
+        )
 
     def training_sell(self, _payload: dict[str, Any]) -> dict[str, Any]:
-        raise ValueError(TRAINING_EQUIPMENT_ROUTE_RETIRED)
+        raise _training_error(
+            "training.error.equipment_route_retired",
+            TRAINING_EQUIPMENT_ROUTE_RETIRED,
+        )
 
     def training_player_preferred_moves(self, payload: dict[str, Any]) -> dict[str, Any]:
         player_id = int(payload.get("player_id") or 0)
@@ -18553,18 +18611,27 @@ class LocalOddsState:
                 self._bind_current_save()
                 _profile, player = self._live_player_profile(player_id, team_id)
                 if not player:
-                    raise ValueError("所选球员不属于当前队伍，请刷新我的队伍")
+                    raise _training_error(
+                        "training.error.player_not_in_current_team",
+                        "所选球员不属于当前队伍，请刷新我的队伍",
+                    )
             return read_player_preferred_moves(player_id, player.get("address"))
 
     def training_cancel(self, payload: dict[str, Any]) -> dict[str, Any]:
         focus_id = str(payload.get("focus_id") or "")
         if not focus_id:
-            raise ValueError("请选择需要取消的训练人员")
+            raise _training_error(
+                "training.error.cancel_focus_required",
+                "请选择需要取消的训练人员",
+            )
         with self.memory_lock:
             with self.lock:
                 self._bind_current_save()
                 game_date = str(self.output.get("game_date") or "")
-            focus = cancel_training_focus(focus_id, game_date)
+            try:
+                focus = cancel_training_focus(focus_id, game_date)
+            except ValueError as error:
+                raise _training_mapped_error(error) from error
             try:
                 hook_status = self.attribute_growth_hook.sync([])
             except Exception as error:
@@ -18587,9 +18654,15 @@ class LocalOddsState:
                 game_date = str(self.output.get("game_date") or "")
                 scope_id = self._data_scope_id(self.output)
                 if not game_date:
-                    raise ValueError("尚未读取当前游戏日期")
+                    raise _training_error(
+                        "training.error.game_date_missing",
+                        "尚未读取当前游戏日期",
+                    )
                 if not scope_id:
-                    raise ValueError("尚未识别当前账户")
+                    raise _training_error(
+                        "training.error.account_missing",
+                        "尚未识别当前账户",
+                    )
                 set_active_save_id(scope_id)
                 settlement = self._sync_training_focuses(game_date)
                 self.training_sync_status = dict(settlement)
@@ -18637,14 +18710,20 @@ class LocalOddsState:
             )
             context_team = {}
         if current_id <= 0:
-            raise ValueError("尚未识别当前执教的俱乐部球队，请刷新我的队伍")
+            raise _training_error(
+                "training.error.current_team_missing",
+                "尚未识别当前执教的俱乐部球队，请刷新我的队伍",
+            )
         resolved = next(
             (team for team in managed if int(team.get("id") or 0) == current_id),
             {},
         )
         team = {**resolved, **context_team}
         if str(team.get("team_type") or "club") != "club":
-            raise ValueError("只能为当前执教的俱乐部球队安排训练")
+            raise _training_error(
+                "training.error.current_team_only",
+                "只能为当前执教的俱乐部球队安排训练",
+            )
         return current_id, team
 
     @staticmethod
@@ -18656,7 +18735,10 @@ class LocalOddsState:
             for row in (profile or {}).get("players") or []
         }
         if int(player_id) not in first_team:
-            raise ValueError("只能为当前一线队球员安排该训练，请刷新我的队伍")
+            raise _training_error(
+            "training.error.first_team_only",
+            "只能为当前一线队球员安排该训练，请刷新我的队伍",
+        )
 
     @staticmethod
     def _training_replay_matches(
@@ -18714,9 +18796,10 @@ class LocalOddsState:
                 else self.attribute_growth_hook.status()
             )
         except Exception as error:
-            raise ValueError(
+            raise _training_error(
+                "training.error.growth_hook_sync_failed",
                 "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
-                f"{error}"
+                f"{error}",
             ) from error
         training_ground = public_training_ground(game_date)
         training_ground["growth_hook"] = hook_status
@@ -18758,10 +18841,18 @@ class LocalOddsState:
             "module": str(module),
             "subject": str(subject),
         }
-        payment = _collect_combined_funds(
-            economy_payload, from_minor(int(fee_minor)), "training_task_fee",
-            **metadata,
-        )
+        try:
+            payment = _collect_combined_funds(
+                economy_payload, from_minor(int(fee_minor)), "training_task_fee",
+                **metadata,
+            )
+        except ValueError as error:
+            if "余额合计不足" in str(error):
+                raise _training_error(
+                    "training.error.insufficient_funds",
+                    str(error),
+                ) from error
+            raise
         adjustments: list[dict[str, Any]] = []
         if payment["wallet"]:
             adjustments.append({
@@ -18769,6 +18860,15 @@ class LocalOddsState:
                 "metadata": metadata,
             })
         return payment, economy_payload, adjustments
+
+    def _build_training_task(
+        self, builder: Any, payload: dict[str, Any], **kwargs: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Build a focus/session, keeping a localization key on validation errors."""
+        try:
+            return builder(payload, **kwargs)
+        except ValueError as error:
+            raise _training_mapped_error(error) from error
 
     def _commit_training_task(
         self, *, training_payload: dict[str, Any], focus: dict[str, Any],
@@ -18821,16 +18921,25 @@ class LocalOddsState:
         confirm_ca_over_pa = bool(payload.get("confirm_ca_over_pa"))
         client_submission_id = str(payload.get("client_submission_id") or "").strip()
         if len(client_submission_id) > 128:
-            raise ValueError("训练请求编号过长")
+            raise _training_error(
+                "training.error.submission_id_too_long",
+                "训练请求编号过长",
+            )
         with self.memory_lock:
             with self.lock:
                 self._bind_current_save()
                 game_date = str(self.output.get("game_date") or "")
                 if not game_date:
-                    raise ValueError("尚未读取当前游戏日期")
+                    raise _training_error(
+                        "training.error.game_date_missing",
+                        "尚未读取当前游戏日期",
+                    )
                 team_id, _current_team = self._training_current_team()
                 if requested_team_id and requested_team_id != team_id:
-                    raise ValueError("只能为当前执教球队安排训练，请刷新我的队伍后重试")
+                    raise _training_error(
+                        "training.error.current_team_mismatch",
+                        "只能为当前执教球队安排训练，请刷新我的队伍后重试",
+                    )
                 training_payload = load_training_ground()
                 rooms_payload: dict[str, Any] | None = None
                 rooms_changed = False
@@ -18843,27 +18952,42 @@ class LocalOddsState:
                     )
                     migrate_training_tasks(training_payload, game_date=game_date)
                 expire_training_focuses(training_payload, game_date)
-                facility, product, module = training_project_for_request(
-                    training_payload, project_sku=project_sku,
-                    facility_id=facility_id,
-                )
+                try:
+                    facility, product, module = training_project_for_request(
+                        training_payload, project_sku=project_sku,
+                        facility_id=facility_id,
+                    )
+                except ValueError as error:
+                    raise _training_mapped_error(error) from error
                 project_sku = str(facility.get("sku") or "")
                 if module == "staff_training":
                     focus_type = "coaching_license"
                     if operation != "coaching_license":
-                        raise ValueError("该训练项目只支持教练考证")
+                        raise _training_error(
+                            "training.error.staff_project_only",
+                            "该训练项目只支持教练考证",
+                        )
                 elif module == "position_training":
                     focus_type = "position"
                     if operation != "position":
-                        raise ValueError("位置训练场只支持位置熟练度训练")
+                        raise _training_error(
+                            "training.error.position_project_only",
+                            "位置训练场只支持位置熟练度训练",
+                        )
                 elif project_sku == "habit_lab":
                     focus_type = "preferred_move"
                     if operation not in {"learn", "unlearn"}:
-                        raise ValueError("请选择学习或戒除个人习惯")
+                        raise _training_error(
+                            "training.error.habit_operation_required",
+                            "请选择学习或戒除个人习惯",
+                        )
                 else:
                     focus_type = "attribute"
                     if operation != "attribute":
-                        raise ValueError("该训练项目不支持个人习惯训练")
+                        raise _training_error(
+                            "training.error.habit_unsupported",
+                            "该训练项目不支持个人习惯训练",
+                        )
                 attribute_key = str(payload.get("attribute_key") or "")
                 position_key = str(payload.get("position_key") or "").upper()
                 preferred_move_bit = int(payload.get("preferred_move_bit", -1))
@@ -18881,15 +19005,22 @@ class LocalOddsState:
                                 payload.get("direction", product.get("direction", 1))
                             )
                         except (TypeError, ValueError) as error:
-                            raise ValueError("请选择增加或减少属性") from error
+                            raise _training_error(
+                                "training.error.attribute_direction_required",
+                                "请选择增加或减少属性",
+                            ) from error
                         if direction not in {-1, 1}:
-                            raise ValueError("请选择增加或减少属性")
+                            raise _training_error(
+                                "training.error.attribute_direction_required",
+                                "请选择增加或减少属性",
+                            )
                     else:
                         direction = -1 if int(product.get("direction") or 1) < 0 else 1
                 fee_minor = int(training_task_fee_minor(product, load_settings()))
                 if fee_minor > 0 and not client_submission_id:
-                    raise ValueError(
-                        "训练场已改版，请刷新页面后重新提交训练安排"
+                    raise _training_error(
+                        "training.error.submission_id_required",
+                        "训练场已改版，请刷新页面后重新提交训练安排",
                     )
                 if client_submission_id:
                     previous = find_training_submission_in(
@@ -18913,8 +19044,9 @@ class LocalOddsState:
                         if not self._training_replay_matches(
                             previous_focus, request_identity,
                         ):
-                            raise ValueError(
-                                "训练请求编号已用于其他安排，请重新提交"
+                            raise _training_error(
+                                "training.error.submission_id_conflict",
+                                "训练请求编号已用于其他安排，请重新提交",
                             )
                         return self._training_replay_response(
                             previous_focus, previous_session, game_date,
@@ -18941,32 +19073,49 @@ class LocalOddsState:
                         not profile or not staff
                         or int(staff.get("id") or 0) != staff_id
                     ):
-                        raise ValueError(
-                            "所选教练不属于当前执教俱乐部，请刷新我的队伍"
+                        raise _training_error(
+                            "training.error.coach_not_in_current_club",
+                            "所选教练不属于当前执教俱乐部，请刷新我的队伍",
                         )
                     if (
                         not is_player_manager
                         and int(staff.get("job_type") or 0)
                         not in COACHING_STAFF_JOB_TYPES
                     ):
-                        raise ValueError("所选职员当前不是可参加考证的教练")
+                        raise _training_error(
+                            "training.error.staff_not_coach",
+                            "所选职员当前不是可参加考证的教练",
+                        )
                     license_row = staff.get("coaching_license") or {}
                     current_code = int(license_row.get("code", -1))
                     if license_row.get("maximum") or not license_row.get("next_code"):
-                        raise ValueError("该教练已经取得最高等级证书")
+                        raise _training_error(
+                            "training.error.coaching_license_maxed",
+                            "该教练已经取得最高等级证书",
+                        )
                     if int(license_row.get("next_code") or 0) != target_license_code:
-                        raise ValueError("教练证书已发生变化，请重新打开学习桌")
+                        raise _training_error(
+                            "training.error.coaching_license_changed",
+                            "教练证书已发生变化，请重新打开学习桌",
+                        )
                     profile_team = profile.get("team") or {}
                     staff_address = staff.get("address")
                     if not staff_address or not profile_team.get("address"):
-                        raise ValueError(
-                            "教练或俱乐部地址不可用，请刷新我的队伍"
+                        raise _training_error(
+                            "training.error.coach_address_missing",
+                            "教练或俱乐部地址不可用，请刷新我的队伍",
                         )
                 else:
-                    target = self._live_player_effect_target(
-                        player_id, team_id,
-                        missing_message="所选球员不属于当前队伍，请刷新我的队伍",
-                    )
+                    try:
+                        target = self._live_player_effect_target(
+                            player_id, team_id,
+                            missing_message="所选球员不属于当前队伍，请刷新我的队伍",
+                        )
+                    except ValueError as error:
+                        raise _training_error(
+                            "training.error.player_not_in_current_team",
+                            "所选球员不属于当前队伍，请刷新我的队伍",
+                        ) from error
                     profile, player = target.profile, target.player
                     if focus_type != "position":
                         self._assert_training_first_team_player(
@@ -19000,18 +19149,23 @@ class LocalOddsState:
                             else ""
                         )
                         if position_group != required_position_group:
-                            label = (
-                                "门将" if required_position_group == "goalkeepers"
-                                else "后卫"
+                            if required_position_group == "goalkeepers":
+                                raise _training_error(
+                                    "training.error.goalkeeper_equipment_only",
+                                    "门将训练器材只适用于门将",
+                                )
+                            raise _training_error(
+                                "training.error.defender_equipment_only",
+                                "后卫训练器材只适用于后卫",
                             )
-                            raise ValueError(f"{label}训练器材只适用于{label}")
                     player_address = target.address
                     player_name = str(player.get("name") or player_id)
                     player_team = (profile or {}).get("team") or {}
                     player_team_id = int(player_team.get("id") or 0) or None
                     if int(player_team_id or 0) != team_id:
-                        raise ValueError(
-                            "所选球员不属于当前执教球队，请刷新我的队伍"
+                        raise _training_error(
+                            "training.error.player_not_in_current_club",
+                            "所选球员不属于当前执教球队，请刷新我的队伍",
                         )
                     player_team_name = str(player_team.get("name") or "") or None
                     player_team_type = str(player_team.get("team_type") or "club")
@@ -19029,8 +19183,9 @@ class LocalOddsState:
                         ),
                     )
                 )
-                focus, session = build_coaching_license_focus(
-                    training_payload, project_sku=project_sku, module=module,
+                focus, session = self._build_training_task(
+                    build_coaching_license_focus, training_payload,
+                    project_sku=project_sku, module=module,
                     facility_id=str(facility.get("id") or facility_id),
                     facility=facility,
                     staff_id=staff_id,
@@ -19067,9 +19222,15 @@ class LocalOddsState:
                 except Exception:
                     live_position = None
                 if live_position is None:
-                    raise ValueError("无法读取球员当前的位置熟练度")
+                    raise _training_error(
+                        "training.error.position_unavailable",
+                        "无法读取球员当前的位置熟练度",
+                    )
                 if int(live_position) >= 20:
-                    raise ValueError("该位置熟练度已经达到20，无需继续训练")
+                    raise _training_error(
+                        "training.error.position_maxed",
+                        "该位置熟练度已经达到20，无需继续训练",
+                    )
                 expected = max(1, int(live_position))
                 payment, economy_payload, adjustments = (
                     self._prepare_training_payment(
@@ -19077,8 +19238,9 @@ class LocalOddsState:
                         subject="player",
                     )
                 )
-                focus, session = build_position_training_focus(
-                    training_payload, project_sku=project_sku, module=module,
+                focus, session = self._build_training_task(
+                    build_position_training_focus, training_payload,
+                    project_sku=project_sku, module=module,
                     facility_id=str(facility.get("id") or facility_id),
                     facility=facility,
                     player_id=player_id, player_name=player_name,
@@ -19118,7 +19280,10 @@ class LocalOddsState:
                     for row in preferred_move_catalog_for_current_game()
                 }
                 if preferred_move_bit not in move_names:
-                    raise ValueError("该个人习惯编号尚未在当前版本验证")
+                    raise _training_error(
+                        "training.error.preferred_move_unverified",
+                        "该个人习惯编号尚未在当前版本验证",
+                    )
                 current_moves = read_player_preferred_moves(
                     player_id, player_address,
                 )
@@ -19135,8 +19300,9 @@ class LocalOddsState:
                         subject="player",
                     )
                 )
-                focus, session = build_habit_training_focus(
-                    training_payload, project_sku=project_sku, module=module,
+                focus, session = self._build_training_task(
+                    build_habit_training_focus, training_payload,
+                    project_sku=project_sku, module=module,
                     facility_id=str(facility.get("id") or facility_id),
                     facility=facility,
                     player_id=player_id, player_name=player_name,
@@ -19168,7 +19334,10 @@ class LocalOddsState:
                 })
             else:
                 if attribute_key not in product.get("attributes", []):
-                    raise ValueError("所选属性不属于该训练器材")
+                    raise _training_error(
+                        "training.error.attribute_not_in_project",
+                        "所选属性不属于该训练器材",
+                    )
                 group, name = attribute_key.split(":", 1)
                 hidden_name = "争论" if name == "争议性" else name
                 visible_attributes = player.get("attributes") or {}
@@ -19207,14 +19376,26 @@ class LocalOddsState:
                             group, {},
                         )[name] = expected
                 if expected < 1:
-                    raise ValueError("该球员没有所选训练属性")
+                    raise _training_error(
+                        "training.error.attribute_missing",
+                        "该球员没有所选训练属性",
+                    )
                 if direction > 0 and expected >= 20:
-                    raise ValueError("该属性已经达到20，无法继续专项训练")
+                    raise _training_error(
+                        "training.error.attribute_maxed",
+                        "该属性已经达到20，无法继续专项训练",
+                    )
                 if direction < 0 and expected <= 1:
-                    raise ValueError("该属性已经达到1，无法继续降低")
+                    raise _training_error(
+                        "training.error.attribute_minimum",
+                        "该属性已经达到1，无法继续降低",
+                    )
                 attribute_id = VISIBLE_ATTRIBUTE_IDS.get(attribute_key)
                 if attribute_kind == "visible" and attribute_id is None:
-                    raise ValueError("所选属性尚未验证成长编号")
+                    raise _training_error(
+                        "training.error.attribute_id_unverified",
+                        "所选属性尚未验证成长编号",
+                    )
                 target_attribute = training_target_attribute(
                     duration_mode, expected, direction,
                 )
@@ -19232,20 +19413,27 @@ class LocalOddsState:
                         target_attribute,
                     )
                     if int(ca_estimate["attribute_before"]) != expected:
-                        raise ValueError(f"{name} 已发生变化，请重新打开面板")
+                        raise _training_error(
+                            "training.error.attribute_changed",
+                            f"{name} 已发生变化，请重新打开面板",
+                            attribute=name,
+                        )
                     required_ca = int(ca_estimate["ca_cost"])
                     current_ca = int(ca_estimate["ca_before"])
                     current_pa = int(ca_estimate["pa"])
                     if current_ca + required_ca > 200:
-                        raise ValueError(
+                        raise _training_error(
+                            "training.error.ca_over_limit",
                             f"本次训练预计需要{required_ca}点 CA，"
-                            "完成后 CA 将超过200"
+                            "完成后 CA 将超过200",
+                            ca_cost=required_ca,
                         )
                     if current_ca + required_ca > current_pa:
                         if not confirm_ca_over_pa:
-                            raise ValueError(
+                            raise _training_error(
+                                "training.error.ca_over_pa_confirmation",
                                 "接下来的锻炼会导致 CA 超过 PA，"
-                                "可能触发属性重新分配。请确认后继续"
+                                "可能触发属性重新分配。请确认后继续",
                             )
                     memory_result = {
                         "player_id": player_id,
@@ -19266,8 +19454,9 @@ class LocalOddsState:
                         subject="player",
                     )
                 )
-                focus, session = build_training_focus(
-                    training_payload, project_sku=project_sku, module=module,
+                focus, session = self._build_training_task(
+                    build_training_focus, training_payload,
+                    project_sku=project_sku, module=module,
                     facility_id=str(facility.get("id") or facility_id),
                     facility=facility,
                     player_id=player_id, player_name=player_name,
@@ -19309,9 +19498,10 @@ class LocalOddsState:
                     else self.attribute_growth_hook.status()
                 )
             except Exception as error:
-                raise ValueError(
+                raise _training_error(
+                    "training.error.growth_hook_sync_failed",
                     "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
-                    f"{error}"
+                    f"{error}",
                 ) from error
             training_ground = public_training_ground(game_date)
             training_ground["growth_hook"] = hook_status
@@ -22924,6 +23114,7 @@ class Handler(BaseHTTPRequestHandler):
             not isinstance(error, DomainError)
             and isinstance(error, (InvalidMoney, ValueError))
             and not isinstance(error, json.JSONDecodeError)
+            and not getattr(error, "message_key", None)
         ):
             payload["error_detail_safe"] = True
         return payload
