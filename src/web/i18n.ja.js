@@ -2686,6 +2686,7 @@
     "portfolio.sell.done": "クラブを売却しました。{amount}を受け取りました",
     "portfolio.sell.estimate_pending": "売却時に再計算",
     "portfolio.sell.failed": "クラブを売却できませんでした",
+    "portfolio.sell.stale": "データが更新されました。もう一度売却してください",
     "portfolio.sell.title": "売却の確認",
     "portfolio.stadium": "スタジアム",
     "portfolio.stadium.built": "建設済み",

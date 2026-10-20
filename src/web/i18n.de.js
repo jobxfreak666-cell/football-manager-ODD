@@ -3144,6 +3144,7 @@
     "portfolio.sell.busy": "Wird verkauft",
     "portfolio.sell.done": "Verein sold; erhalten {amount}",
     "portfolio.sell.failed": "konnte nicht Verkaufen der Verein",
+    "portfolio.sell.stale": "Daten wurden aktualisiert, bitte erneut verkaufen",
     "portfolio.debt.none": "dieser Verein hat kein Schulden zu repay",
     "portfolio.debt.confirm": "bezahlen {amount} von der FMODD Bank und Wallet, und Leeren every native Schulden Bilanz für {club}?",
     "portfolio.debt.title": "Bestätigen Schulden Rückzahlung",

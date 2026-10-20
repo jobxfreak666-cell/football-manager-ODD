@@ -957,3 +957,11 @@
 }
 :root[data-theme="dark"] #page-bank .bank-statement-preview-metrics strong.positive { color:var(--profit-red); }
 :root[data-theme="dark"] #page-bank .bank-statement-preview-metrics strong.negative { color:var(--loss-green); }
+
+/* My group card fixes (2026-10-18 visual review) */
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-win { background: #2f8a59; color: #fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-draw { background: #66726d; color: #fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-loss { background: #c4473e; color: #fff; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #c4473e; background: #c4473e; color: #fff; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #a63d36; background: #a63d36; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #ff9a92; }

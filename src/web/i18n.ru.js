@@ -2732,6 +2732,7 @@
   "portfolio.sell.done": "Клуб продан; получено {amount}",
   "portfolio.sell.estimate_pending": "Пересчитывается при продаже",
   "portfolio.sell.failed": "Не удалось продать Клуб",
+  "portfolio.sell.stale": "Данные обновились, попробуйте продать ещё раз",
   "portfolio.sell.title": "Подтвердить продажу",
   "portfolio.stadium": "Стадион",
   "portfolio.stadium.built": "Построен",

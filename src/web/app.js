@@ -17487,7 +17487,7 @@ function renderPlayerCard(player) {
   const heightLabel = player.height_cm ? `${player.height_cm} cm` : uiText("world.not_read");
   const nationalityLabel = playerNationalityLabel(player);
   const wageLabel = compactMoney(wage);
-  const askingPriceLabel = compactMoney(askingPrice);
+  const askingPriceLabel = Number(askingPrice) > 0 ? compactMoney(askingPrice) : "-";
   const injured = Number(player.availability?.injury_count || 0) > 0 || (player.availability?.injuries || []).length > 0;
   const loanedOut = Boolean(player.is_loaned_out || player.loan?.is_loaned_out);
   const injuryCross = injured ? `<span class="player-injury-cross" title="${uiText("world.club.player.injured")}" aria-label="${uiText("world.club.player.injured")}">+</span>` : "";
@@ -17778,7 +17778,7 @@ function hydrateCurrentWorldPlayerPage() {
 function worldPlayerRow(player) {
   const value = (entry) => entry == null || entry === "" ? "-" : escapeHtml(entry);
   const positions = (player.positions || []).join("/") || "-";
-  return `<div class="world-player-row" role="row" tabindex="0" aria-label="${uiText("world.view_details", {name:escapeHtml(player.name || String(player.id))})}" data-world-player-detail="${Number(player.id || 0)}"><span class="world-player-name" role="cell" title="UID ${Number(player.id || 0)}"><strong>${escapeHtml(player.name || String(player.id))}</strong></span><span role="cell">${value(player.age)}</span><span role="cell">${value(player.ca)}</span><span role="cell">${value(player.pa)}</span><span role="cell">${escapeHtml(localizedNationName({id:player.nationality_id,name:player.nationality}) || uiText("world.not_read"))}</span><span role="cell">${escapeHtml(player.team_name || "-")}</span><span role="cell">${compactMoney(player.asking_price)}</span><span role="cell">${escapeHtml(positions)}</span></div>`;
+  return `<div class="world-player-row" role="row" tabindex="0" aria-label="${uiText("world.view_details", {name:escapeHtml(player.name || String(player.id))})}" data-world-player-detail="${Number(player.id || 0)}"><span class="world-player-name" role="cell" title="UID ${Number(player.id || 0)}"><strong>${escapeHtml(player.name || String(player.id))}</strong></span><span role="cell">${value(player.age)}</span><span role="cell">${value(player.ca)}</span><span role="cell">${value(player.pa)}</span><span role="cell">${escapeHtml(localizedNationName({id:player.nationality_id,name:player.nationality}) || uiText("world.not_read"))}</span><span role="cell">${escapeHtml(player.team_name || "-")}</span><span role="cell">${Number(player.asking_price) > 0 ? compactMoney(player.asking_price) : "-"}</span><span role="cell">${escapeHtml(positions)}</span></div>`;
 }
 
 function worldPlayerSortHeader(field, label, filters = {}) {
@@ -18256,7 +18256,7 @@ function worldClubCard(club, {
       return `<span class="world-form-${tone}" title="${escapeHtml(`${row.opponent || uiText("portfolio.form.opponent")} ${row.score || ""}`)}">${escapeHtml(row.result || "-")}</span>`;
     }).join("") : `<span class="owned-form-none">${uiText("portfolio.form.none")}</span>`;
     return `<article class="owned-club-row-card" data-owned-club-card="${teamId}">
-      <div class="owned-club-row-identity">${orderControls}<h2>${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
+      <div class="owned-club-row-identity">${orderControls}<h2 title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
       <dl class="owned-club-row-metrics" id="owned-club-metrics-${teamId}">${ownedClubMetric(uiText("portfolio.metric.league_rank"), ranking)}${ownedClubMetric(uiText("portfolio.metric.transfer_budget"), ownedClubMoney(metrics.transfer_budget, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.balance"), ownedClubMoney(metrics.balance, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.dividend"), ownedClubDividendEstimate(metrics))}${ownedClubMetric(uiText("portfolio.metric.valuation"), ownedClubMoney(metrics.current_valuation, metrics.unavailable))}${ownedClubAcquisitionMetric(metrics)}${ownedClubMetric(uiText("portfolio.metric.holding_days"), metrics.holding_days == null ? uiText("world.not_read") : uiText("portfolio.metric.days", {count:ownedClubCount(metrics.holding_days)}))}${ownedClubDebtMetric(metrics, club.id)}${ownedClubReputationMetric(club)}${reputationMetric}${fanCountMetric}${ownedClubMetric(uiText("portfolio.metric.season_revenue"), ownedClubMoney(metrics.season_revenue, metrics.unavailable))}</dl>
       <div class="owned-club-row-form"><small>${uiText("portfolio.form.recent")}</small><div>${formHtml}</div></div>
       <div class="owned-club-row-actions"><button type="button" class="primary-action owned-club-row-view" data-world-view="${Number(club.id)}"><span>${uiText("portfolio.card.view_details")}</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>${uiText("portfolio.card.sell_club")}</span></button></div>
@@ -18656,28 +18656,41 @@ async function sellOwnedClub(teamId, button) {
     (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
   ) === club;
   app.ownedClubOperationsInFlight.add(operationKey);
-  const finish = beginOwnedClubOperation(button, uiText("portfolio.sell.busy"));
-  if (!finish) {
-    app.ownedClubOperationsInFlight.delete(operationKey);
-    return;
-  }
+  const confirmDialog = $("#fmodd-confirm-dialog");
+  let finish = null;
+  let restoreFocus = true;
+  let soldMessage = "";
   try {
     const metrics = app.ownedClubMetrics.get(Number(teamId)) || club.portfolio_metrics || {};
     const salePrice = ownedClubSalePrice(metrics, club);
-    const confirmed = await fmoddConfirm(
-      uiText("portfolio.sell.confirm", {
-        club:ownedClubPortfolioDisplayName(club),
-        amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
-      }),
-      uiText("portfolio.sell.title"),
-      uiText("portfolio.sell.title"),
-    );
-    if (!confirmed || !scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
+    confirmDialog?.classList.add("is-danger");
+    let confirmed = false;
+    try {
+      confirmed = await fmoddConfirm(
+        uiText("portfolio.sell.confirm", {
+          club:ownedClubPortfolioDisplayName(club),
+          amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
+        }),
+        uiText("portfolio.sell.title"),
+        uiText("portfolio.sell.title"),
+      );
+    } finally {
+      confirmDialog?.classList.remove("is-danger");
+    }
+    if (!confirmed || !scopeStillCurrent()) return;
+    if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent()) {
+      toast(uiText("portfolio.sell.stale"));
+      return;
+    }
+    finish = beginOwnedClubOperation(button, uiText("portfolio.sell.busy"));
+    if (!finish) return;
     const result = await request("/api/world-clubs/sell", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({team_id:Number(teamId)}),
     });
     if (!result || !scopeStillCurrent()) return;
+    restoreFocus = false;
+    soldMessage = uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)});
     const preSaleListReads = [];
     if (app.worldClubsLoadPromise) preSaleListReads.push(app.worldClubsLoadPromise);
     if (app.pageDataRequests) {
@@ -18698,7 +18711,7 @@ async function sellOwnedClub(teamId, button) {
         renderBank();
       }
       renderMyClubs();
-      toast(uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)}));
+      toast(soldMessage);
       return;
     }
     if (preSaleListReads.length) {
@@ -18720,12 +18733,22 @@ async function sellOwnedClub(teamId, button) {
     }
     rebuildOwnedClubPortfolioSummaryFromCache();
     renderMyClubs();
+    toast(soldMessage);
   } catch (error) {
-    if (!scopeStillCurrent() || !worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
+    if (!scopeStillCurrent()) return;
+    if (soldMessage) {
+      toast(soldMessage);
+      return;
+    }
+    if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
     toast(error.message || uiText("portfolio.sell.failed"));
   } finally {
     app.ownedClubOperationsInFlight.delete(operationKey);
-    finish();
+    finish?.();
+    if (restoreFocus && scopeStillCurrent()) {
+      const focusTarget = button?.isConnected ? button : $(`[data-world-sell="${Number(teamId)}"]`);
+      focusTarget?.focus();
+    }
   }
 }
 

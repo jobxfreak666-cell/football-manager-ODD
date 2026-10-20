@@ -3837,6 +3837,7 @@
     "portfolio.sell.busy": "Vente",
     "portfolio.sell.done": "Club sold; reçu {amount}",
     "portfolio.sell.failed": "Pourrait Non vendre le club",
+    "portfolio.sell.stale": "Les données ont été actualisées, veuillez relancer la vente",
     "portfolio.debt.none": "Ceci club a Aucun dette à rembourser",
     "portfolio.debt.confirm": "Pay {amount} de le FMODD banque et portefeuille, et clear chaque native dette bilan pour {club}?",
     "portfolio.debt.title": "Confirmer dette remboursement",

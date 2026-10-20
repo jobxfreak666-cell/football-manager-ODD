@@ -309,6 +309,7 @@
     "portfolio.sell.title":["Confirm sale", "确认出售", "매각 확인"], "portfolio.sell.busy":["Selling", "正在出售", "매각 중"],
     "portfolio.sell.done":["Club sold; received {amount}", "俱乐部已出售，到账 {amount}", "클럽을 매각해 {amount}을(를) 받았습니다"],
     "portfolio.sell.failed":["Could not sell the club", "俱乐部出售失败", "클럽을 매각하지 못했습니다"],
+    "portfolio.sell.stale":["Data was refreshed. Please sell again", "数据已刷新，请重新出售", "데이터가 새로 고쳐졌습니다. 다시 매각해 주세요"],
     "portfolio.debt.none":["This club has no debt to repay", "该俱乐部当前没有需要偿还的负债", "이 클럽에는 상환할 부채가 없습니다"],
     "portfolio.debt.confirm":["Pay {amount} from the FMODD bank and wallet, and clear every native debt record for {club}?", "将从 FMODD 银行与钱包支付 {amount}，并清零 {club} 的全部原生债务记录。确定继续吗？", "FMODD 은행과 지갑에서 {amount}을 지불하고 {club}의 모든 원본 부채 기록을 정리할까요?"],
     "portfolio.debt.title":["Confirm debt repayment", "确认还债", "부채 상환 확인"], "portfolio.debt.busy":["Repaying debt", "正在还债", "부채 상환 중"],

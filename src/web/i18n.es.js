@@ -3062,6 +3062,7 @@
   "portfolio.sell.busy": "Vendiendo",
   "portfolio.sell.done": "club sold; recibido {amount}",
   "portfolio.sell.failed": "No se pudo sell el club",
+  "portfolio.sell.stale": "Los datos se han actualizado; vuelve a intentar la venta",
   "portfolio.debt.none": "Este club tiene no deuda a repay",
   "portfolio.debt.confirm": "Pagar {amount} desde el FMODD banco y cartera, y borrar cada original deuda registro para {club}?",
   "portfolio.debt.title": "Confirmar deuda reembolso",

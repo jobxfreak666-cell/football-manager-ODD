@@ -139,7 +139,7 @@ class PlayerCardFrontendTests(unittest.TestCase):
         self.assertIn('class="owned-acquisition-change-stack"', self.script)
         self.assertIn('<b class="owned-acquisition-percent ${tone}"', self.script)
         self.assertIn("change.percent", self.script)
-        self.assertIn(".owned-acquisition-change-stack{display:grid;justify-items:start}", self.styles)
+        self.assertIn(".owned-acquisition-change-stack{display:flex;flex-wrap:wrap;gap:0 6px}", self.styles)
         self.assertIn(".owned-acquisition-change.profit,.owned-acquisition-percent.profit{color:var(--profit-red)}", self.styles)
         self.assertIn(".owned-acquisition-change.loss,.owned-acquisition-percent.loss{color:var(--loss-green)}", self.styles)
         self.assertIn(
@@ -154,11 +154,10 @@ class PlayerCardFrontendTests(unittest.TestCase):
             "  grid-template-columns: repeat(3, minmax(0, 1fr));",
             self.styles,
         )
-        self.assertIn("@media (max-width: 1100px)", self.styles)
-        self.assertIn("grid-template-columns: repeat(2, minmax(0, 1fr));", self.styles)
-        self.assertIn("@media (max-width: 720px)", self.styles)
-        self.assertIn("grid-template-columns: minmax(0, 1fr);", self.styles)
-        self.assertNotIn(".owned-club-row-metrics{grid-area:metrics", self.styles)
+        self.assertIn(".my-club-grid {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr);", self.styles)
+        self.assertIn('grid-template-areas:"name metrics form actions"', self.styles)
+        self.assertIn('grid-template-areas:"name form actions" "metrics metrics metrics"', self.styles)
+        self.assertIn('grid-template-areas:"name" "metrics" "form" "actions"', self.styles)
         self.assertNotIn('grid-template-areas:"identity metrics view" "form metrics view"', self.styles)
         self.assertNotIn(".owned-club-row-identity h2{overflow-wrap:anywhere;font-size:26px", self.styles)
 
@@ -167,7 +166,7 @@ class PlayerCardFrontendTests(unittest.TestCase):
             ".owned-club-row-card > dl.owned-club-row-metrics > div {",
             self.styles,
         )
-        self.assertIn("grid-auto-rows: 1fr;", self.styles)
+        self.assertIn("grid-auto-rows: auto;", self.styles)
         self.assertIn("grid-template-rows: minmax(36px, auto) auto;", self.styles)
         self.assertIn("border: 1px solid #d8e5de;", self.styles)
         self.assertIn(".owned-club-row-metrics dt {", self.styles)

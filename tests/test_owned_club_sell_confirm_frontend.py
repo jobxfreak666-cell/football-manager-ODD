@@ -75,10 +75,17 @@ const loadWorldClubs = async (options) => {
 };
 function makeButton() {
   return {
-    dataset:{}, disabled:false, innerHTML:"<span>Sell</span>", isConnected:true,
-    setAttribute() {}, removeAttribute() {},
+    dataset:{}, disabled:false, innerHTML:"<span>Sell</span>", isConnected:true, focusCount:0,
+    setAttribute() {}, removeAttribute() {}, focus() { this.focusCount += 1; },
   };
 }
+const dialogClasses = new Set();
+const confirmDialog = {classList:{
+  add:(name) => dialogClasses.add(name),
+  remove:(name) => dialogClasses.delete(name),
+  contains:(name) => dialogClasses.has(name),
+}};
+const $ = (selector) => selector === "#fmodd-confirm-dialog" ? confirmDialog : null;
 function clubRecord() {
   return {
     id:10, name:"NAC FC", renamed_short_name:"North London",
@@ -196,7 +203,7 @@ def test_sell_does_not_post_or_apply_after_scope_or_ownership_changes():
       assert.equal(app.worldClubs.acquired[0].id, 77);
       assert.equal(app.ownedClubMetrics.has(10), true);
       assert.deepEqual(applied, []);
-      assert.equal(toasts.length, 0);
+      assert.deepEqual(toasts, ["portfolio.sell.stale"]);
       assert.equal(app.ownedClubOperationsInFlight.size, 0);
     })().catch(error => { console.error(error); process.exitCode = 1; });
     ''')
@@ -227,7 +234,7 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       };
       await sellOwnedClub(10, makeButton());
       assert.equal(posts.length, 0);
-      assert.equal(toasts.length, 0);
+      assert.deepEqual(toasts, ["portfolio.sell.stale"]);
       assert.deepEqual(applied, []);
       assert.equal(app.worldClubs.acquired[0].id, 10);
       assert.notEqual(app.worldClubs.acquired[0], original);
@@ -240,7 +247,7 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       };
       await sellOwnedClub(10, makeButton());
       assert.equal(posts.length, 0);
-      assert.equal(toasts.length, 0);
+      assert.deepEqual(toasts, ["portfolio.sell.stale", "portfolio.sell.stale"]);
       assert.deepEqual(applied, []);
 
       original.ownership_active = true;
@@ -253,7 +260,8 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       };
       await sellOwnedClub(10, makeButton());
       assert.equal(posts.length, 0);
-      assert.equal(toasts.length, 0);
+      assert.equal(toasts.length, 3);
+      assert.equal(toasts[2], "portfolio.sell.stale");
       assert.deepEqual(applied, []);
       assert.equal(app.worldClubs.acquired[0], original);
 
@@ -269,7 +277,8 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       assert.equal(posts.length, 1);
       assert.equal(app.worldClubs.acquired[0], original);
       assert.equal(app.ownedClubMetrics.has(10), true);
-      assert.equal(toasts.length, 0);
+      assert.equal(toasts.length, 4);
+      assert.equal(toasts[3], "portfolio.sell.done");
       assert.equal(applied.some((item) => Array.isArray(item) && item[0] === "economy"), false);
       assert.deepEqual(stateLoads, [{fresh:true}]);
       assert.equal(worldClubLoads.length, 1);
@@ -285,7 +294,7 @@ def test_sell_rejects_replaced_ownership_inactive_row_and_request_key_change():
       };
       await sellOwnedClub(10, makeButton());
       assert.equal(posts.length, 1);
-      assert.equal(toasts.length, 0);
+      assert.equal(toasts.length, 4);
       assert.equal(app.worldClubs.acquired[0], original);
       assert.deepEqual(applied, []);
 
@@ -368,7 +377,7 @@ def test_sell_success_refreshes_when_inflight_list_replaces_ownership():
       assert.ok(loadOrder.indexOf("old-list-finally") < loadOrder.indexOf("state"));
       assert.ok(loadOrder.indexOf("old-list-finally") < loadOrder.indexOf("world-clubs"));
       assert.equal(applied.some(item => Array.isArray(item) && item[0] === "economy"), false);
-      assert.equal(toasts.length, 0);
+      assert.deepEqual(toasts, ["portfolio.sell.done"]);
       assert.equal(app.ownedClubOperationsInFlight.size, 0);
 
       makeApp();
@@ -398,7 +407,7 @@ def test_sell_success_refreshes_when_inflight_list_replaces_ownership():
       assert.equal(stateLoads.length, 0);
       assert.equal(worldClubLoads.length, 0);
       assert.equal(applied.some(item => Array.isArray(item) && item[0] === "economy"), false);
-      assert.equal(toasts.length, 0);
+      assert.deepEqual(toasts, ["portfolio.sell.done"]);
       assert.equal(app.ownedClubOperationsInFlight.size, 0);
     })().catch(error => { console.error(error); process.exitCode = 1; });
     ''')
@@ -420,3 +429,67 @@ def test_sell_failure_restores_button_and_flight_state():
       assert.deepEqual(toasts, ["sell failed"]);
     })().catch(error => { console.error(error); process.exitCode = 1; });
     ''')
+
+
+def test_sell_button_stays_idle_and_dialog_is_danger_while_confirm_is_open():
+    run_js(HARNESS + sell_source() + r"""
+    (async () => {
+      makeApp();
+      const button = makeButton();
+      let releaseConfirm;
+      confirmImpl = () => new Promise(resolve => { releaseConfirm = resolve; });
+      const selling = sellOwnedClub(10, button);
+      await Promise.resolve();
+      assert.equal(button.disabled, false);
+      assert.equal(button.dataset.ownedBusy, undefined);
+      assert.equal(button.innerHTML, "<span>Sell</span>");
+      assert.equal(confirmDialog.classList.contains("is-danger"), true);
+      let busyWhilePosting = null;
+      requestImpl = async () => {
+        busyWhilePosting = button.disabled;
+        return {acquired:[], sale_price:250, economy:{wallet:1}};
+      };
+      releaseConfirm(true);
+      await selling;
+      assert.equal(confirmDialog.classList.contains("is-danger"), false);
+      assert.equal(busyWhilePosting, true);
+      assert.deepEqual(toasts, ["portfolio.sell.done"]);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_sell_cancel_returns_focus_and_clears_danger_style():
+    run_js(HARNESS + sell_source() + r"""
+    (async () => {
+      makeApp();
+      const button = makeButton();
+      confirmImpl = async () => false;
+      await sellOwnedClub(10, button);
+      assert.equal(button.focusCount, 1);
+      assert.equal(confirmDialog.classList.contains("is-danger"), false);
+      assert.equal(button.disabled, false);
+
+      confirmImpl = async () => { throw new Error("dialog failed"); };
+      const other = makeButton();
+      await sellOwnedClub(10, other);
+      assert.equal(confirmDialog.classList.contains("is-danger"), false);
+      assert.equal(other.focusCount, 1);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)
+
+
+def test_sell_toasts_done_even_if_list_resync_fails_after_sale():
+    run_js(HARNESS + sell_source() + r"""
+    (async () => {
+      makeApp();
+      confirmImpl = async () => true;
+      requestImpl = async () => {
+        app.worldClubsRequestKey += 1;
+        return {acquired:[], sale_price:250, economy:{wallet:1}};
+      };
+      loadWorldClubsImpl = async () => { throw new Error("list failed"); };
+      await sellOwnedClub(10, makeButton());
+      assert.deepEqual(toasts, ["portfolio.sell.done"]);
+      assert.equal(app.ownedClubOperationsInFlight.size, 0);
+    })().catch(error => { console.error(error); process.exitCode = 1; });
+    """)

@@ -2786,6 +2786,7 @@
     "portfolio.sell.done": "俱樂部已出售，到帳 {amount}",
     "portfolio.sell.estimate_pending": "以出售時重新核定金額為準",
     "portfolio.sell.failed": "俱樂部出售失敗",
+    "portfolio.sell.stale": "資料已重新整理，請重新出售",
     "portfolio.sell.title": "確認出售",
     "portfolio.stadium": "球場",
     "portfolio.stadium.built": "建成日期",

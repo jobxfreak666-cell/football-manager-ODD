@@ -2787,6 +2787,7 @@
   "portfolio.sell.done": "Clube vendido; recebeu {amount}",
   "portfolio.sell.estimate_pending": "recalculado na venda",
   "portfolio.sell.failed": "Não foi possível vender o clube",
+  "portfolio.sell.stale": "Os dados foram atualizados; tente vender novamente",
   "portfolio.sell.title": "Confirmar venda",
   "portfolio.stadium": "Estádio",
   "portfolio.stadium.built": "Construído",
