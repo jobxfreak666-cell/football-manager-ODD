@@ -804,7 +804,7 @@ class FrontendRefreshRecoveryTests(unittest.TestCase):
 
     def test_state_load_coalesces_fresh_follow_up_requests(self):
         loader = self.script.split("async function loadState({fresh = false} = {})", 1)[1].split(
-            "function freeServicesEnabled", 1,
+            "function disableFaEnabled", 1,
         )[0]
 
         self.assertIn("stateReloadRequested: false", self.script)

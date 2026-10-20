@@ -5,9 +5,15 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
 LOCALES = ("en-GB", "zh-CN", "ko-KR")
+SUPPORTED_LOCALES = (
+    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR",
+    "ru-RU", "ja-JP", "pt-BR", "pt-PT",
+)
 
 
 def _probe() -> dict[str, object]:
@@ -31,7 +37,8 @@ const modules = context.window.FMODDI18nModules.map((entry) => entry.messages ||
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context, {filename:"/i18n.js"});
 const keyed = [...html.matchAll(/data-i18n(?:-aria-label|-placeholder|-title|-alt)?="([^"]+)"/g)].map((match) => match[1]);
 const missing = {};
-for (const locale of ["en-GB", "zh-CN", "ko-KR"]) {
+const supportedLocales = [...context.window.FMODDI18n.SUPPORTED_LOCALES];
+for (const locale of supportedLocales) {
   context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
   missing[locale] = [...new Set(keyed.filter((key) => context.window.FMODDI18n.t(key) === key))].sort();
 }
@@ -63,7 +70,7 @@ for (const module of context.window.FMODDI18nModules) {
     if (/을\(를\)|이\(가\)|은\(는\)|과\(와\)|\(으\)로/.test(rendered)) unresolvedParticles.push(key);
   }
 }
-console.log(JSON.stringify({sources, modules, missing, particles, cjkLabels, unresolvedParticles}));
+console.log(JSON.stringify({sources, modules, supportedLocales, missing, particles, cjkLabels, unresolvedParticles}));
 '''
     result = subprocess.run(
         ["node", "-e", script, str(ROOT)],
@@ -79,18 +86,61 @@ def _parameters(value: str) -> set[str]:
     return set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", value))
 
 
+def _validate_domain_catalog(module: dict[str, dict[str, str]]) -> None:
+    assert set(LOCALES) <= set(module), "missing base locales"
+    assert set(module) <= set(SUPPORTED_LOCALES), "unsupported locales"
+    reference = module["en-GB"]
+    assert reference, "empty catalog"
+    for locale, translations in module.items():
+        assert set(translations) == set(reference), f"{locale}: keys differ"
+        for key, value in translations.items():
+            assert isinstance(value, str) and value.strip(), f"{locale}:{key}: empty or non-string value"
+    for locale, translations in module.items():
+        for key, value in translations.items():
+            assert _parameters(value) == _parameters(reference[key]), f"{locale}:{key}: parameters differ"
+
+
+@pytest.mark.parametrize("locales", [LOCALES, SUPPORTED_LOCALES])
+def test_domain_catalog_accepts_base_and_extended_locale_sets(locales) -> None:
+    _validate_domain_catalog({locale: {"greeting": "Hello {name}"} for locale in locales})
+
+
+@pytest.mark.parametrize("defect, message", [
+    ("missing_base", "missing base locales"),
+    ("unsupported", "unsupported locales"),
+    ("missing_key", "keys differ"),
+    ("extra_key", "keys differ"),
+    ("empty_value", "empty or non-string value"),
+    ("non_string", "empty or non-string value"),
+    ("parameters", "parameters differ"),
+])
+def test_domain_catalog_rejects_invalid_extra_locale_translations(defect, message) -> None:
+    module = {locale: {"greeting": "Hello {name}"} for locale in (*LOCALES, "ja-JP")}
+    if defect == "missing_base":
+        del module["zh-CN"]
+    elif defect == "unsupported":
+        module["xx-XX"] = dict(module["en-GB"])
+    elif defect == "missing_key":
+        module["ja-JP"].clear()
+    elif defect == "extra_key":
+        module["ja-JP"]["extra"] = "Extra"
+    elif defect == "empty_value":
+        module["ja-JP"]["greeting"] = "   "
+    elif defect == "non_string":
+        module["ja-JP"]["greeting"] = None
+    else:
+        module["ja-JP"]["greeting"] = "Hello {other_name}"
+    with pytest.raises(AssertionError, match=message):
+        _validate_domain_catalog(module)
+
+
 def test_every_loaded_domain_catalog_has_locale_and_parameter_parity() -> None:
     output = _probe()
     modules = output["modules"]
     assert modules
+    assert set(output["supportedLocales"]) == set(SUPPORTED_LOCALES)
     for module in modules:
-        assert set(module) == set(LOCALES)
-        key_sets = {locale: set(module[locale]) for locale in LOCALES}
-        assert all(keys == key_sets["en-GB"] for keys in key_sets.values())
-        for key in key_sets["en-GB"]:
-            values = {locale: module[locale][key] for locale in LOCALES}
-            assert all(isinstance(value, str) and value for value in values.values()), key
-            assert all(_parameters(value) == _parameters(values["en-GB"]) for value in values.values()), key
+        _validate_domain_catalog(module)
 
 
 def test_html_semantic_keys_resolve_and_catalogs_load_before_core() -> None:
@@ -100,7 +150,7 @@ def test_html_semantic_keys_resolve_and_catalogs_load_before_core() -> None:
     for source in sources:
         if source.startswith("/i18n.") and source not in {"/i18n.js"}:
             assert sources.index(source) < sources.index("/i18n.js")
-    assert output["missing"] == {locale: [] for locale in LOCALES}
+    assert output["missing"] == {locale: [] for locale in SUPPORTED_LOCALES}
 
 
 def test_korean_particles_are_resolved_without_parenthetical_placeholders() -> None:

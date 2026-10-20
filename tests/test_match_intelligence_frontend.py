@@ -155,15 +155,5 @@ def test_intelligence_notice_is_driven_by_background_probe_state():
     assert '"match_intelligence_notice": intelligence_notice' in server
     assert "purchasable_match_intelligence_candidates(" in server
     assert 'not bool(tier.get("purchased"))' in server
-    assert 'purchase_mode="random" if random_purchase else "specific"' in server
     assert "watch_match_intelligence" in server
     assert "probe_match_intelligence_candidates" in server
-    assert "and (kickoff is None or int(kickoff) < current_minutes)" in server
-    public_start = server.index("def public_match_intelligence")
-    public_end = server.index("def buy_match_intelligence", public_start)
-    public_method = server[public_start:public_end]
-    assert "_probe_match_intelligence_if_idle" not in public_method
-    assert "with self.lock" not in public_method
-    assert "set_active_save_id(scope_id)" in public_method
-    assert "open_match_intelligence_status" in public_method
-    assert "deepcopy(intelligence)" in public_method

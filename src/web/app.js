@@ -425,7 +425,6 @@ const app = {
   favoriteScopeId: null,
   pricingMode: "casino",
   cheatMode: localStorage.getItem("fm-odds-cheat-mode") === "true",
-  freeShop: localStorage.getItem("fm-odds-free-shop") === "true",
   disableFa: localStorage.getItem("fm-odds-disable-fa") === "true",
   godMode: localStorage.getItem("fm-odds-god-mode") === "true",
   unlimitedBetting: localStorage.getItem("fm-odds-unlimited-betting") === "true",
@@ -798,7 +797,6 @@ const app = {
   shopCartDate: null,
   shopCartOpen: false,
   shopPurchaseBusy: false,
-  freeServicesSyncBusy: false,
   medicalDefaultSyncBusy: false,
   medicalTreatmentBusy: new Set(),
   unlimitedBettingSyncBusy: false,
@@ -2479,9 +2477,7 @@ function fmoddPurchaseConfirm(item, payment) {
   const waiverButton = $("#integrity-waive-fourth");
   waiverButton.hidden = true;
   const price = Number(payment.price || 0);
-  const rows = payment.free
-    ? [[uiText("dialog.purchase.amount"), formatPounds(0)], [uiText("dialog.purchase.method"), uiText("dialog.purchase.free")], [uiText("dialog.purchase.total"), formatPounds(0)]]
-    : [[uiText("dialog.purchase.amount"), formatPounds(price)], [uiText("funding.bank", {amount:formatPounds(payment.bank)})], [uiText("funding.wallet", {amount:formatPounds(payment.wallet)})], [uiText("dialog.purchase.total"), formatPounds(price)]];
+  const rows = [[uiText("dialog.purchase.amount"), formatPounds(price)], [uiText("funding.bank", {amount:formatPounds(payment.bank)})], [uiText("funding.wallet", {amount:formatPounds(payment.wallet)})], [uiText("dialog.purchase.total"), formatPounds(price)]];
   messageNode.classList.remove("credit-default-message");
   messageNode.classList.add("purchase-confirm-message");
   messageNode.innerHTML = `<span class="purchase-confirm-product">${escapeHtml(uiText("dialog.purchase.product", {name:item?.name || uiText("shop.product_fallback")}))}</span><span class="purchase-confirm-breakdown">${rows.map(([label, value], index) => `<span class="${index === rows.length - 1 ? "total" : ""}"><em>${escapeHtml(label)}</em><b>${escapeHtml(value)}</b></span>`).join("")}</span>`;
@@ -3053,7 +3049,6 @@ async function loadStateOnce() {
       if (migrateFavoriteTeams) saveFavoriteTeamIds(true).catch((error) => toast(error.message));
       if (migrateFavoriteMarkets) saveFavoriteMarketKeys(true).catch((error) => toast(error.message));
       syncSelectionOddsFromMatches();
-      syncFreeServices();
       syncDisableFa();
       syncGodMode();
       syncBettingLimits();
@@ -3117,8 +3112,6 @@ async function loadState({fresh = false} = {}) {
   }
 }
 
-function freeServicesEnabled() { return Boolean(app.cheatMode && app.freeShop); }
-
 function disableFaEnabled() { return Boolean(app.cheatMode && app.disableFa); }
 
 function godModeEnabled() { return Boolean(app.cheatMode && app.godMode); }
@@ -3137,24 +3130,6 @@ async function syncDisableFa() {
     return false;
   } finally {
     app.disableFaSyncBusy = false;
-  }
-}
-
-async function syncFreeServices() {
-  if (!app.state?.cache_verified || !output().save_instance_id || app.freeServicesSyncBusy) return;
-  const enabled = freeServicesEnabled();
-  if (Boolean(app.state?.welfare?.free_services) === enabled) return;
-  app.freeServicesSyncBusy = true;
-  try {
-    const response = await request("/api/cheat/free-services", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});
-    applyEconomySnapshot(response.economy);
-    app.state.welfare = response.welfare;
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    app.freeServicesSyncBusy = false;
-    renderActivity();
-    renderHospital();
   }
 }
 
@@ -9750,7 +9725,7 @@ document.addEventListener("input", (event) => {
 function settingsRenderStateSignature(settings) {
   return JSON.stringify([
     String(app.state?.data_scope_id || ""),
-    app.cheatMode, app.freeShop, app.disableFa, app.godMode,
+    app.cheatMode, app.disableFa, app.godMode,
     app.compactMoney, app.darkMode, app.reverseProfitLossColors,
     String(settings.ui_locale || activeUiLocale()), storedLocaleFontKey(settings.ui_locale || activeUiLocale()),
     app.fontSizeStep, app.showHiddenAttributes,
@@ -9799,7 +9774,6 @@ function renderSettingsControls({force = false} = {}) {
   app.settingsRenderSignature = signature;
   $("#cheat-mode").checked = app.cheatMode;
   $("#cheat-actions").classList.toggle("visible", app.cheatMode);
-  $("#free-shop").checked = app.freeShop;
   $("#disable-fa").checked = app.disableFa;
   if ($("#god-mode")) $("#god-mode").checked = app.godMode;
   $("#compact-money").checked = app.compactMoney;
@@ -11930,7 +11904,7 @@ function canteenRenderStateSignature(index, players) {
     String(app.state?.data_scope_id || ""), moneyRenderSignature(),
     funding.bank, funding.wallet, funding.total, canteenDate(),
     Number(index.teamId || 0), app.canteenSettingsKey,
-    app.canteenDock, app.canteenPlan, facilityViewMode("canteen"), Boolean(freeServicesEnabled()),
+    app.canteenDock, app.canteenPlan, facilityViewMode("canteen"),
     Boolean(app.canteenSyncPromise), app.canteenActionBusy, app.canteenActionLabel,
     Object.entries(app.canteenBans).sort(([left], [right]) => Number(left) - Number(right)),
     players.map((player) => [Number(player.id), String(player.name || "")]),
@@ -11959,7 +11933,7 @@ function renderCanteen() {
   syncStatus.hidden = !busyLabel;
   syncStatus.querySelector("span").textContent = busyLabel;
   renderFundingSummary("#canteen-balance", {
-    recurringAmount:freeServicesEnabled() ? 0 : toPurchaseInternalMoney(plan.daily_cost),
+    recurringAmount:toPurchaseInternalMoney(plan.daily_cost),
     recurringLabel:uiText("canteen.daily_cost"),
   });
   $("#canteen-window-status").textContent = uiText("canteen.open", {name:uiText(plan.nameKey)});
@@ -12843,7 +12817,7 @@ function renderRelationshipTrainingFloor({floorLocked = false} = {}) {
 async function unlockRelationshipTrainingRoom(sku, button) {
   if (app.trainingActionBusy) return;
   const room=(app.relationshipTrainingRooms?.rooms||[]).find((row)=>String(row.sku||"")===String(sku||""));
-  const cost=freeServicesEnabled()?0:Number(room?.unlock_cost||0);
+  const cost=Number(room?.unlock_cost||0);
   if(!await fmoddConfirm(uiText("relationship.room_unlock_confirm", {name:room?.name || uiText("relationship.default_room"), amount:formatPounds(cost)}),uiText("relationship.confirm_unlock")))return;
   app.trainingActionBusy = true;
   button?.setAttribute("aria-busy","true");
@@ -13567,7 +13541,6 @@ async function submitInlineTraining(form) {
     facility_id:facility.id,
     player_id:Number(form.querySelector("#training-inline-player")?.value || 0),
     operation:habit ? app.trainingOperation : "attribute",
-    free_purchase:freeServicesEnabled(),
     duration_mode:habit ? "week" : (
       form.querySelector("#training-inline-duration")?.value
       || (Number(trainingProduct(facility.sku)?.direction || 1) < 0
@@ -13690,20 +13663,18 @@ function shopCartLines() {
 }
 
 function shopCartTotal() {
-  if (app.cheatMode && app.freeShop) return 0;
   return round(shopCartLines().reduce((total, item) => total + Number(item.price || 0) * item.quantity, 0));
 }
 
 function refreshShopQuantityControls() {
   const economy = app.state?.economy || {};
-  const freePurchase = app.cheatMode && app.freeShop;
   const total = shopCartTotal();
   document.querySelectorAll("[data-shop-quantity]").forEach((control) => {
     const sku = control.dataset.shopQuantity;
     const item = shopProduct(sku);
     const quantity = Number(app.shopCart.get(sku) || 0);
     const available = control.dataset.shopAvailable === "true";
-    const canAdd = available && quantity < 99 && (freePurchase || total + Number(item?.price || 0) <= Number(economy.total_balance || 0));
+    const canAdd = available && quantity < 99 && (total + Number(item?.price || 0) <= Number(economy.total_balance || 0));
     const input = control.querySelector("[data-quantity-input]");
     if (input) { input.value = String(quantity); input.disabled = !available; }
     control.querySelector('[data-quantity-delta="-1"]').disabled = quantity <= 0;
@@ -13743,7 +13714,7 @@ function setShopCartQuantity(sku, quantity, source = null) {
   if (!item) return;
   const previous = Number(app.shopCart.get(sku) || 0);
   let next = Math.max(0, Math.min(99, Math.floor(Number(quantity) || 0)));
-  if (next > previous && !(app.cheatMode && app.freeShop)) {
+  if (next > previous) {
     const price = Number(item.price || 0);
     const otherTotal = shopCartTotal() - price * previous;
     const affordable = price > 0 ? Math.max(0, Math.floor((Number(economy.total_balance || 0) - otherTotal) / price)) : 99;
@@ -13761,11 +13732,10 @@ function renderShopCart() {
   const quantity = lines.reduce((total, item) => total + item.quantity, 0);
   const total = shopCartTotal();
   const balance = Number(app.state?.economy?.total_balance || 0);
-  const freePurchase = app.cheatMode && app.freeShop;
   const panel = $("#shop-cart-panel");
   const signature = JSON.stringify([
     String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale,
-    app.shopCartDate, app.shopCartOpen, app.shopPurchaseBusy, freePurchase,
+    app.shopCartDate, app.shopCartOpen, app.shopPurchaseBusy,
     balance,
     lines.map((item) => [item.sku, item.name, item.price, item.quantity]),
   ]);
@@ -13780,37 +13750,36 @@ function renderShopCart() {
   $("#shop-cart-items").innerHTML = lines.length ? lines.map((item) => `
     <article class="shop-cart-item" data-cart-sku="${escapeHtml(item.sku)}">
       <div class="shop-cart-item-icon">${itemImage(item.sku)}</div>
-      <div class="shop-cart-item-copy"><strong>${escapeHtml(localizedItemName(item))}</strong><span>${freePurchase ? "£0" : formatPounds(item.price)} ${uiText("shop.per_item")}</span><div class="shop-cart-item-actions"><div class="shop-quantity"><button type="button" data-cart-delta="-1">−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.quantity}" data-cart-quantity aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}"><button type="button" data-cart-delta="1" ${item.quantity >= 99 || (!freePurchase && total + Number(item.price || 0) > balance) ? "disabled" : ""}>＋</button></div><button class="shop-cart-delete" type="button" data-cart-delete aria-label="${escapeHtml(uiText("shop.delete_label", {name:localizedItemName(item)}))}"><i data-lucide="trash-2"></i></button></div></div>
-      <strong class="shop-cart-line-total">${freePurchase ? "£0" : formatPounds(Number(item.price || 0) * item.quantity)}</strong>
+      <div class="shop-cart-item-copy"><strong>${escapeHtml(localizedItemName(item))}</strong><span>${formatPounds(item.price)} ${uiText("shop.per_item")}</span><div class="shop-cart-item-actions"><div class="shop-quantity"><button type="button" data-cart-delta="-1">−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.quantity}" data-cart-quantity aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}"><button type="button" data-cart-delta="1" ${item.quantity >= 99 || (total + Number(item.price || 0) > balance) ? "disabled" : ""}>＋</button></div><button class="shop-cart-delete" type="button" data-cart-delete aria-label="${escapeHtml(uiText("shop.delete_label", {name:localizedItemName(item)}))}"><i data-lucide="trash-2"></i></button></div></div>
+      <strong class="shop-cart-line-total">${formatPounds(Number(item.price || 0) * item.quantity)}</strong>
     </article>`).join("") : `<div class="shop-cart-empty"><i data-lucide="shopping-cart"></i><strong>${uiText("shop.empty")}</strong><span>${uiText("shop.empty_note")}</span></div>`;
   $("#shop-cart-quantity").textContent = uiText("shop.items", {count:quantity});
-  $("#shop-cart-total").textContent = freePurchase ? "£0" : formatPounds(total);
+  $("#shop-cart-total").textContent = formatPounds(total);
   const buyButton = $("#shop-cart-buy");
-  buyButton.disabled = !lines.length || app.shopPurchaseBusy || (!freePurchase && total > balance);
-  buyButton.textContent = app.shopPurchaseBusy ? uiText("shop.buying") : (!freePurchase && total > balance ? uiText("shop.insufficient") : uiText("shop.confirm_purchase"));
+  buyButton.disabled = !lines.length || app.shopPurchaseBusy || (total > balance);
+  buyButton.textContent = app.shopPurchaseBusy ? uiText("shop.buying") : (total > balance ? uiText("shop.insufficient") : uiText("shop.confirm_purchase"));
   renderIcons();
 }
 
 function renderShop() {
   syncShopCartDate();
   const economy = app.state?.economy || {};
-  const freePurchase = app.cheatMode && app.freeShop;
   const ready = new Set(["red_bull", "team_red_bull", "doping", "team_doping", "bribed_goalkeeper", "opponent_flu", LEAGUE_POINTS_SKU, ...PILL_SKUS, ...REPUTATION_SKUS, ...(app.state?.nuclear_effects?.supported || [])]);
   const catalog = economy.catalog || [];
   const cartTotal = shopCartTotal();
   const card = (item) => {
     const available = ready.has(item.sku);
-    const affordable = freePurchase || cartTotal + Number(item.price || 0) <= Number(economy.total_balance || 0);
+    const affordable = cartTotal + Number(item.price || 0) <= Number(economy.total_balance || 0);
     const tier = item.tier || DISPLAY_TIER_BY_SKU[item.sku] || "";
     const tierClass = TIER_CLASS[tier] || "";
     const badge = localizedItemTier(tier) || (item.category === "球员" ? uiText("shop.attribute_items") : ["声望", "积分"].includes(item.category) ? uiText("shop.reputation_items") : uiText("shop.match_items"));
     const quantity = Number(app.shopCart.get(item.sku) || 0);
     const note = matchItemNote(item);
-    return `<article class="feature-card ${tierClass ? `tier-card tier-${tierClass}` : ""}"><div class="item-hero"><div class="item-icon image-icon">${itemImage(item.sku)}</div><div><h3>${escapeHtml(localizedItemName(item))}</h3><span class="item-status ${available ? "" : "pending"}">${available ? escapeHtml(badge) : uiText("shop.unavailable")}</span></div></div><p>${escapeHtml(localizedItemDescription(item))}</p>${note}<footer class="shop-card-footer"><strong>${freePurchase ? "£0" : formatPounds(item.price)}</strong><div class="shop-quantity" data-shop-quantity="${escapeHtml(item.sku)}" data-shop-available="${available}"><button type="button" data-quantity-delta="-1" ${quantity > 0 ? "" : "disabled"}>−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${quantity}" data-quantity-input aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}" ${available ? "" : "disabled"}><button type="button" data-quantity-delta="1" ${available && affordable && quantity < 99 ? "" : "disabled"}>＋</button></div></footer></article>`;
+    return `<article class="feature-card ${tierClass ? `tier-card tier-${tierClass}` : ""}"><div class="item-hero"><div class="item-icon image-icon">${itemImage(item.sku)}</div><div><h3>${escapeHtml(localizedItemName(item))}</h3><span class="item-status ${available ? "" : "pending"}">${available ? escapeHtml(badge) : uiText("shop.unavailable")}</span></div></div><p>${escapeHtml(localizedItemDescription(item))}</p>${note}<footer class="shop-card-footer"><strong>${formatPounds(item.price)}</strong><div class="shop-quantity" data-shop-quantity="${escapeHtml(item.sku)}" data-shop-available="${available}"><button type="button" data-quantity-delta="-1" ${quantity > 0 ? "" : "disabled"}>−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${quantity}" data-quantity-input aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}" ${available ? "" : "disabled"}><button type="button" data-quantity-delta="1" ${available && affordable && quantity < 99 ? "" : "disabled"}>＋</button></div></footer></article>`;
   };
   renderFundingSummary("#shop-balance");
   const contentSignature = JSON.stringify([
-    String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale, freePurchase,
+    String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale,
     [...ready].sort(),
     catalog.map((item) => [
       item.sku, item.name, item.description, item.price, item.category,
@@ -14954,7 +14923,6 @@ function renderActivityLegacy() {
   const players = allManagedPlayers();
   const clubPlayers = managedClubPlayers();
   const balance = Number(app.state?.economy?.total_balance || 0);
-  const freeServices = freeServicesEnabled();
   $("#activity-balance").textContent = formatPounds(balance);
   if (!players.length) {
     container.innerHTML = `<div class="empty-feature">${uiText("activity.refreshing_players")}</div>`;
@@ -15019,9 +14987,9 @@ function renderActivityLegacy() {
   const cooldownUntil = String(counselingState.cooldown_until || "");
   const counselingCooling = Boolean(cooldownUntil && gameDate && gameDate < cooldownUntil);
   const counselingReply = Number(app.counselingReply?.playerId || 0) === counselingPlayerId ? app.counselingReply : null;
-  const counselingCard = `<article class="feature-card activity-card retirement-activity-card counseling-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="heart-handshake"></i></div><div><h3>${uiText("activity.counselling")}</h3><span class="item-status">${uiText("activity.counselling_status")}</span></div></div><p class="counseling-odds"><span>40% ${uiText("activity.counselling_outcome_relieved")}</span><span>25% ${uiText("activity.counselling_outcome_opened")}</span><span>30% ${uiText("activity.counselling_outcome_none")}</span><span>5% ${uiText("activity.counselling_outcome_rupture")}</span></p>${counselingReply ? `<p class="retirement-dialogue counseling-reply ${escapeHtml(counselingReply.outcome || "")}">${escapeHtml(counselingReply.message || "")}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="counseling-player">${counselingOptions}</select></label><footer><strong>${counselingCooling ? uiText("activity.cooling_until", {date:escapeHtml(cooldownUntil)}) : ""}</strong><button id="start-counseling" type="button" ${counselingCooling ? "disabled" : ""}>${uiText(counselingCooling ? "activity.cooling_down" : "activity.start_counselling")}</button></footer></article>`;
+  const counselingCard = `<article class="feature-card activity-card retirement-activity-card counseling-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="heart-handshake"></i></div><div><h3>${uiText("activity.counselling")}</h3><span class="item-status">${uiText("activity.counselling_status")}</span></div></div><p class="counseling-odds"><span>${uiText("activity.counselling_rule", {price:formatPounds(counselingPrice())})}</span></p>${counselingReply ? `<p class="retirement-dialogue counseling-reply ${escapeHtml(counselingReply.outcome || "")}">${escapeHtml(counselingReply.message || "")}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="counseling-player">${counselingOptions}</select></label><footer><strong>${counselingCooling ? uiText("activity.cooling_until", {date:escapeHtml(cooldownUntil)}) : ""}</strong><button id="start-counseling" type="button" ${counselingCooling ? "disabled" : ""}>${uiText(counselingCooling ? "activity.cooling_down" : "activity.start_counselling")}</button></footer></article>`;
   const entertainmentActivities = Object.entries(activities).filter(([, option]) => String(option.centre || "entertainment") === "entertainment");
-  const activityCards = entertainmentActivities.map(([key, option]) => `<article class="feature-card activity-card" data-activity-card="${key}"><div class="item-hero"><div class="item-icon"><i data-lucide="${icons[key] || "calendar-heart"}"></i></div><div><h3>${escapeHtml(option.name)}</h3><span class="item-status">${uiText("activity.player_activity")}</span></div></div><p>${escapeHtml(descriptions[key] || uiText("activity.fallback_description", {intimacy:Number(option.intimacy).toFixed(1)}))}</p><label>${uiText("activity.choose_player")}<select data-activity-player="${key}">${playerOptions(key)}</select></label><footer><strong>${freeServices ? "£0" : formatPounds(option.price)}</strong><button type="button" data-player-activity="${key}" data-activity-price="${freeServices ? 0 : Number(option.price)}">${uiText("activity.participate")}</button></footer></article>`).join("");
+  const activityCards = entertainmentActivities.map(([key, option]) => `<article class="feature-card activity-card" data-activity-card="${key}"><div class="item-hero"><div class="item-icon"><i data-lucide="${icons[key] || "calendar-heart"}"></i></div><div><h3>${escapeHtml(option.name)}</h3><span class="item-status">${uiText("activity.player_activity")}</span></div></div><p>${escapeHtml(descriptions[key] || uiText("activity.fallback_description", {intimacy:Number(option.intimacy).toFixed(1)}))}</p><label>${uiText("activity.choose_player")}<select data-activity-player="${key}">${playerOptions(key)}</select></label><footer><strong>${formatPounds(option.price)}</strong><button type="button" data-player-activity="${key}" data-activity-price="${Number(option.price)}">${uiText("activity.participate")}</button></footer></article>`).join("");
   const talkCards = `${counselingCard}${retirementCard}`;
   const centreState = app.state?.welfare?.activity_centres || {};
   const mediaActivity = activities.media_interview || {name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"};
@@ -15071,8 +15039,8 @@ function renderActivityLegacy() {
       ? String(dailyUsage[`${usageKey}:media`] || "") === gameDate
       : String(dailyUsage[usageKey] || "") === gameDate
         || Object.entries(dailyUsage).some(([key, date]) => key.startsWith(`${usageKey}:entertainment`) && String(date || "") === gameDate);
-    button.disabled = app.freeServicesSyncBusy || usedToday || balance < Number(button.dataset.activityPrice || 0);
-    button.textContent = app.freeServicesSyncBusy ? uiText("activity.syncing") : usedToday ? uiText("activity.today_participated") : activity === "media_interview" ? uiText("activity.arrange_interview") : uiText("activity.participate");
+    button.disabled = usedToday || balance < Number(button.dataset.activityPrice || 0);
+    button.textContent = usedToday ? uiText("activity.today_participated") : activity === "media_interview" ? uiText("activity.arrange_interview") : uiText("activity.participate");
   };
   document.querySelectorAll("[data-activity-player]").forEach((select) => select.addEventListener("change", () => {
     app.activityPlayerIds.set(String(select.dataset.activityPlayer || ""), Number(select.value || 0));
@@ -15188,11 +15156,11 @@ function renderActivityLegacy() {
     const centre = String(button.dataset.activityUnlock || "");
     const floor = floors[centre];
     if (!floor || !floor.available) return;
-    const price = freeServicesEnabled() ? 0 : floor.price;
+    const price = floor.price;
     if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return;
     button.disabled = true;
     try {
-      const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre,free_purchase:freeServicesEnabled()})});
+      const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})});
       applyEconomySnapshot(response.economy);
       app.state.welfare = response.welfare;
       renderActivity();
@@ -15276,13 +15244,15 @@ function renderActivityLegacy() {
   renderIcons();
 }
 
-const COUNSELING_WHEEL_STOPS = {
-  unlocked: "288deg",
-  relieved: "288deg",
-  opened_up: "171deg",
-  no_effect: "72deg",
-  rupture: "9deg",
-};
+const COUNSELING_PRICE = 100_000;
+
+function counselingPrice() {
+  return toPurchaseInternalMoney(COUNSELING_PRICE);
+}
+
+function counselingCanAfford(count = 1) {
+  return availableWalletBalance() >= counselingPrice() * Math.max(1, Number(count) || 1);
+}
 
 function openCounselingWheels(players) {
   const dialog = $("#counseling-wheel-dialog");
@@ -15292,8 +15262,8 @@ function openCounselingWheels(players) {
     players: new Map(players.map((player) => [Number(player.id), player])),
     running: new Set(), completed: new Set(),
   };
-  const unlockPrice = formatMoney(toPurchaseInternalMoney(100_000));
-  results.innerHTML = players.map((player) => `<article class="counseling-wheel-card ready" data-counseling-wheel-player="${Number(player.id)}"><div class="counseling-wheel-stage"><div class="counseling-wheel-pointer"></div><div class="counseling-wheel"><span>?</span></div><button class="counseling-wheel-spin-one" type="button" data-counseling-wheel-spin="${Number(player.id)}">${uiText("activity.counselling_spin")}</button></div><div class="counseling-wheel-copy"><small>${escapeHtml(player.name)}</small><strong>${uiText("activity.counselling_ready")}</strong><b>${uiText("activity.counselling_no_result")}</b><p>${uiText("activity.counselling_hint")}</p><div class="counseling-wheel-card-actions"><button type="button" data-counseling-wheel-unlock="${Number(player.id)}"><i data-lucide="key-round"></i>${unlockPrice} ${uiText("activity.counselling_unlock")}</button></div></div></article>`).join("");
+  const price = formatPounds(counselingPrice());
+  results.innerHTML = players.map((player) => `<article class="counseling-wheel-card ready" data-counseling-wheel-player="${Number(player.id)}"><div class="counseling-wheel-copy"><small>${escapeHtml(player.name)}</small><strong>${uiText("activity.counselling_ready")}</strong><b>${uiText("activity.counselling_rule", {price})}</b><p data-counseling-note>${uiText("activity.counselling_hint")}</p><div class="counseling-wheel-card-actions"><button type="button" data-counseling-start="${Number(player.id)}"><i data-lucide="heart-handshake"></i>${uiText("activity.counselling_unlock", {price})}</button></div></div></article>`).join("");
   updateCounselingWheelControls();
   if (!dialog.open) dialog.showModal();
   renderIcons();
@@ -15306,15 +15276,25 @@ function updateCounselingWheelControls() {
   const completed = batch.completed.size;
   const running = batch.running.size;
   const remaining = total - completed - running;
+  const affordable = counselingCanAfford(1);
+  document.querySelectorAll("#counseling-wheel-results .counseling-wheel-card.ready").forEach((card) => {
+    const start = card.querySelector("[data-counseling-start]");
+    const note = card.querySelector("[data-counseling-note]");
+    if (start) start.disabled = !affordable || running > 0;
+    if (note) note.textContent = card.dataset.counselingError || (affordable ? uiText("activity.counselling_hint") : uiText("activity.counselling_wallet_short"));
+  });
   const auto = $("#counseling-wheel-auto");
   const close = $("#counseling-wheel-close");
   const closeIcon = $("#counseling-wheel-close-icon");
-  if (auto) { auto.disabled = remaining <= 0; auto.querySelector("span").textContent = remaining > 0 ? uiText("activity.counselling_auto_remaining", {count:remaining}) : uiText("activity.counselling_all_done"); }
+  if (auto) {
+    auto.disabled = remaining <= 0 || running > 0 || !counselingCanAfford(remaining);
+    auto.querySelector("span").textContent = remaining > 0 ? uiText("activity.counselling_auto_remaining", {count:remaining, total:formatPounds(counselingPrice() * remaining)}) : uiText("activity.counselling_all_done");
+  }
   if (close) close.disabled = running > 0;
   if (closeIcon) closeIcon.disabled = running > 0;
 }
 
-async function runCounselingWheel(playerId, guaranteed = false) {
+async function runCounseling(playerId) {
   const batch = app.counselingWheelBatch;
   const id = Number(playerId);
   const player = batch?.players.get(id);
@@ -15323,79 +15303,78 @@ async function runCounselingWheel(playerId, guaranteed = false) {
   const card = document.querySelector(`[data-counseling-wheel-player="${id}"]`);
   card?.classList.remove("ready");
   card?.classList.add("pending");
-  const wheel = card?.querySelector(".counseling-wheel");
-  wheel?.classList.add("spinning");
-  const button = card?.querySelector("[data-counseling-wheel-spin]");
-  if (button) { button.disabled = true; button.textContent = uiText("activity.counselling_spinning"); }
-  const unlock = card?.querySelector("[data-counseling-wheel-unlock]");
-  if (unlock) unlock.disabled = true;
+  const start = card?.querySelector("[data-counseling-start]");
+  if (start) { start.disabled = true; start.textContent = uiText("activity.counselling_spinning"); }
   updateCounselingWheelControls();
+  let succeeded = false;
   try {
-    const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:id,team_id:managedPlayerTeamId(id),guaranteed})});
+    const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:id,team_id:managedPlayerTeamId(id)})});
     applyEconomySnapshot(response.economy);
     app.state.welfare = response.welfare;
     const result = response.counseling || {};
-    const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0))};
+    const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0)), has_unhappiness:false};
     (result.effect?.effects || []).forEach((change) => {
       if (change.field === "morale") changes.morale = change.after;
-      if (change.field === "unhappiness" && change.after === false) changes.has_unhappiness = false;
     });
     updateManagedPlayer(id, changes);
-    settleCounselingWheel(id, result);
+    settleCounselingWheel(id, result, "", response.payment || result.payment);
+    succeeded = true;
   } catch (error) {
     settleCounselingWheel(id, null, error.message);
   } finally {
     batch.running.delete(id);
-    batch.completed.add(id);
+    if (succeeded) batch.completed.add(id);
+    else {
+      card?.classList.remove("pending", "failed");
+      card?.classList.add("ready");
+      if (start) start.innerHTML = `<i data-lucide="heart-handshake"></i>${uiText("activity.counselling_unlock", {price:formatPounds(counselingPrice())})}`;
+      renderIcons();
+    }
     updateCounselingWheelControls();
   }
 }
 
-async function spinCounselingWheel(playerId) {
-  return runCounselingWheel(playerId, false);
-}
-
-async function unlockCounselingWheel(playerId) {
+async function startCounseling(playerId) {
   const player = app.counselingWheelBatch?.players.get(Number(playerId));
   if (!player) return;
-  const price = formatMoney(toPurchaseInternalMoney(100_000));
-  if (!await fmoddConfirm(uiText("activity.confirm_counselling_unlock", {price, player:player.name}), uiText("activity.counselling_unlock"))) return;
-  return runCounselingWheel(playerId, true);
+  if (!counselingCanAfford(1)) { toast(uiText("activity.counselling_wallet_short")); return; }
+  const price = formatPounds(counselingPrice());
+  if (!await fmoddConfirm(uiText("activity.confirm_counselling_unlock", {price, player:player.name}), uiText("activity.confirm_counselling"))) return;
+  return runCounseling(playerId);
 }
 
-async function spinAllCounselingWheels() {
+async function counselAllRemaining() {
   const batch = app.counselingWheelBatch;
   if (!batch) return;
   const remaining = [...batch.players.keys()].filter((id) => !batch.running.has(id) && !batch.completed.has(id));
-  await Promise.all(remaining.map(spinCounselingWheel));
+  if (!remaining.length) return;
+  if (!counselingCanAfford(remaining.length)) { toast(uiText("activity.counselling_wallet_short")); return; }
+  const price = formatPounds(counselingPrice() * remaining.length);
+  if (!await fmoddConfirm(uiText("activity.confirm_counselling_batch", {price, count:remaining.length}), uiText("activity.confirm_counselling"))) return;
+  for (const id of remaining) {
+    await runCounseling(id);
+    if (!batch.completed.has(id)) break;
+  }
 }
 
-function settleCounselingWheel(playerId, result = null, error = "") {
+function settleCounselingWheel(playerId, result = null, error = "", payment = null) {
   const card = document.querySelector(`[data-counseling-wheel-player="${Number(playerId)}"]`);
   if (!card) return;
-  const wheel = card.querySelector(".counseling-wheel");
   const copy = card.querySelector(".counseling-wheel-copy");
-  const playerName = card.querySelector("small")?.textContent || String(playerId);
+  const note = card.querySelector("[data-counseling-note]");
   card.classList.remove("pending");
   if (error) {
-    card.classList.add("failed");
-    wheel?.classList.remove("spinning");
-    if (wheel) wheel.innerHTML = '<span><i data-lucide="triangle-alert"></i></span>';
-    if (copy) copy.innerHTML = `<small>${escapeHtml(playerName)}</small><strong>${uiText("activity.counselling_failed")}</strong><b>${uiText("activity.counselling_no_random_result")}</b><p>${escapeHtml(error)}</p>`;
+    card.dataset.counselingError = error;
+    if (note) note.textContent = error;
+    toast(error);
     renderIcons();
     return;
   }
-  const outcome = String(result?.outcome || "no_effect");
-  const cleared = (result?.effect?.effects || []).some((change) => change.field === "unhappiness" && change.after === false);
-  card.classList.add(outcome, "resolved");
-  if (wheel) {
-    wheel.classList.remove("spinning");
-    wheel.style.setProperty("--counseling-wheel-stop", COUNSELING_WHEEL_STOPS[outcome] || COUNSELING_WHEEL_STOPS.no_effect);
-    void wheel.offsetWidth;
-    wheel.classList.add("settled");
-    wheel.innerHTML = `<span>${cleared ? '<i data-lucide="check"></i>' : '<i data-lucide="minus"></i>'}</span>`;
-  }
-  if (copy) copy.innerHTML = `<small>${escapeHtml(result?.player_name || playerName)}</small><strong>${escapeHtml(result?.outcome_name || outcome)}</strong><b>${cleared ? uiText("activity.counselling_cleared") : uiText("activity.counselling_not_cleared")}</b><p>${escapeHtml(result?.reply || "")}</p>`;
+  const playerName = card.querySelector("small")?.textContent || String(playerId);
+  const outcomeName = result?.outcome_name || uiText("activity.counselling_outcome_relieved");
+  const paid = Number(payment?.wallet ?? payment?.total ?? counselingPrice());
+  card.classList.add("unlocked", "resolved");
+  if (copy) copy.innerHTML = `<small>${escapeHtml(result?.player_name || playerName)}</small><strong>${escapeHtml(outcomeName)} · ${uiText("activity.counselling_cleared")}</strong><b>${uiText("activity.counselling_wallet_paid", {amount:formatPounds(paid)})}</b><p>${escapeHtml(result?.reply || "")}</p>`;
   renderIcons();
 }
 
@@ -15411,12 +15390,10 @@ function closeCounselingWheels() {
 
 $("#counseling-wheel-close")?.addEventListener("click", closeCounselingWheels);
 $("#counseling-wheel-close-icon")?.addEventListener("click", closeCounselingWheels);
-$("#counseling-wheel-auto")?.addEventListener("click", spinAllCounselingWheels);
+$("#counseling-wheel-auto")?.addEventListener("click", counselAllRemaining);
 $("#counseling-wheel-results")?.addEventListener("click", (event) => {
-  const unlock = event.target.closest("[data-counseling-wheel-unlock]");
-  if (unlock) { unlockCounselingWheel(Number(unlock.dataset.counselingWheelUnlock)); return; }
-  const button = event.target.closest("[data-counseling-wheel-spin]");
-  if (button) spinCounselingWheel(Number(button.dataset.counselingWheelSpin));
+  const start = event.target.closest("[data-counseling-start]");
+  if (start) startCounseling(Number(start.dataset.counselingStart));
 });
 $("#counseling-wheel-dialog")?.addEventListener("cancel", (event) => {
   if (app.counselingWheelBatch?.running.size) event.preventDefault();
@@ -15762,7 +15739,6 @@ function renderActivity() {
   const instantMaxPrices = languageLearning.instant_max_prices || {};
   const instantLanguagePrice = (player, toMaximum = false) => {
     const level = playerLanguageLevel(player);
-    if (freeServicesEnabled()) return 0;
     const priceBook = toMaximum ? instantMaxPrices : instantPrices;
     const quoted = Number(priceBook[String(level)]);
     if (Number.isFinite(quoted) && quoted > 0) return quoted;
@@ -15796,7 +15772,7 @@ function renderActivity() {
         const obtained = candidateObtained(candidate);
         const purchasedCount = (candidate.tiers || []).filter((tier) => tier.purchased).length;
         const tierResult = (tier) => {
-          if (!tier.purchased) return candidate.available === false ? uiText("activity.intelligence_not_obtained") : freeServicesEnabled() ? uiText("activity.free") : formatPounds(tier.price);
+          if (!tier.purchased) return candidate.available === false ? uiText("activity.intelligence_not_obtained") : formatPounds(tier.price);
           if (tier.key === "outcome") return escapeHtml(reveal.outcome_label || uiText("activity.intelligence_result"));
           if (tier.key === "total_goals") return reveal.total_goals != null ? `${Number(reveal.total_goals)} ${uiText("activity.goals")}` : uiText("activity.intelligence_result");
           if (tier.key === "score") return reveal.home_goals != null && reveal.away_goals != null ? `${Number(reveal.home_goals)} : ${Number(reveal.away_goals)}` : uiText("activity.intelligence_result");
@@ -15820,7 +15796,7 @@ function renderActivity() {
       const randomTierAvailable = (tierKey) => activityIndex.randomAvailableTiers.has(String(tierKey));
       const tierChoiceButtons = (candidate, randomPurchase = false) => (candidate?.tiers || []).map((tier) => {
         const price = Number(randomPurchase ? tier.random_price : (tier.specific_price ?? tier.price ?? 0));
-        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${randomPurchase ? uiText("activity.intelligence_random_match") : uiText("activity.intelligence_specific_match")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : freeServicesEnabled() ? uiText("activity.free") : formatPounds(price)}</strong></span></button>`;
+        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${uiText("activity.intelligence_fixed_price")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : formatPounds(price)}</strong></span></button>`;
       }).join("");
       const refreshAction = `<button type="button" class="intelligence-refresh-button" data-intelligence-refresh ${app.matchIntelligenceLoading ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${app.matchIntelligenceLoading ? uiText("activity.intelligence_refreshing") : uiText("activity.refresh_intelligence")}</span></button>`;
       if (intelligenceMode === "random") {
@@ -15990,11 +15966,11 @@ function renderActivity() {
       ? targetPlayers.filter((player) => selections.has(Number(player.id))
         && activityPlayerSecondaryNationalities(player).length)
       : [];
-     const nationalityFooter = `<footer class="activity-roster-footer activity-nationality-footer"><button type="button" class="activity-nationality-picker-trigger" data-activity-nation-open ${app.internationalNationsLoading ? "disabled" : ""}><i data-lucide="globe-2"></i><span>${escapeHtml(selectedNation ? localizedNationName(selectedNation) : uiText("activity.nationality_selection"))}</span><i data-lucide="chevron-down"></i></button><button type="button" class="secondary" data-activity-cancel-secondary ${app.activityActionBusy || !removableNationalityPlayers.length ? "disabled" : ""}>${uiText("activity.cancel_secondary")}</button><button type="button" data-activity-submit ${disabled || !selectedNation ? "disabled" : ""}><span data-nationality-submit-label>${app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityTotalPrice)})}</span></button></footer>`;
+     const nationalityFooter = `<footer class="activity-roster-footer activity-nationality-footer"><button type="button" class="activity-nationality-picker-trigger" data-activity-nation-open ${app.internationalNationsLoading ? "disabled" : ""}><i data-lucide="globe-2"></i><span>${escapeHtml(selectedNation ? localizedNationName(selectedNation) : uiText("activity.nationality_selection"))}</span><i data-lucide="chevron-down"></i></button><button type="button" class="secondary" data-activity-cancel-secondary ${app.activityActionBusy || !removableNationalityPlayers.length ? "disabled" : ""}>${uiText("activity.cancel_secondary")}</button><button type="button" data-activity-submit ${disabled || !selectedNation ? "disabled" : ""}><span data-nationality-submit-label>${app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:formatPounds(nationalityTotalPrice)})}</span></button></footer>`;
     const rosterRefreshAction = selectedActivity.kind === "naturalization"
        ? `<button type="button" class="intelligence-refresh-button activity-roster-refresh" data-activity-roster-refresh ${app.activityRosterRefreshing ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${app.activityRosterRefreshing ? uiText("activity.refreshing") : uiText("activity.refresh_players")}</span></button>`
       : "";
-     const footer = selectedActivity.kind === "naturalization" ? nationalityFooter : selectedActivity.kind === "language" ? `<footer class="activity-roster-footer activity-language-actions"><button type="button" data-language-manual ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !manualLanguagePlayers.length ? "disabled" : ""}><i data-lucide="user-round-check"></i><span>${app.activityActionBusy ? uiText("activity.processing") : uiText("activity.manual_learning")}</span></button><button type="button" class="secondary" data-language-auto ${app.activityActionBusy || staffWriteBlocked || (!automaticForSelected && !selectedLanguage) ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${automaticForSelected ? uiText("activity.stop_auto_learning") : uiText("activity.auto_learning")}</span></button><button type="button" class="danger" data-language-cancel ${app.activityActionBusy || !cancelLanguagePlayers.length ? "disabled" : ""}><i data-lucide="circle-stop"></i><span>${uiText("activity.cancel_learning")}</span></button><button type="button" data-language-instant ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !selectedLanguagePlayers.length ? "disabled" : ""}><i data-lucide="badge-plus"></i><span data-language-instant-label>${uiText("activity.instant_label", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(instantTotal)})}</span></button></footer>` : `<footer class="activity-roster-footer"><button type="button" data-activity-submit ${disabled ? "disabled" : ""}><i data-lucide="play"></i><span>${app.activityActionBusy ? uiText("activity.processing") : selectedActivity.action}</span></button></footer>`;
+     const footer = selectedActivity.kind === "naturalization" ? nationalityFooter : selectedActivity.kind === "language" ? `<footer class="activity-roster-footer activity-language-actions"><button type="button" data-language-manual ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !manualLanguagePlayers.length ? "disabled" : ""}><i data-lucide="user-round-check"></i><span>${app.activityActionBusy ? uiText("activity.processing") : uiText("activity.manual_learning")}</span></button><button type="button" class="secondary" data-language-auto ${app.activityActionBusy || staffWriteBlocked || (!automaticForSelected && !selectedLanguage) ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${automaticForSelected ? uiText("activity.stop_auto_learning") : uiText("activity.auto_learning")}</span></button><button type="button" class="danger" data-language-cancel ${app.activityActionBusy || !cancelLanguagePlayers.length ? "disabled" : ""}><i data-lucide="circle-stop"></i><span>${uiText("activity.cancel_learning")}</span></button><button type="button" data-language-instant ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !selectedLanguagePlayers.length ? "disabled" : ""}><i data-lucide="badge-plus"></i><span data-language-instant-label>${uiText("activity.instant_label", {price:formatPounds(instantTotal)})}</span></button></footer>` : `<footer class="activity-roster-footer"><button type="button" data-activity-submit ${disabled ? "disabled" : ""}><i data-lucide="play"></i><span>${app.activityActionBusy ? uiText("activity.processing") : selectedActivity.action}</span></button></footer>`;
      const automaticStatus = selectedActivity.kind === "language" && automaticEnabled ? `<div class="activity-language-auto-status"><i data-lucide="radar"></i><span>${uiText("activity.auto_status", {language:escapeHtml(storedActivityLanguageLabel(automaticLanguageId, automaticLanguageName)), person:languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players")})}</span></div>` : "";
      const languageTabs = selectedActivity.kind === "language" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.language_person_aria")}"><button type="button" role="tab" aria-selected="${languagePersonKind === "player"}" class="activity-roster-tab ${languagePersonKind === "player" ? "active" : ""}" data-language-person-kind="player"><i data-lucide="users"></i><span>${uiText("activity.person_players")}</span><small>${players.length}</small></button><button type="button" role="tab" aria-selected="${languagePersonKind === "staff"}" class="activity-roster-tab ${languagePersonKind === "staff" ? "active" : ""}" data-language-person-kind="staff"><i data-lucide="briefcase"></i><span>${uiText("activity.person_staff")}</span><small>${languageStaff.length}</small></button></div>` : "";
      const capabilityNotice = staffWriteBlocked ? `<div class="activity-language-auto-status is-warning"><i data-lucide="shield-alert"></i><span>${escapeHtml(app.activityStaffLanguageCapability?.reason || uiText("activity.staff_write_reason"))}</span></div>` : "";
@@ -16004,10 +15980,10 @@ function renderActivity() {
       : "";
      const personLabel = languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players");
      const entertainmentTabs = activityMeta[app.activityNode]?.centre === "entertainment" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.entertainment_person_aria")}"><button type="button" role="tab" aria-selected="${app.activityRosterTab === "players"}" class="activity-roster-tab ${app.activityRosterTab === "players" ? "active" : ""}" data-activity-roster-tab="players"><i data-lucide="users"></i><span>${uiText("activity.person_players")}</span><small>${players.length}</small></button><button type="button" role="tab" aria-selected="${app.activityRosterTab === "staff"}" class="activity-roster-tab ${app.activityRosterTab === "staff" ? "active" : ""}" data-activity-roster-tab="staff"><i data-lucide="briefcase"></i><span>${uiText("activity.person_staff")}</span><small>${allManagedStaff().length}</small></button></div>` : "";
-     const nationalityTabs = selectedActivity.kind === "naturalization" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.nationality_scope_aria")}"><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "club"}" class="activity-roster-tab ${app.activityNationalityScope === "club" ? "active" : ""}" data-nationality-scope="club"><i data-lucide="shield"></i><span>${uiText("activity.club_players")}</span><small>${freeServicesEnabled() ? uiText("activity.free") : `${formatPounds(nationalityClubPrice)}${uiText("activity.per_person")}`}</small></button><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "world"}" class="activity-roster-tab ${app.activityNationalityScope === "world" ? "active" : ""}" data-nationality-scope="world"><i data-lucide="earth"></i><span>${uiText("activity.world_players")}</span><small>${freeServicesEnabled() ? uiText("activity.free") : `${formatPounds(nationalityWorldPrice)}${uiText("activity.per_person")}`}</small></button></div>` : "";
+     const nationalityTabs = selectedActivity.kind === "naturalization" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.nationality_scope_aria")}"><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "club"}" class="activity-roster-tab ${app.activityNationalityScope === "club" ? "active" : ""}" data-nationality-scope="club"><i data-lucide="shield"></i><span>${uiText("activity.club_players")}</span><small>${`${formatPounds(nationalityClubPrice)}${uiText("activity.per_person")}`}</small></button><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "world"}" class="activity-roster-tab ${app.activityNationalityScope === "world" ? "active" : ""}" data-nationality-scope="world"><i data-lucide="earth"></i><span>${uiText("activity.world_players")}</span><small>${`${formatPounds(nationalityWorldPrice)}${uiText("activity.per_person")}`}</small></button></div>` : "";
      const nationalityWorldToolbar = selectedActivity.kind === "naturalization" && app.activityNationalityScope === "world" ? `<label class="activity-roster-search"><i data-lucide="search"></i><input id="activity-nationality-world-search" type="search" value="${escapeHtml(app.activityNationalityWorldSearch || "")}" placeholder="${uiText("activity.search_world_players")}" autocomplete="off" aria-label="${uiText("activity.search_world_players")}"></label>` : "";
      const nationalityWorldPager = selectedActivity.kind === "naturalization" && app.activityNationalityScope === "world" && Number(app.activityNationalityWorldPagination?.page_count || 1) > 1 ? `<div class="activity-nationality-pager"><button type="button" data-activity-nationality-page="${Math.max(1, Number(app.activityNationalityWorldPage) - 1)}" ${Number(app.activityNationalityWorldPage) <= 1 ? "disabled" : ""}>${uiText("activity.previous_page")}</button><span>${uiText("activity.page_of", {page:Number(app.activityNationalityWorldPage), pages:Number(app.activityNationalityWorldPagination.page_count)})}</span><button type="button" data-activity-nationality-page="${Math.min(Number(app.activityNationalityWorldPagination.page_count), Number(app.activityNationalityWorldPage) + 1)}" ${Number(app.activityNationalityWorldPage) >= Number(app.activityNationalityWorldPagination.page_count) ? "disabled" : ""}>${uiText("activity.next_page")}</button></div>` : "";
-     const nationalityPicker = selectedActivity.kind === "naturalization" ? `<dialog class="owned-vision-picker-dialog activity-nationality-picker-dialog" id="activity-nationality-picker-dialog" aria-labelledby="activity-nationality-picker-title"><header><div><small>NATIONALITY CATALOG</small><h3 id="activity-nationality-picker-title">${uiText("activity.select_nationality")}</h3></div><button type="button" class="close-dialog" data-activity-nation-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-choice-grid">${internationalNations.map((nation) => `<button type="button" data-activity-nation-select="${Number(nation.id)}" class="${Number(nation.id) === Number(app.internationalNationId) ? "selected" : ""}"><strong>${escapeHtml(localizedNationName(nation))}</strong><small>${escapeHtml(localizedContinentName(nation.continent))}</small></button>`).join("") || `<span class="activity-roster-empty">${escapeHtml(app.internationalNationError || uiText("activity.no_nationalities"))}</span>`}</div></dialog><dialog class="owned-vision-picker-dialog activity-nationality-slot-dialog" id="activity-nationality-slot-dialog" aria-labelledby="activity-nationality-slot-title"><header><div><small>NATIONALITY SLOT</small><h3 id="activity-nationality-slot-title">${uiText("activity.nationality_slot_title")}</h3><p>${uiText("activity.people_count", {count:selections.size, person:uiText("activity.person_players")})} · ${freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityTotalPrice)}</p></div><button type="button" class="close-dialog" data-activity-slot-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-slot-options"><button type="button" data-activity-nationality-slot="primary"><strong>${uiText("activity.change_primary_nationality")}</strong><small>${uiText("activity.replace_primary_nationality")}</small></button><button type="button" data-activity-nationality-slot="secondary"><strong>${uiText("activity.change_secondary_nationality")}</strong><small>${uiText("activity.add_secondary_nationality")}</small></button></div></dialog>` : "";
+     const nationalityPicker = selectedActivity.kind === "naturalization" ? `<dialog class="owned-vision-picker-dialog activity-nationality-picker-dialog" id="activity-nationality-picker-dialog" aria-labelledby="activity-nationality-picker-title"><header><div><small>NATIONALITY CATALOG</small><h3 id="activity-nationality-picker-title">${uiText("activity.select_nationality")}</h3></div><button type="button" class="close-dialog" data-activity-nation-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-choice-grid">${internationalNations.map((nation) => `<button type="button" data-activity-nation-select="${Number(nation.id)}" class="${Number(nation.id) === Number(app.internationalNationId) ? "selected" : ""}"><strong>${escapeHtml(localizedNationName(nation))}</strong><small>${escapeHtml(localizedContinentName(nation.continent))}</small></button>`).join("") || `<span class="activity-roster-empty">${escapeHtml(app.internationalNationError || uiText("activity.no_nationalities"))}</span>`}</div></dialog><dialog class="owned-vision-picker-dialog activity-nationality-slot-dialog" id="activity-nationality-slot-dialog" aria-labelledby="activity-nationality-slot-title"><header><div><small>NATIONALITY SLOT</small><h3 id="activity-nationality-slot-title">${uiText("activity.nationality_slot_title")}</h3><p>${uiText("activity.people_count", {count:selections.size, person:uiText("activity.person_players")})} · ${formatPounds(nationalityTotalPrice)}</p></div><button type="button" class="close-dialog" data-activity-slot-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-slot-options"><button type="button" data-activity-nationality-slot="primary"><strong>${uiText("activity.change_primary_nationality")}</strong><small>${uiText("activity.replace_primary_nationality")}</small></button><button type="button" data-activity-nationality-slot="secondary"><strong>${uiText("activity.change_secondary_nationality")}</strong><small>${uiText("activity.add_secondary_nationality")}</small></button></div></dialog>` : "";
      const targetLabel = selectedActivity.kind === "language" ? personLabel : isEntertainmentStaff ? uiText("activity.person_staff") : uiText("activity.person_players");
      return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.member_count_selected", {selected:selections.size,total:targetPlayers.length}), "", rosterRefreshAction)}<div class="activity-roster-shell ${selectedActivity.kind === "language" ? "activity-language-roster-shell" : ""}">${entertainmentTabs}${nationalityTabs}${languageTabs}<div class="activity-roster-toolbar"><button type="button" class="activity-select-all" id="activity-select-all" data-all-selected="${allSelected ? "true" : "false"}" ${selectable.length ? "" : "disabled"}><i data-lucide="${allSelected ? "square-minus" : "square-check-big"}"></i><span>${allSelected ? uiText("activity.clear_all") : uiText("activity.select_all")}</span></button>${nationalityWorldToolbar}${retirementToolbar}${selectedActivity.kind === "retirement" ? "" : `<span role="status" aria-live="polite">${uiText("activity.selected_count", {count:selections.size})}</span>`}</div>${nationalityWorldPager}${options || retirementScopeOption ? `<div class="activity-roster-options">${retirementScopeOption}${options}</div>` : ""}${languageStatuses}<div class="activity-panel-scroll"><div class="activity-roster-list" role="group" aria-label="${uiText("activity.roster_activity_aria", {target:targetLabel})}">${categorizedRows || `<div class="activity-roster-empty">${app.activityNationalityWorldLoading ? uiText("activity.read_world_players") : app.activityNationalityWorldError || (app.retirementPlayersLoading ? uiText("activity.read_retirement_players") : escapeHtml(app.retirementPlayersError || uiText("activity.no_participants", {target:targetLabel})))}</div>`}</div></div>${footer}</div>${nationalityPicker}`;
   };
@@ -16050,7 +16026,7 @@ function renderActivity() {
     const submit = document.querySelector("[data-activity-submit]");
     if (submit) submit.disabled = app.activityActionBusy || current.size === 0 || (selectedActivity.kind === "naturalization" && (!app.internationalNationId || !nationalityOptions));
     const nationalitySubmitLabel = document.querySelector("[data-nationality-submit-label]");
-     if (nationalitySubmitLabel) nationalitySubmitLabel.textContent = app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityUnitPrice * current.size)});
+     if (nationalitySubmitLabel) nationalitySubmitLabel.textContent = app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:formatPounds(nationalityUnitPrice * current.size)});
     const cancelSecondary = document.querySelector("[data-activity-cancel-secondary]");
     if (cancelSecondary && selectedActivity.kind === "naturalization") {
       const removable = selectedActivity.players.some((player) => current.has(Number(player.id))
@@ -16070,7 +16046,7 @@ function renderActivity() {
     const instantLabel = document.querySelector("[data-language-instant-label]");
     if (instantLabel) {
       const total = selectedPlayers.reduce((sum, player) => sum + instantLanguagePrice(player), 0);
-       instantLabel.textContent = uiText("activity.instant_label", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(total)});
+       instantLabel.textContent = uiText("activity.instant_label", {price:formatPounds(total)});
     }
   };
   document.querySelectorAll("[data-activity-floor]").forEach((button) => button.addEventListener("click", () => { app.activityFloor = String(button.dataset.activityFloor || "entertainment"); app.activityNode = null; localStorage.setItem("fmodd-activity-floor", app.activityFloor); renderActivity(); }));
@@ -16135,8 +16111,8 @@ function renderActivity() {
     $("#activity-nationality-slot-dialog")?.close();
     document.querySelector("[data-activity-submit]")?.click();
   }));
-   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const floor = floors[centre]; if (!floor || !floor.available) return; const price = freeServicesEnabled() ? 0 : floor.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre,free_purchase:freeServicesEnabled()})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:floor.name})); } catch (error) { toast(error.message); renderActivity(); } }));
-   document.querySelectorAll("[data-activity-facility]").forEach((button) => button.addEventListener("click", async () => { const facility = String(button.dataset.activityFacility || ""); const room = facilityState[facility]; if (!room || room.owned) return; const price = freeServicesEnabled() ? 0 : Number(room.price || 0); if (!await fmoddConfirm(uiText("activity.confirm_buy_room", {name:room.name, amount:formatPounds(price)}), uiText("activity.room_buy_room"))) return; button.disabled = true; try { const response = await request("/api/activity/facility/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility,free_purchase:freeServicesEnabled()})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; app.activityNode = facility; renderActivity(); toast(uiText("activity.room_unlocked", {name:room.name})); } catch (error) { toast(error.message); renderActivity(); } }));
+   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const floor = floors[centre]; if (!floor || !floor.available) return; const price = floor.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:floor.name})); } catch (error) { toast(error.message); renderActivity(); } }));
+   document.querySelectorAll("[data-activity-facility]").forEach((button) => button.addEventListener("click", async () => { const facility = String(button.dataset.activityFacility || ""); const room = facilityState[facility]; if (!room || room.owned) return; const price = Number(room.price || 0); if (!await fmoddConfirm(uiText("activity.confirm_buy_room", {name:room.name, amount:formatPounds(price)}), uiText("activity.room_buy_room"))) return; button.disabled = true; try { const response = await request("/api/activity/facility/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; app.activityNode = facility; renderActivity(); toast(uiText("activity.room_unlocked", {name:room.name})); } catch (error) { toast(error.message); renderActivity(); } }));
   $("[data-salary-authorization]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     const enabled = button.dataset.salaryAuthorization === "true";
@@ -16348,8 +16324,8 @@ function renderActivity() {
     const maximumTotal = targetPlayers.reduce((sum, player) => sum + instantLanguagePrice(player, true), 0);
     const dialog = ensureActivityLanguageInstantDialog();
      $("#activity-language-instant-subtitle").textContent = uiText("activity.language_instant_subtitle", {count:targets.length, person:languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players"), language:selectedLanguage.name});
-     $("#activity-language-instant-next-price").textContent = freeServicesEnabled() ? uiText("activity.free") : formatPounds(nextTotal);
-     $("#activity-language-instant-max-price").textContent = freeServicesEnabled() ? uiText("activity.free") : formatPounds(maximumTotal);
+     $("#activity-language-instant-next-price").textContent = formatPounds(nextTotal);
+     $("#activity-language-instant-max-price").textContent = formatPounds(maximumTotal);
     const cancelButton = $("#activity-language-instant-cancel");
     const nextButton = $("#activity-language-instant-next-confirm");
     const maximumButton = $("#activity-language-instant-max-confirm");
@@ -16555,7 +16531,6 @@ function hospitalDataIndex() {
 
 function hospitalViewState(index) {
   const welfare = app.state?.welfare || {};
-  const freeServices = freeServicesEnabled();
   const treatmentCost = (mode) => Number(index.treatmentOptionsByMode.get(mode)?.daily_cost || 0);
   const patients = [];
   let dailyCost = 0;
@@ -16564,7 +16539,7 @@ function hospitalViewState(index) {
     if (!injuries.length) continue;
     const playerId = Number(player.id || 0);
     const treatmentMode = String(index.treatmentsByPlayerId.get(playerId)?.mode || "none");
-    if (!freeServices) dailyCost += treatmentCost(treatmentMode);
+    dailyCost += treatmentCost(treatmentMode);
     const injuryRows = injuries.map((injury) => {
       const remaining = remainingInjuryDays(injury);
       return {type:String(injury.type || uiText("hospital.injury")), low:remaining.low, high:remaining.high};
@@ -16578,14 +16553,13 @@ function hospitalViewState(index) {
   }
   const busyLabel = app.medicalDefaultSyncBusy ? uiText("hospital.default_applying")
     : app.medicalTreatmentBusy.size ? uiText("hospital.updating", {count:app.medicalTreatmentBusy.size})
-      : app.freeServicesSyncBusy ? uiText("hospital.free_syncing")
         : (app.clubStatus || app.state?.club_status)?.refreshing ? uiText("hospital.roster_loading") : "";
   const economy = app.state?.economy || {};
   const signature = JSON.stringify([
     String(app.state?.data_scope_id || ""), moneyRenderSignature(),
     economy.bank_balance, economy.casino_balance, economy.total_balance,
     String(app.gameClock?.date || output().game_date || ""),
-    index.players.length, freeServices,
+    index.players.length,
     String(welfare.default_treatment || "manual"),
     [...index.treatmentOptionsByMode.entries()], busyLabel,
     [...app.medicalTreatmentBusy].sort((left, right) => left - right),
@@ -16595,7 +16569,7 @@ function hospitalViewState(index) {
       row.injuryRows.map((injury) => [injury.type, injury.low, injury.high]),
     ]),
   ]);
-  return {freeServices, treatmentCost, patients, dailyCost, busyLabel, signature};
+  return {treatmentCost, patients, dailyCost, busyLabel, signature};
 }
 
 function syncHospitalStatus(label) {
@@ -16618,15 +16592,15 @@ function renderHospital() {
   const view = hospitalViewState(index);
   syncHospitalStatus(view.busyLabel);
   if (app.hospitalRenderSignature === view.signature) return;
-  const {freeServices, treatmentCost, patients, dailyCost} = view;
+  const {treatmentCost, patients, dailyCost} = view;
   const welfare = app.state?.welfare || {};
   const defaultTreatment = String(welfare.default_treatment || "manual");
   const defaultSelect = $("#hospital-default-treatment");
   if (defaultSelect) {
     defaultSelect.value = ["manual", "none", "conservative", "aggressive"].includes(defaultTreatment) ? defaultTreatment : "manual";
-    defaultSelect.disabled = Boolean(app.medicalDefaultSyncBusy || app.freeServicesSyncBusy);
-    const conservativeCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
-    const aggressiveCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
+    defaultSelect.disabled = Boolean(app.medicalDefaultSyncBusy);
+    const conservativeCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
+    const aggressiveCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
     defaultSelect.querySelector('option[value="conservative"]').textContent = uiText("hospital.conservative", {cost:conservativeCost});
     defaultSelect.querySelector('option[value="aggressive"]').textContent = uiText("hospital.aggressive", {cost:aggressiveCost});
   }
@@ -16659,10 +16633,10 @@ function renderHospital() {
       const days = injury.low == null ? uiText("hospital.days_tbc") : injury.low === injury.high ? uiText("hospital.remaining_days", {days:injury.low}) : uiText("hospital.remaining_days_range", {low:injury.low, high:injury.high});
       return `<span><i data-lucide="bandage"></i><strong>${escapeHtml(injury.type)}</strong><small>${days}</small></span>`;
     }).join("");
-    const controlsDisabled = app.freeServicesSyncBusy || app.medicalDefaultSyncBusy || treatmentBusy;
+    const controlsDisabled = app.medicalDefaultSyncBusy || treatmentBusy;
     const playerLabelId = `hospital-player-${playerId}`;
-    const conservativeCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
-    const aggressiveCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
+    const conservativeCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
+    const aggressiveCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
     return `<article class="hospital-bed-card ${severity} ${treatmentClass} ${treatmentBusy ? "is-syncing" : ""}" ${treatmentBusy ? 'aria-busy="true"' : ""}><header class="bed-card-head"><span><i data-lucide="bed-single"></i>${uiText("hospital.bed", {number:String(bedIndex + 1).padStart(2, "0")})}</span><b>${treatmentLabel}</b></header><div class="bed-scene"><div class="bed-player-tag"><span class="patient-avatar tone-${Math.abs(playerId || bedIndex) % 4}">${escapeHtml(positionLabel)}</span><div><h2 id="${playerLabelId}">${escapeHtml(player.name)}</h2><p>${escapeHtml(teamName)}</p></div></div><div class="ward-monitor"><i data-lucide="activity"></i><span></span><small>RECOVERY</small></div><div class="patient-bed"><span class="bed-headboard"></span><span class="bed-mattress"></span><span class="bed-pillow"></span><span class="patient-head"></span><span class="patient-body"></span><span class="bed-blanket"></span><span class="bed-rail"></span></div></div><div class="bed-medical-panel"><div class="hospital-injuries"><div class="injury-panel-title"><strong>${uiText("hospital.injury_status")}</strong><small>${uiText("hospital.recovery_estimate")}</small></div>${injuryText}</div><div class="treatment-panel"><strong>${uiText("hospital.treatment_plan")}</strong><div class="treatment-options" role="radiogroup" aria-labelledby="${playerLabelId}"><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="none" ${treatmentMode === "none" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.physio")}</strong><small>${uiText("hospital.physio_note")}</small></span></label><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="conservative" ${treatmentMode === "conservative" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.conservative", {cost:conservativeCost})}</strong><small>${uiText("hospital.conservative_note", {cost:conservativeCost})}</small></span></label><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="aggressive" ${treatmentMode === "aggressive" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.aggressive", {cost:aggressiveCost})}</strong><small>${uiText("hospital.aggressive_note", {cost:aggressiveCost})}</small></span></label></div></div></div></article>`;
   }).join("");
   container.innerHTML = `<section class="hospital-ward"><div class="hospital-beds">${bedCards}</div></section>`;
@@ -28729,10 +28703,10 @@ function ensureFontControls() {
 
 function ensureDisableFaControl() {
   if ($("#disable-fa")) return;
-  const freeShop = $("#free-shop")?.closest(".free-shop-option");
-  if (!freeShop) return;
+  const anchor = $("[data-cheat-clear]");
+  if (!anchor) return;
   const label = document.createElement("label");
-  label.className = "free-shop-option";
+  label.className = "cheat-toggle-option";
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = "disable-fa";
@@ -28740,16 +28714,19 @@ function ensureDisableFaControl() {
   text.dataset.i18n = "settings.cheats.disable_fa";
   text.textContent = uiText("settings.cheats.disable_fa");
   label.append(input, text);
-  freeShop.after(label);
+  label.classList.add("disable-fa-option");
+  const walletButton = $("[data-cheat-add-100b]");
+  if (walletButton) anchor.before(label, walletButton);
+  else anchor.before(label);
 }
 
 function ensureGodModeControl() {
   return;
   if ($("#god-mode")) return;
-  const freeShop = $("#free-shop")?.closest(".free-shop-option");
-  if (!freeShop) return;
+  const anchor = $("#disable-fa")?.closest(".cheat-toggle-option");
+  if (!anchor) return;
   const label = document.createElement("label");
-  label.className = "free-shop-option god-mode-option";
+  label.className = "cheat-toggle-option god-mode-option";
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = "god-mode";
@@ -28760,7 +28737,7 @@ function ensureGodModeControl() {
   note.dataset.i18n = "settings.cheats.god_mode.note";
   note.textContent = uiText("settings.cheats.god_mode.note");
   label.append(input, title, note);
-  freeShop.after(label);
+  anchor.after(label);
 }
 
 function ensureOddsAutoRefreshControl() {
@@ -29571,9 +29548,9 @@ function bindEvents() {
     }
     try{
       if(buy){
-        const product=trainingProduct(buy.dataset.trainingBuy);const free=freeServicesEnabled();const total=free?0:Number(product?.price||0);
-        if(!await fmoddPurchaseConfirm(product,{...fundingPaymentSplit(total),free}))return;
-        const response=await request("/api/training/purchase",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:product.sku,free_purchase:free})});
+        const product=trainingProduct(buy.dataset.trainingBuy);const total=Number(product?.price||0);
+        if(!await fmoddPurchaseConfirm(product,fundingPaymentSplit(total)))return;
+        const response=await request("/api/training/purchase",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:product.sku})});
          app.trainingDock="storage";updateTrainingResponse(response);toast(uiText("training.sent_to_storage"));
       }else if(place){
         const facility=trainingFacility(place.dataset.trainingPlace);
@@ -29802,14 +29779,13 @@ function bindEvents() {
   $("#shop-cart-buy").addEventListener("click", async () => {
     const lines = shopCartLines();
     if (!lines.length || app.shopPurchaseBusy) return;
-    const free = app.cheatMode && app.freeShop;
     const price = shopCartTotal();
     const quantity = lines.reduce((total, item) => total + item.quantity, 0);
-    if (!await fmoddPurchaseConfirm({name:uiText("inventory.batch_summary", {types:lines.length, quantity})}, {...fundingPaymentSplit(price), free})) return;
+    if (!await fmoddPurchaseConfirm({name:uiText("inventory.batch_summary", {types:lines.length, quantity})}, fundingPaymentSplit(price))) return;
     app.shopPurchaseBusy = true;
     renderShopCart();
     try {
-      const result = await request("/api/shop/buy-batch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:lines.map((item) => ({sku:item.sku,quantity:item.quantity})),free_purchase:free})});
+      const result = await request("/api/shop/buy-batch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:lines.map((item) => ({sku:item.sku,quantity:item.quantity}))})});
       app.shopCart.clear();
       app.shopCartOpen = false;
       await applyStatePatchOrReload(result);
@@ -30527,7 +30503,7 @@ function bindEvents() {
     finally { button.disabled = false; }
   });
   $("#cheat-mode").addEventListener("change", (event) => {
-    app.cheatMode = event.target.checked; localStorage.setItem("fm-odds-cheat-mode", String(app.cheatMode)); syncFreeServices(); syncDisableFa(); syncGodMode(); syncBettingLimits(); render();
+    app.cheatMode = event.target.checked; localStorage.setItem("fm-odds-cheat-mode", String(app.cheatMode)); syncDisableFa(); syncGodMode(); syncBettingLimits(); render();
   });
   $("#unlimited-betting").addEventListener("click", () => {
     app.unlimitedBetting = !app.unlimitedBetting;
@@ -30551,11 +30527,6 @@ function bindEvents() {
       button.setAttribute("aria-busy", "false");
       setSettingsMutationBusy("betting-limits", false);
     }
-  });
-  $("#free-shop").addEventListener("change", (event) => {
-    app.freeShop = event.target.checked;
-    localStorage.setItem("fm-odds-free-shop", String(app.freeShop));
-    syncFreeServices(); render();
   });
   $("#disable-fa").addEventListener("change", async (event) => {
     app.disableFa = event.target.checked;
@@ -30785,6 +30756,12 @@ function bindEvents() {
       const response = await request("/api/cheat-balance", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({clear:true})});
       await applyStatePatchOrReload(response); toast(uiText("settings.cheats.wallet_cleared"));
     } catch (error) { toast(error.message || uiText("settings.cheats.wallet_clear_failed")); }
+  });
+  $("[data-cheat-add-100b]").addEventListener("click", async () => {
+    try {
+      const response = await request("/api/cheat-balance", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({amount:100_000_000_000})});
+      await applyStatePatchOrReload(response); toast(uiText("settings.cheats.wallet_added_100b"));
+    } catch (error) { toast(error.message || uiText("settings.cheats.wallet_add_failed")); }
   });
   $("[data-cheat-credit-clear]").addEventListener("click", async () => {
     try {

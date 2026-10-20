@@ -178,7 +178,7 @@
 :root[data-theme="dark"] :is(.odds-reading-setting button,.full-refresh-setting button,.save-account-setting button,.storage-setting #choose-storage-root) {
   background:#20362c; border-color:#3b604e; color:#8ed3b2;
 }
-:root[data-theme="dark"] :is(.cheat-actions button,.betting-limit-setting,.cheat-actions .free-shop-option) { background:var(--night-raised); border-color:#334a3f; color:#d6e3dc; }
+:root[data-theme="dark"] :is(.cheat-actions button,.betting-limit-setting,.cheat-actions .cheat-toggle-option) { background:var(--night-raised); border-color:#334a3f; color:#d6e3dc; }
 :root[data-theme="dark"] :is(.cheat-actions .danger,.storage-setting button) { background:#34211f; border-color:#6f403c; color:#ff9b92; }
 :root[data-theme="dark"] .support-setting button { background:#392f1b; border-color:#735f2f; color:#f0ce72; }
 :root[data-theme="dark"] .settings-content .author-update-note { background:#202824; color:#abb8b2; }

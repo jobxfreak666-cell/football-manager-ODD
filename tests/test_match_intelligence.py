@@ -40,29 +40,71 @@ def economy_state(balance=1_000_000.0):
         "owned_activity_centres": ["intelligence"],
         "owned_activity_facilities": [],
         "match_intelligence_purchases": {},
-        "free_services": False,
     }
 
 
-def test_purchase_reprices_up_when_funds_increase_but_never_down():
+def test_intelligence_prices_are_fixed_regardless_of_funds_or_date():
     state = economy_state(100_000_000.0)
     with (
         patch.object(club_economy, "load_economy", return_value=state),
         patch.object(club_economy, "available_balance", return_value=0.0),
         patch.object(club_economy, "load_wallet", return_value={}),
-        patch.object(club_economy, "save_economy"),
+        patch.object(club_economy, "save_economy") as save,
     ):
         first = club_economy.open_match_intelligence_status([candidate()], "2028-06-10")
         state["general_balance"] = 200_000_000.0
         state["general_balance_minor"] = 20_000_000_000
+        next_day = club_economy.open_match_intelligence_status([candidate()], "2028-06-11")
         result = club_economy.purchase_match_intelligence(
-            candidate(), "outcome", "repriced-request",
+            candidate(), "outcome", "fixed-request",
         )
 
-    assert first["candidates"][0]["tiers"][0]["price"] == 40_000_000
-    assert result["payment"]["total"] == 80_000_000
-    assert result["purchase"]["fixture_id"] == candidate()["fixture_id"]
-    assert state["match_intelligence_price_locks"]["2028-06-10"]["pricing_base"] == 200_000_000
+    for status in (first, next_day):
+        assert status["pricing_basis"] == "fixed_price"
+        assert [tier["price"] for tier in status["candidates"][0]["tiers"]] == [
+            40_000_000, 60_000_000, 80_000_000,
+        ]
+    assert next_day["pricing"] == {"game_date": "2028-06-11"}
+    assert result["payment"]["total"] == 40_000_000
+    assert state["general_balance"] == 160_000_000
+    assert "match_intelligence_price_locks" not in state
+    save.assert_called_once_with(state)
+
+
+def test_fixed_intelligence_prices_ignore_single_betting_limit():
+    settings = {
+        "betting_limits_enabled": True, "unlimited_betting": False,
+        "betting_limit_single": 20_000_000.0,
+    }
+    with (
+        patch.object(club_economy, "load_economy", return_value=economy_state()),
+        patch.object(club_economy, "load_settings", return_value=settings),
+        patch.object(club_economy, "available_balance", return_value=0.0),
+    ):
+        row = club_economy.match_intelligence_status([candidate()])["candidates"][0]
+
+    assert [tier["specific_price"] for tier in row["tiers"]] == [
+        40_000_000, 60_000_000, 80_000_000,
+    ]
+    assert [tier["random_price"] for tier in row["tiers"]] == [
+        20_000_000, 30_000_000, 60_000_000,
+    ]
+
+
+def test_fixed_intelligence_prices_pass_through_local_purchase_price():
+    with (
+        patch.object(club_economy, "load_economy", return_value=economy_state()),
+        patch.object(club_economy, "available_balance", return_value=0.0),
+        patch.object(
+            club_economy, "local_purchase_price", side_effect=lambda value: float(value) / 2,
+        ) as convert,
+    ):
+        row = club_economy.match_intelligence_status([candidate()])["candidates"][0]
+
+    assert [tier["price"] for tier in row["tiers"]] == [
+        20_000_000, 30_000_000, 40_000_000,
+    ]
+    assert convert.call_count == 6
 
 
 def test_mismatched_intelligence_payment_is_refunded_once_and_mailed():
@@ -477,17 +519,12 @@ def test_public_status_withholds_every_unpaid_result_field():
         "outcome", "total_goals", "score",
     ]
     assert [tier["price"] for tier in row["tiers"]] == [
-        400_000, 400_000, 880_000,
+        40_000_000, 60_000_000, 80_000_000,
     ]
     assert [tier["random_price"] for tier in row["tiers"]] == [
-        350_000, 350_000, 850_000,
+        20_000_000, 30_000_000, 60_000_000,
     ]
-    assert [tier["specific_percentage"] for tier in row["tiers"]] == [
-        40.0, 40.0, 88.0,
-    ]
-    assert [tier["random_percentage"] for tier in row["tiers"]] == [
-        35.0, 35.0, 85.0,
-    ]
+    assert all("percentage" not in key for tier in row["tiers"] for key in tier)
 
 
 def test_random_intelligence_excludes_fixtures_with_that_tier_purchased():
@@ -511,200 +548,6 @@ def test_random_intelligence_excludes_fixtures_with_that_tier_purchased():
     assert selected["fixture_id"] == second["fixture_id"]
 
 
-@pytest.mark.parametrize("settings", [
-    {
-        "betting_limits_enabled": False,
-        "unlimited_betting": False,
-        "default_betting_limit_single": 20_000_000.0,
-    },
-    {
-        "betting_limits_enabled": True,
-        "unlimited_betting": False,
-        "betting_limit_single": 20_000_000.0,
-    },
-])
-def test_effective_single_betting_limit_sets_price_without_minimum(settings):
-    state = economy_state(1_000_000_000.0)
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(club_economy, "load_settings", return_value=settings),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy"),
-    ):
-        result = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-
-    row = result["candidates"][0]
-    assert result["pricing_basis"] == "daily_entry_single_betting_limit_percentage"
-    assert result["pricing"]["pricing_source"] == "single_betting_limit"
-    assert result["pricing"]["combined_funds"] == 1_000_000_000
-    assert result["pricing"]["pricing_base"] == 20_000_000
-    assert [tier["specific_price"] for tier in row["tiers"]] == [
-        8_000_000, 8_000_000, 17_600_000,
-    ]
-    assert [tier["random_price"] for tier in row["tiers"]] == [
-        7_000_000, 7_000_000, 17_000_000,
-    ]
-
-
-def test_single_betting_limit_above_funds_uses_current_combined_funds():
-    state = economy_state(20_000_000.0)
-    settings = {
-        "betting_limits_enabled": True,
-        "unlimited_betting": False,
-        "betting_limit_single": 100_000_000.0,
-    }
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(club_economy, "load_settings", return_value=settings),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy"),
-    ):
-        result = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-
-    row = result["candidates"][0]
-    assert result["pricing"]["combined_funds"] == 20_000_000
-    assert result["pricing"]["pricing_base"] == 20_000_000
-    assert row["tiers"][0]["specific_description"] == (
-        "单关投注上限与合计资金较低值40%"
-    )
-    assert [tier["specific_price"] for tier in row["tiers"]] == [
-        8_000_000, 8_000_000, 17_600_000,
-    ]
-    assert [tier["random_price"] for tier in row["tiers"]] == [
-        7_000_000, 7_000_000, 17_000_000,
-    ]
-
-
-def test_capped_price_lock_only_rises_with_funds_and_stops_at_limit():
-    state = economy_state(20_000_000.0)
-    settings = {
-        "betting_limits_enabled": True,
-        "unlimited_betting": False,
-        "betting_limit_single": 100_000_000.0,
-    }
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(club_economy, "load_settings", return_value=settings),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy") as save,
-    ):
-        first = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        state["general_balance_minor"] = 1_000_000_000
-        lower = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        state["general_balance_minor"] = 5_000_000_000
-        higher = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        state["general_balance_minor"] = 15_000_000_000
-        capped = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-
-    assert first["pricing"]["pricing_base"] == 20_000_000
-    assert lower["pricing"]["pricing_base"] == 20_000_000
-    assert higher["pricing"]["pricing_base"] == 50_000_000
-    assert capped["pricing"]["pricing_base"] == 100_000_000
-    assert save.call_count == 3
-
-
-def test_capped_price_lock_repairs_legacy_base_above_observed_funds():
-    state = economy_state(20_000_000.0)
-    state["match_intelligence_price_locks"] = {
-        "2028-06-10": {
-            "game_date": "2028-06-10",
-            "combined_funds": 20_000_000.0,
-            "combined_funds_minor": 2_000_000_000,
-            "pricing_base": 100_000_000.0,
-            "pricing_base_minor": 10_000_000_000,
-            "pricing_source": "single_betting_limit",
-            "locked_at": "2028-06-10T00:00:00+00:00",
-        },
-    }
-    settings = {
-        "betting_limits_enabled": True,
-        "unlimited_betting": False,
-        "betting_limit_single": 100_000_000.0,
-    }
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(club_economy, "load_settings", return_value=settings),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy") as save,
-    ):
-        result = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-
-    assert result["pricing"]["pricing_base"] == 20_000_000
-    assert result["candidates"][0]["tiers"][0]["price"] == 8_000_000
-    assert state["match_intelligence_price_locks"]["2028-06-10"][
-        "pricing_base"
-    ] == 20_000_000
-    save.assert_called_once_with(state)
-
-
-def test_enabling_unlimited_betting_restores_original_intelligence_pricing():
-    state = economy_state(100_000_000.0)
-    capped = {
-        "betting_limits_enabled": True,
-        "unlimited_betting": False,
-        "betting_limit_single": 20_000_000.0,
-    }
-    unlimited = {
-        "betting_limits_enabled": True,
-        "unlimited_betting": True,
-        "betting_limit_single": 20_000_000.0,
-    }
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(
-            club_economy, "load_settings", side_effect=[capped, unlimited],
-        ),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy") as save,
-    ):
-        capped_status = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        unlimited_status = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-
-    assert capped_status["pricing_basis"] == (
-        "daily_entry_single_betting_limit_percentage"
-    )
-    assert [tier["price"] for tier in capped_status["candidates"][0]["tiers"]] == [
-        8_000_000, 8_000_000, 17_600_000,
-    ]
-    assert unlimited_status["pricing_basis"] == (
-        "daily_entry_combined_funds_percentage"
-    )
-    assert unlimited_status["pricing"] == {
-        "locked": True,
-        "game_date": "2028-06-10",
-        "combined_funds": 100_000_000,
-        "locked_at": state["match_intelligence_price_locks"]["2028-06-10"][
-            "locked_at"
-        ],
-    }
-    assert all(
-        "minimum_price" not in tier
-        for tier in unlimited_status["candidates"][0]["tiers"]
-    )
-    assert [tier["price"] for tier in unlimited_status["candidates"][0]["tiers"]] == [
-        40_000_000, 40_000_000, 88_000_000,
-    ]
-    assert save.call_count == 2
-
-
 def test_purchased_intelligence_unlocks_fixture_for_betting_engine_guards():
     state = economy_state()
     fixture = candidate()
@@ -724,45 +567,6 @@ def test_purchased_intelligence_unlocks_fixture_for_betting_engine_guards():
     assert club_economy.match_intelligence_betting_unlocked_fixture_keys(
         payload=state,
     ) == {("2028-06-10", 7, 10, 20)}
-
-
-def test_explicit_daily_entry_locks_prices_until_the_game_date_changes():
-    state = economy_state(1_000_000_000.0)
-    with (
-        patch.object(club_economy, "load_economy", return_value=state),
-        patch.object(club_economy, "available_balance", return_value=0.0),
-        patch.object(club_economy, "save_economy") as save,
-    ):
-        first = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        state["general_balance"] = 700_000_000.0
-        state["general_balance_minor"] = 70_000_000_000
-        same_day = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-10",
-        )
-        state["general_balance"] = 400_000_000.0
-        state["general_balance_minor"] = 40_000_000_000
-        next_day = club_economy.open_match_intelligence_status(
-            [candidate()], "2028-06-11",
-        )
-
-    assert first["pricing"] == {
-        "locked": True,
-        "game_date": "2028-06-10",
-        "combined_funds": 1_000_000_000,
-        "locked_at": state["match_intelligence_price_locks"]["2028-06-10"]["locked_at"],
-    }
-    assert [tier["price"] for tier in first["candidates"][0]["tiers"]] == [
-        400_000_000, 400_000_000, 880_000_000,
-    ]
-    assert [tier["price"] for tier in same_day["candidates"][0]["tiers"]] == [
-        400_000_000, 400_000_000, 880_000_000,
-    ]
-    assert [tier["price"] for tier in next_day["candidates"][0]["tiers"]] == [
-        160_000_000, 160_000_000, 352_000_000,
-    ]
-    assert save.call_count == 2
 
 
 def test_welfare_status_reuses_loaded_economy_for_intelligence_snapshot():
@@ -917,7 +721,7 @@ def test_purchasing_one_candidate_keeps_other_candidates_available():
     assert any(not tier["purchased"] for tier in rows["2028-06-10|7|30|40"]["tiers"])
 
 
-def test_specific_score_prediction_charges_88_percent_and_unlocks_all_columns():
+def test_specific_score_prediction_charges_fixed_price_and_unlocks_all_columns():
     state = economy_state(1_000_000_000.0)
     with (
         patch.object(club_economy, "load_economy", return_value=state),
@@ -932,8 +736,8 @@ def test_specific_score_prediction_charges_88_percent_and_unlocks_all_columns():
             candidate(), "outcome", "request-2",
         )
 
-    assert result["payment"]["total"] == 880_000_000
-    assert state["general_balance"] == 120_000_000
+    assert result["payment"]["total"] == 80_000_000
+    assert state["general_balance"] == 920_000_000
     assert list(result["purchase"]["predictions"]) == [
         "outcome", "total_goals", "score",
     ]
@@ -956,7 +760,7 @@ def test_specific_score_prediction_charges_88_percent_and_unlocks_all_columns():
     save.assert_called_once_with(state)
 
 
-def test_random_prediction_charges_random_mode_percentage():
+def test_random_prediction_charges_random_mode_fixed_price():
     state = economy_state(1_000_000_000.0)
     with (
         patch.object(club_economy, "load_economy", return_value=state),
@@ -969,26 +773,24 @@ def test_random_prediction_charges_random_mode_percentage():
             purchase_mode="random",
         )
 
-    assert result["payment"]["total"] == 350_000_000
-    assert state["general_balance"] == 650_000_000
+    assert result["payment"]["total"] == 20_000_000
+    assert state["general_balance"] == 980_000_000
 
 
-def test_prediction_tier_descriptions_use_current_amount_wording():
-    assert club_economy.MATCH_INTELLIGENCE_TIERS["outcome"]["description"] == (
-        "今日金额40%"
-    )
-    assert club_economy.MATCH_INTELLIGENCE_TIERS["total_goals"]["description"] == (
-        "今日金额40%"
-    )
-    assert club_economy.MATCH_INTELLIGENCE_TIERS["outcome"][
-        "random_description"
-    ] == "今日金额35%"
-    assert club_economy.MATCH_INTELLIGENCE_TIERS["score"]["description"].endswith(
-        "· 并包含前两项"
-    )
-    assert club_economy.MATCH_INTELLIGENCE_TIERS["score"][
-        "random_description"
-    ].startswith("今日锁价基准85%")
+def test_prediction_tier_descriptions_use_fixed_price_wording():
+    tiers = club_economy.MATCH_INTELLIGENCE_TIERS
+    for tier in ("outcome", "total_goals"):
+        assert tiers[tier]["description"] == "固定价格"
+        assert tiers[tier]["random_description"] == "固定价格"
+    assert tiers["score"]["description"] == "固定价格 · 并包含前两项"
+    assert tiers["score"]["random_description"] == "固定价格 · 并包含前两项"
+    assert {
+        tier: (row["price"], row["random_price"]) for tier, row in tiers.items()
+    } == {
+        "outcome": (40_000_000.0, 20_000_000.0),
+        "total_goals": (60_000_000.0, 30_000_000.0),
+        "score": (80_000_000.0, 60_000_000.0),
+    }
 
 
 def test_existing_score_only_purchase_is_read_as_all_columns_unlocked():
@@ -1040,17 +842,17 @@ def test_prediction_columns_are_independent_and_submission_is_idempotent():
             candidate(), "total_goals", "request-2",
         )
 
-    assert first["payment"]["total"] == 400_000_000
+    assert first["payment"]["total"] == 40_000_000
     assert repeated["already_purchased"] is True
-    assert repeated["payment"]["total"] == 400_000_000
-    assert total_goals["payment"]["total"] == 400_000_000
+    assert repeated["payment"]["total"] == 40_000_000
+    assert total_goals["payment"]["total"] == 60_000_000
     assert total_goals["purchase"]["predictions"]["outcome"]["reveal"] == {
         "outcome": "home", "outcome_label": "主队获胜",
     }
     assert total_goals["purchase"]["predictions"]["total_goals"]["reveal"] == {
         "total_goals": 3,
     }
-    assert state["general_balance"] == 200_000_000
+    assert state["general_balance"] == 900_000_000
     assert save.call_count == 2
 
 

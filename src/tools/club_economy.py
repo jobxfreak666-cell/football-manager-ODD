@@ -124,22 +124,22 @@ ACTIVITY_FACILITIES = {
 }
 MATCH_INTELLIGENCE_TIERS = {
     "outcome": {
-        "name": "胜负情报", "basis_points": 4_000,
-        "random_basis_points": 3_500,
-        "description": "今日金额40%",
-        "random_description": "今日金额35%",
+        "name": "胜负情报", "price": 40_000_000.0,
+        "random_price": 20_000_000.0,
+        "description": "固定价格",
+        "random_description": "固定价格",
     },
     "total_goals": {
-        "name": "总进球数情报", "basis_points": 4_000,
-        "random_basis_points": 3_500,
-        "description": "今日金额40%",
-        "random_description": "今日金额35%",
+        "name": "总进球数情报", "price": 60_000_000.0,
+        "random_price": 30_000_000.0,
+        "description": "固定价格",
+        "random_description": "固定价格",
     },
     "score": {
-        "name": "比分情报", "basis_points": 8_800,
-        "random_basis_points": 8_500,
-        "description": "今日锁价基准88% · 并包含前两项",
-        "random_description": "今日锁价基准85% · 并包含前两项",
+        "name": "比分情报", "price": 80_000_000.0,
+        "random_price": 60_000_000.0,
+        "description": "固定价格 · 并包含前两项",
+        "random_description": "固定价格 · 并包含前两项",
     },
 }
 MATCH_INTELLIGENCE_TIER_ORDER = tuple(MATCH_INTELLIGENCE_TIERS)
@@ -149,7 +149,7 @@ MEDIA_ACTIVITIES = {
 }
 PSYCHOLOGICAL_COUNSELING_OUTCOMES = {
     "unlocked": {
-        "name": "付费解锁", "probability": 0.0, "intimacy": 0.0,
+        "name": "彻底释怀", "probability": 1.0, "intimacy": 0.0,
         "dialogues": (
             "专业团队已经处理完这次困扰，我现在愿意放下不满，重新专注于球队。",
         ),
@@ -197,6 +197,7 @@ PSYCHOLOGICAL_COUNSELING_OUTCOMES = {
     },
 }
 PSYCHOLOGICAL_COUNSELING_UNLOCK_PRICE = 100_000.0
+PSYCHOLOGICAL_COUNSELING_SESSION_PRICE = 100_000.0
 MEDICAL_TREATMENTS = {
     "conservative": {"name": "保守治疗", "factor": 1.5, "daily_cost": 10_000.0},
     "aggressive": {"name": "激进治疗", "factor": 3.0, "daily_cost": 30_000.0},
@@ -687,7 +688,6 @@ def _new_state() -> dict[str, Any]:
         "psychological_counseling": {},
         "language_learning": {"auto": {"enabled": False}, "plans": {}, "history": []},
         "canteen_plan": "basic",
-        "free_services": False,
         "medical_default_treatment": "manual",
         "medical_treatments": {},
         "medical_treatment_pricing_version": MEDICAL_TREATMENT_PRICING_VERSION,
@@ -874,7 +874,7 @@ def load_economy() -> dict[str, Any]:
     language_learning.setdefault("history", [])
     if payload.get("canteen_plan") not in {"basic", "nutrition", "elite", "peak"}:
         payload["canteen_plan"] = "basic"
-    payload.setdefault("free_services", False)
+    payload.pop("free_services", None)
     if payload.get("medical_default_treatment") not in MEDICAL_DEFAULT_TREATMENTS:
         payload["medical_default_treatment"] = "manual"
     payload.setdefault("medical_treatments", {})
@@ -1080,8 +1080,8 @@ def welfare_status(
             "media_activity_daily_usage": dict(payload.get("media_activity_daily_usage") or {}),
             "activity_history": list(reversed((payload.get("activity_history") or [])[-50:])),
             "nationality_processing": {
-                "club_price": 0.0 if bool(payload.get("free_services")) else nationality_processing_prices["club"],
-                "world_price": 0.0 if bool(payload.get("free_services")) else nationality_processing_prices["world"],
+                "club_price": nationality_processing_prices["club"],
+                "world_price": nationality_processing_prices["world"],
             },
             "psychological_counseling": dict(payload.get("psychological_counseling") or {}),
             "language_learning": language_learning,
@@ -1097,7 +1097,6 @@ def welfare_status(
 def _medical_status_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Project only the medical fields without rebuilding activity-centre state."""
     return {
-        "free_services": bool(payload.get("free_services")),
         "default_treatment": str(payload.get("medical_default_treatment") or "manual"),
         "treatment_options": {
             key: dict(value) for key, value in MEDICAL_TREATMENTS.items()
@@ -1126,7 +1125,7 @@ def assert_activity_centre_unlocked(centre: str) -> dict[str, Any]:
     return dict(option)
 
 
-def purchase_activity_centre(centre: str, *, free: bool = False) -> dict[str, Any]:
+def purchase_activity_centre(centre: str) -> dict[str, Any]:
     centre = str(centre or "")
     option = ACTIVITY_CENTRES.get(centre)
     if not option:
@@ -1135,14 +1134,13 @@ def purchase_activity_centre(centre: str, *, free: bool = False) -> dict[str, An
         raise ValueError(str(option.get("unavailable_reason") or "该楼层暂未开启"))
     with _LOCK:
         payload = load_economy()
-        free = bool(payload.get("free_services"))
         owned_centres = payload.setdefault("owned_activity_centres", list(DEFAULT_ACTIVITY_CENTRES))
         if _activity_centre_owned(payload, centre):
             raise ValueError(f"{option['name']}已经解锁")
-        price = 0.0 if free else local_purchase_price(option["price"])
+        price = local_purchase_price(option["price"])
         payment = _collect_combined_funds(
             payload, price, "activity_centre_purchase",
-            centre=centre, centre_name=str(option["name"]), free=bool(free),
+            centre=centre, centre_name=str(option["name"]),
         )
         owned_centres.append(centre)
         _save_economy_with_wallet_adjustments(payload, [{
@@ -1174,7 +1172,7 @@ def assert_activity_facility_unlocked(facility: str) -> dict[str, Any]:
         return _assert_activity_facility_owned(load_economy(), str(facility or ""))
 
 
-def purchase_activity_facility(facility: str, *, free: bool = False) -> dict[str, Any]:
+def purchase_activity_facility(facility: str) -> dict[str, Any]:
     facility = str(facility or "")
     option = ACTIVITY_FACILITIES.get(facility)
     if not option:
@@ -1189,12 +1187,11 @@ def purchase_activity_facility(facility: str, *, free: bool = False) -> dict[str
         owned_facilities = payload.setdefault("owned_activity_facilities", [])
         if _activity_facility_owned(payload, facility):
             raise ValueError(f"{option['name']}已经解锁")
-        free = bool(payload.get("free_services"))
-        price = 0.0 if free else local_purchase_price(option["price"])
+        price = local_purchase_price(option["price"])
         payment = _collect_combined_funds(
             payload, price, "activity_facility_purchase",
             facility=facility, facility_name=str(option["name"]),
-            centre=centre, free=free,
+            centre=centre,
         )
         owned_facilities.append(facility)
         _save_economy_with_wallet_adjustments(payload, [{
@@ -1207,174 +1204,18 @@ def purchase_activity_facility(facility: str, *, free: bool = False) -> dict[str
         return {"facility": facility, "owned": True, "payment": payment}
 
 
-def _match_intelligence_combined_funds_minor(payload: dict[str, Any]) -> int:
-    return max(0, _bank_balance_minor(payload)) + max(
-        0, to_minor(available_balance()),
-    )
-
-
-def _match_intelligence_betting_limit_minor() -> int | None:
-    """Return the same effective single-bet profit limit used by betting."""
-    settings = load_settings()
-    custom_limits_enabled = bool(settings.get("betting_limits_enabled"))
-    if custom_limits_enabled and bool(settings.get("unlimited_betting")):
-        return None
-    setting_key = (
-        "betting_limit_single" if custom_limits_enabled
-        else "default_betting_limit_single"
-    )
-    try:
-        limit = float(settings.get(setting_key) or 0.0)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(limit) or limit <= 0:
-        return None
-    return to_minor(limit)
-
-
-def _match_intelligence_pricing_base_minor(
-    combined_funds_minor: int, betting_limit_minor: int | None,
-) -> int:
-    """Cap the intelligence basis at funds the account has actually held."""
-    combined_funds_minor = max(0, int(combined_funds_minor))
-    if betting_limit_minor is None:
-        return combined_funds_minor
-    return min(combined_funds_minor, max(0, int(betting_limit_minor)))
-
-
-def _match_intelligence_price_lock(
-    payload: dict[str, Any], game_date: str, *, create: bool,
-) -> tuple[dict[str, Any], bool]:
-    game_date = str(game_date or "")
-    try:
-        date.fromisoformat(game_date)
-    except ValueError:
-        if create:
-            raise ValueError("尚未读取当前游戏日期，无法锁定今日情报价格")
-        return {}, False
-    locks = payload.setdefault("match_intelligence_price_locks", {})
-    existing = dict(locks.get(game_date) or {})
-    if (
-        "combined_funds_minor" in existing
-        or "combined_funds" in existing
-    ):
-        if create:
-            current_combined_minor = _match_intelligence_combined_funds_minor(payload)
-            existing_combined_minor = read_minor(existing, "combined_funds")
-            combined_minor = max(existing_combined_minor, current_combined_minor)
-            betting_limit_minor = _match_intelligence_betting_limit_minor()
-            desired_source = (
-                "single_betting_limit"
-                if betting_limit_minor is not None
-                else "combined_funds"
-            )
-            current_source = str(existing.get("pricing_source") or "")
-            existing_base_minor = read_minor(existing, "pricing_base")
-            desired_base_minor = _match_intelligence_pricing_base_minor(
-                combined_minor, betting_limit_minor,
-            )
-            changed = False
-            if combined_minor != existing_combined_minor:
-                write_minor(existing, "combined_funds", combined_minor)
-                changed = True
-            if desired_base_minor != existing_base_minor:
-                write_minor(existing, "pricing_base", desired_base_minor)
-                changed = True
-            if current_source != desired_source:
-                existing["pricing_source"] = desired_source
-                changed = True
-            if changed:
-                existing["repriced_at"] = _now()
-                locks[game_date] = existing
-                return existing, True
-        return existing, False
-    combined_funds_minor = _match_intelligence_combined_funds_minor(payload)
-    price_lock = {
-        "game_date": game_date,
-        "locked_at": _now(),
-    }
-    write_minor(price_lock, "combined_funds", combined_funds_minor)
-    betting_limit_minor = _match_intelligence_betting_limit_minor()
-    if betting_limit_minor is not None:
-        write_minor(
-            price_lock, "pricing_base",
-            _match_intelligence_pricing_base_minor(
-                combined_funds_minor, betting_limit_minor,
-            ),
-        )
-        price_lock["pricing_source"] = "single_betting_limit"
-    else:
-        write_minor(price_lock, "pricing_base", combined_funds_minor)
-        price_lock["pricing_source"] = "combined_funds"
-    locks[game_date] = price_lock
-    return price_lock, True
-
-
-def _public_match_intelligence_pricing(
-    price_lock: dict[str, Any], game_date: str, fallback_minor: int,
-) -> dict[str, Any]:
-    locked = bool(price_lock)
-    if locked:
-        base_minor = read_minor(price_lock, "pricing_base")
-        if not base_minor and (
-            "pricing_base_minor" not in price_lock
-            and "pricing_base" not in price_lock
-        ):
-            base_minor = read_minor(price_lock, "combined_funds")
-    else:
-        base_minor = int(fallback_minor)
-    combined_minor = (
-        read_minor(price_lock, "combined_funds") if locked else int(fallback_minor)
-    )
-    result = {
-        "locked": locked,
-        "game_date": str(game_date or ""),
-        "combined_funds": from_minor(combined_minor),
-        "locked_at": str(price_lock.get("locked_at") or ""),
-    }
-    pricing_source = str(price_lock.get("pricing_source") or "combined_funds")
-    if pricing_source == "single_betting_limit":
-        result.update({
-            "pricing_base": from_minor(base_minor),
-            "pricing_source": pricing_source,
-        })
-    return result
-
-
 def _match_intelligence_quote_minor(
-    payload: dict[str, Any], tier: str, available_minor: int | None = None,
-    *, pricing_source: str = "combined_funds", purchase_mode: str = "specific",
+    tier: str, purchase_mode: str = "specific",
 ) -> int:
-    target = MATCH_INTELLIGENCE_TIERS[tier]
-    if bool(payload.get("free_services")):
-        return 0
-    if available_minor is None:
-        available_minor = _match_intelligence_combined_funds_minor(payload)
-    basis_points = int(
-        target["random_basis_points"]
-        if purchase_mode == "random"
-        else target["basis_points"]
-    )
-    percentage_price = (available_minor * basis_points + 5_000) // 10_000
-    return percentage_price
+    option = MATCH_INTELLIGENCE_TIERS[tier]
+    nominal = option["random_price"] if purchase_mode == "random" else option["price"]
+    return to_minor(local_purchase_price(nominal))
 
 
 def _match_intelligence_tier_description(
-    tier: str, source: str, purchase_mode: str = "specific",
+    tier: str, purchase_mode: str = "specific",
 ) -> str:
     option = MATCH_INTELLIGENCE_TIERS[tier]
-    if source == "single_betting_limit":
-        basis_points = int(
-            option["random_basis_points"]
-            if purchase_mode == "random"
-            else option["basis_points"]
-        )
-        percentage = basis_points / 100
-        suffix = "\uff0c\u5e76\u5305\u542b\u524d\u4e24\u9879" if tier == "score" else ""
-        return (
-            f"\u5355\u5173\u6295\u6ce8\u4e0a\u9650\u4e0e\u5408\u8ba1\u8d44\u91d1"
-            f"\u8f83\u4f4e\u503c{percentage:g}%{suffix}"
-        )
     return str(
         option["random_description"]
         if purchase_mode == "random"
@@ -1505,38 +1346,19 @@ def match_intelligence_betting_unlocked_fixture_keys(
         return unlocked
 
 
-def _match_intelligence_tier_templates(
-    payload: dict[str, Any], available_minor: int, pricing_source: str,
-) -> dict[str, dict[str, Any]]:
-    """Build candidate-invariant tier pricing and copy once per status call."""
+def _match_intelligence_tier_templates() -> dict[str, dict[str, Any]]:
+    """Build candidate-invariant fixed tier pricing once per status call."""
     templates: dict[str, dict[str, Any]] = {}
     for tier in MATCH_INTELLIGENCE_TIER_ORDER:
         option = MATCH_INTELLIGENCE_TIERS[tier]
-        specific_price = from_minor(_match_intelligence_quote_minor(
-            payload, tier, available_minor,
-            pricing_source=pricing_source,
-            purchase_mode="specific",
-        ))
-        random_price = from_minor(_match_intelligence_quote_minor(
-            payload, tier, available_minor,
-            pricing_source=pricing_source,
-            purchase_mode="random",
-        ))
+        specific_price = from_minor(_match_intelligence_quote_minor(tier, "specific"))
+        random_price = from_minor(_match_intelligence_quote_minor(tier, "random"))
         templates[tier] = {
             "key": tier,
             "name": str(option["name"]),
-            "description": _match_intelligence_tier_description(
-                tier, pricing_source, "specific",
-            ),
-            "specific_description": _match_intelligence_tier_description(
-                tier, pricing_source, "specific",
-            ),
-            "random_description": _match_intelligence_tier_description(
-                tier, pricing_source, "random",
-            ),
-            "percentage": float(option["basis_points"]) / 100.0,
-            "specific_percentage": float(option["basis_points"]) / 100.0,
-            "random_percentage": float(option["random_basis_points"]) / 100.0,
+            "description": _match_intelligence_tier_description(tier, "specific"),
+            "specific_description": _match_intelligence_tier_description(tier, "specific"),
+            "random_description": _match_intelligence_tier_description(tier, "random"),
             "price": specific_price,
             "specific_price": specific_price,
             "random_price": random_price,
@@ -1568,34 +1390,9 @@ def match_intelligence_status(
         pricing_date = str(
             pricing_date or (candidates[0].get("fixture_date") if candidates else "") or ""
         )
-        price_lock, _created = _match_intelligence_price_lock(
-            payload, pricing_date, create=False,
-        )
-        available_minor = 0
-        pricing_source = "combined_funds"
-        if price_lock:
-            available_minor = read_minor(price_lock, "pricing_base")
-            if not available_minor and (
-                "pricing_base_minor" not in price_lock
-                and "pricing_base" not in price_lock
-            ):
-                available_minor = read_minor(price_lock, "combined_funds")
-            pricing_source = str(
-                price_lock.get("pricing_source") or "combined_funds"
-            )
-        elif unlocked and candidates:
-            available_minor = _match_intelligence_combined_funds_minor(payload)
-            betting_limit_minor = _match_intelligence_betting_limit_minor()
-            if betting_limit_minor is not None:
-                available_minor = _match_intelligence_pricing_base_minor(
-                    available_minor, betting_limit_minor,
-                )
-                pricing_source = "single_betting_limit"
         rows: list[dict[str, Any]] = []
         if unlocked:
-            tier_templates = _match_intelligence_tier_templates(
-                payload, available_minor, pricing_source,
-            )
+            tier_templates = _match_intelligence_tier_templates()
             history_tier_templates = _match_intelligence_history_tier_templates()
             for candidate in candidates:
                 fixture_id = str(candidate.get("fixture_id") or "")
@@ -1691,14 +1488,8 @@ def match_intelligence_status(
         return {
             "unlocked": unlocked,
             "floor": "5F",
-            "pricing_basis": (
-                "daily_entry_single_betting_limit_percentage"
-                if pricing_source == "single_betting_limit"
-                else "daily_entry_combined_funds_percentage"
-            ),
-            "pricing": _public_match_intelligence_pricing(
-                price_lock, pricing_date, available_minor,
-            ),
+            "pricing_basis": "fixed_price",
+            "pricing": {"game_date": pricing_date},
             "candidates": rows,
         }
 
@@ -1706,19 +1497,8 @@ def match_intelligence_status(
 def open_match_intelligence_status(
     candidates: list[dict[str, Any]], game_date: str,
 ) -> dict[str, Any]:
-    """Lock the day's price basis on explicit entry, never on background probes."""
-    with _LOCK:
-        payload = load_economy()
-        unlocked = _activity_centre_owned(payload, "intelligence")
-        if unlocked:
-            _price_lock, created = _match_intelligence_price_lock(
-                payload, game_date, create=True,
-            )
-            if created:
-                save_economy(payload)
-        return match_intelligence_status(
-            candidates, payload=payload, pricing_date=game_date,
-        )
+    """Return intelligence status for an explicit entry; prices are fixed."""
+    return match_intelligence_status(candidates, pricing_date=game_date)
 
 
 def purchase_match_intelligence(
@@ -1758,36 +1538,13 @@ def purchase_match_intelligence(
                 "already_purchased": True,
             }
         pricing_date = str(game_date or candidate.get("fixture_date") or "")
-        price_lock, _created = _match_intelligence_price_lock(
-            payload, pricing_date, create=True,
-        )
-        pricing_base_minor = read_minor(price_lock, "pricing_base")
-        if not pricing_base_minor and (
-            "pricing_base_minor" not in price_lock
-            and "pricing_base" not in price_lock
-        ):
-            pricing_base_minor = read_minor(price_lock, "combined_funds")
-        pricing_source = str(
-            price_lock.get("pricing_source") or "combined_funds"
-        )
-        price = from_minor(_match_intelligence_quote_minor(
-            payload, tier, pricing_base_minor,
-            pricing_source=pricing_source, purchase_mode=purchase_mode,
-        ))
+        price = from_minor(_match_intelligence_quote_minor(tier, purchase_mode))
         option = MATCH_INTELLIGENCE_TIERS[tier]
-        basis_points = int(
-            option["random_basis_points"]
-            if purchase_mode == "random"
-            else option["basis_points"]
-        )
         payment = _collect_combined_funds(
             payload, price, "match_intelligence_purchase",
             fixture_id=fixture_id, tier=tier, tier_name=str(option["name"]),
-            percentage=float(basis_points) / 100.0,
-            pricing_source=pricing_source,
             purchase_mode=purchase_mode,
             pricing_game_date=pricing_date,
-            pricing_base_balance=from_minor(pricing_base_minor),
             client_submission_id=client_submission_id,
         )
         purchased_at = _now()
@@ -2512,8 +2269,7 @@ def advance_language_learning_now(
     with _LOCK:
         payload = load_economy()
         _assert_activity_facility_owned(payload, "language_classroom")
-        free = bool(payload.get("free_services"))
-        price = 0.0 if free else sum(
+        price = sum(
             local_purchase_price(float(row["nominal_price"])) for row in upgrades
         )
         transaction_type = (
@@ -2526,7 +2282,7 @@ def advance_language_learning_now(
             player_ids=[int(row["player_id"]) for row in upgrades],
             person_kind=person_kind,
             person_ids=[int(row["player_id"]) for row in upgrades],
-            game_date=current_date, free=free, to_maximum=bool(to_maximum),
+            game_date=current_date, to_maximum=bool(to_maximum),
         )
         state = _language_learning_state(payload)
         rollback_results: list[dict[str, Any]] = []
@@ -2568,7 +2324,7 @@ def advance_language_learning_now(
                     "status": "instant_max" if to_maximum else "instant",
                     "game_date": current_date,
                     "before": int(row["before"]), "after": target,
-                    "price": 0.0 if free else local_purchase_price(float(row["nominal_price"])),
+                    "price": local_purchase_price(float(row["nominal_price"])),
                 }
                 if person_kind == "player":
                     history.update({
@@ -2615,7 +2371,7 @@ def advance_language_learning_now(
                 "player_id": int(row["player_id"]),
                 "staff_id": int(row["player_id"]) if person_kind == "staff" else None,
                 "before": int(row["before"]), "after": int(row["after"]),
-                "price": 0.0 if free else local_purchase_price(float(row["nominal_price"])),
+                "price": local_purchase_price(float(row["nominal_price"])),
             } for row in upgrades],
             "completed": completed, "payment": payment,
             "language_learning": _public_money_view(state),
@@ -3080,24 +2836,15 @@ def perform_staff_activity(
         }
 
 
-def psychological_counseling_outcome(roll: float | None = None) -> str:
-    value = random.random() if roll is None else float(roll)
-    if not 0 <= value < 1:
-        raise ValueError("心理辅导概率值无效")
-    if value < 0.40:
-        return "relieved"
-    if value < 0.65:
-        return "opened_up"
-    if value < 0.95:
-        return "no_effect"
-    return "rupture"
+def psychological_counseling_outcome() -> str:
+    """Every counseling session now resolves the player's unhappiness."""
+    return "unlocked"
 
 
 def perform_psychological_counseling(
     manager_id: int, player_id: int, player_name: str, game_date: str,
     current_intimacy: int,
     apply_effects: Callable[[str, int], dict[str, Any]],
-    *, roll: float | None = None, forced_outcome: str | None = None,
 ) -> dict[str, Any]:
     key = f"{int(manager_id)}:{int(player_id)}"
     current_date = date.fromisoformat(str(game_date))
@@ -3109,7 +2856,7 @@ def perform_psychological_counseling(
         )
         counseling = payload.setdefault("psychological_counseling", {})
 
-        outcome = str(forced_outcome or psychological_counseling_outcome(roll))
+        outcome = psychological_counseling_outcome()
         if outcome not in PSYCHOLOGICAL_COUNSELING_OUTCOMES:
             raise ValueError("心理辅导结果无效")
         option = PSYCHOLOGICAL_COUNSELING_OUTCOMES[outcome]
@@ -3173,7 +2920,6 @@ def set_medical_treatment(
     key = str(int(player_id))
     with _LOCK:
         payload = load_economy()
-        free_services = bool(payload.get("free_services"))
         treatments = payload["medical_treatments"]
         previous = dict(treatments.get(key) or {})
         old_mode = str(previous.get("mode") or "none")
@@ -3182,12 +2928,12 @@ def set_medical_treatment(
         old_factor = float((MEDICAL_TREATMENTS.get(old_mode) or {}).get("factor") or 1.0)
         new_option = MEDICAL_TREATMENTS.get(mode)
         new_factor = float((new_option or {}).get("factor") or 1.0)
-        previous_charge = 0.0 if free_services else (
+        previous_charge = (
             float(previous.get("charged_today") or 0)
             if str(previous.get("last_charged_date") or "") == str(game_date) else 0.0
         )
         daily_cost = float((new_option or {}).get("daily_cost") or 0)
-        charge = 0.0 if free_services else max(0.0, daily_cost - previous_charge)
+        charge = max(0.0, daily_cost - previous_charge)
         if (
             _bank_balance_minor(payload) + to_minor(available_balance())
             < to_minor(charge)
@@ -3197,7 +2943,7 @@ def set_medical_treatment(
         payment = _collect_combined_funds(
             payload, charge, "medical_treatment",
             player_id=int(player_id), player_name=str(player_name), mode=mode,
-            game_date=str(game_date), free=free_services,
+            game_date=str(game_date),
         )
         if mode == "none":
             treatments.pop(key, None)
@@ -3216,7 +2962,7 @@ def set_medical_treatment(
             "mode": mode, "factor": new_factor, "daily_cost": daily_cost,
             "started_on": previous.get("started_on") or str(game_date),
             "last_charged_date": str(game_date),
-            "charged_today": 0.0 if free_services else max(previous_charge, daily_cost),
+            "charged_today": max(previous_charge, daily_cost),
             "expected_return_to": expected_return_to,
             "injury_start_dates": sorted({
                 str(item.get("start_date")) for item in injuries
@@ -3284,7 +3030,6 @@ def process_medical_treatments(
     current = date.fromisoformat(str(game_date))
     with _LOCK:
         payload = load_economy()
-        free_services = bool(payload.get("free_services"))
         treatments = payload["medical_treatments"]
         charged_minor = 0
         cancelled: list[int] = []
@@ -3310,12 +3055,6 @@ def process_medical_treatments(
                 last = current
             due_days = max(0, (current - last).days)
             if not due_days:
-                continue
-            if free_services:
-                state["last_charged_date"] = str(current)
-                write_minor(state, "charged_today", 0)
-                treatments[key] = state
-                changed = True
                 continue
             daily_cost_minor = to_minor(state.get("daily_cost") or 0)
             due_minor = daily_cost_minor * due_days
@@ -3365,22 +3104,6 @@ def process_medical_treatments(
             "charged": from_minor(charged_minor), "cancelled": cancelled,
             "completed": completed, "pending": pending,
         }
-
-
-def set_free_services(enabled: bool) -> dict[str, Any]:
-    with _LOCK:
-        payload = load_economy()
-        payload["free_services"] = bool(enabled)
-        if enabled:
-            for state in payload["medical_treatments"].values():
-                write_minor(state, "charged_today", 0)
-        save_economy(payload)
-        return welfare_status()
-
-
-def free_services_enabled() -> bool:
-    with _LOCK:
-        return bool(load_economy().get("free_services"))
 
 
 def _previous_month(value: str) -> str:
@@ -4640,7 +4363,7 @@ def active_player_ids() -> list[int]:
         return sorted(identifiers)
 
 
-def buy_item(sku: str, quantity: int = 1, *, free: bool = False) -> dict[str, Any]:
+def buy_item(sku: str, quantity: int = 1) -> dict[str, Any]:
     product = PRODUCTS.get(sku)
     if sku not in SHOP_SKUS or not product or not 1 <= quantity <= 99:
         raise ValueError("商品或数量无效")
@@ -4648,10 +4371,9 @@ def buy_item(sku: str, quantity: int = 1, *, free: bool = False) -> dict[str, An
         raise ValueError("该商品有闪退风险，暂未实装")
     with _LOCK:
         payload = load_economy()
-        free = bool(payload.get("free_services"))
         unit_price_minor = _shop_price_minor(product["price"])
         unit_price = from_minor(unit_price_minor)
-        total_minor = 0 if free else unit_price_minor * quantity
+        total_minor = unit_price_minor * quantity
         total = from_minor(total_minor)
         if _bank_balance_minor(payload) + to_minor(available_balance()) < total_minor:
             raise ValueError("银行与钱包余额合计不足")
@@ -4668,7 +4390,7 @@ def buy_item(sku: str, quantity: int = 1, *, free: bool = False) -> dict[str, An
                 "id": str(uuid.uuid4()), "sku": sku, "name": product["name"], "price": unit_price,
                 "category": product["category"], "duration": product["duration"], "status": "available", "purchased_at": _now(),
             })
-        _transaction(payload, "shop_purchase", -total, sku=sku, quantity=quantity, free=bool(free),
+        _transaction(payload, "shop_purchase", -total, sku=sku, quantity=quantity,
                      bank_used=bank_used, wallet_used=wallet_used)
         wallet = _save_economy_with_wallet_adjustments(payload, [{
             "amount": -wallet_used, "type": "shop_purchase",
@@ -4679,7 +4401,7 @@ def buy_item(sku: str, quantity: int = 1, *, free: bool = False) -> dict[str, An
         return result
 
 
-def buy_items(items: list[dict[str, Any]], *, free: bool = False) -> dict[str, Any]:
+def buy_items(items: list[dict[str, Any]]) -> dict[str, Any]:
     if not isinstance(items, list) or not items:
         raise ValueError("购物车为空")
     quantities: dict[str, int] = {}
@@ -4701,13 +4423,12 @@ def buy_items(items: list[dict[str, Any]], *, free: bool = False) -> dict[str, A
     purchases = [{"sku": sku, "quantity": quantity} for sku, quantity in quantities.items()]
     with _LOCK:
         payload = load_economy()
-        free = bool(payload.get("free_services"))
         settings = load_settings()
         unit_prices_minor = {
             row["sku"]: _shop_price_minor(PRODUCTS[row["sku"]]["price"], settings)
             for row in purchases
         }
-        total_minor = 0 if free else sum(
+        total_minor = sum(
             unit_prices_minor[row["sku"]] * row["quantity"]
             for row in purchases
         )
@@ -4733,7 +4454,7 @@ def buy_items(items: list[dict[str, Any]], *, free: bool = False) -> dict[str, A
                     "category": product["category"], "duration": product["duration"], "status": "available", "purchased_at": purchased_at,
                 })
         _transaction(payload, "shop_purchase", -total, items=purchases,
-                     quantity=sum(row["quantity"] for row in purchases), free=bool(free),
+                     quantity=sum(row["quantity"] for row in purchases),
                      bank_used=bank_used, wallet_used=wallet_used)
         wallet = _save_economy_with_wallet_adjustments(payload, [{
             "amount": -wallet_used, "type": "shop_purchase",

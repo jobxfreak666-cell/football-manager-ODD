@@ -168,7 +168,6 @@ class TrainingGroundTests(unittest.TestCase):
             "transaction_id": "payment-1",
         }
         with (
-            patch("fm_odds_web.free_services_enabled", return_value=False),
             patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
             patch("fm_odds_web.purchase_facility", return_value={"id": "facility-1"}),
             patch("fm_odds_web.public_training_ground", return_value={}),
@@ -193,7 +192,6 @@ class TrainingGroundTests(unittest.TestCase):
             "transaction_id": "payment-floor-1",
         }
         with (
-            patch("fm_odds_web.free_services_enabled", return_value=False),
             patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
             patch("fm_odds_web.unlock_training_floor", return_value={"scene": "indoor_3f", "unlocked": True}),
             patch("fm_odds_web.public_training_ground", return_value={}),
