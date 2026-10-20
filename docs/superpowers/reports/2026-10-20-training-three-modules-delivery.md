@@ -4,6 +4,7 @@
 分支：`codex/training-three-modules`
 基线：`f58bf0a`（`football-manager-odd-dev` 合并 PR #1 / #2 后的提交）
 状态：**已实现并完成定向验证；未合并、未部署、未操作真实 FM/存档/账户**。
+交付入口：PR #3 `https://github.com/jobxfreak666-cell/football-manager-ODD/pull/3`（head `codex/training-three-modules` → base `football-manager-odd-dev`，未合并）。
 
 ## 1. 提交链与改动范围
 
@@ -116,5 +117,6 @@
 ## 10. 交付清单
 
 - 分支：`codex/training-three-modules`（基线 `f58bf0a`），提交链见第 1 节；最终 HEAD 以分支最新提交为准。
+- PR：#3 `https://github.com/jobxfreak666-cell/football-manager-ODD/pull/3`（目标 `football-manager-odd-dev`，未合并）。
 - 建议审核顺序：资金一致性/事务与幂等 → 迁移幂等 → 作用域与单人占用 → 原生保护与取消竞态 → UI/文案。
 - 本报告与收尾清理同属最后一个 docs/i18n 提交；PR 由 Lead 创建后以上述提交为 head。
