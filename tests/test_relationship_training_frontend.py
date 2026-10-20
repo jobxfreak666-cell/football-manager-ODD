@@ -47,13 +47,34 @@ def test_relationship_floor_reuses_212_room_visual_structure():
         assert class_name in APP_CSS
 
 
-def test_relationship_floor_reuses_212_dock_tabs_and_grouping():
-    assert '<span>可用房间</span>' in APP_JS
-    assert '<span>房间解锁</span>' in APP_JS
-    assert 'renderRelationshipTrainingAvailablePanel(data, allInstances)' in APP_JS
-    assert 'category("occupied", "占用中", occupied)' in APP_JS
-    assert 'category("idle", "空闲", idle)' in APP_JS
-    assert 'toolbarActions.hidden = relationshipFloor' in APP_JS
+def test_relationship_floor_rendering_survives_without_training_entry():
+    # The 8F relationship-room renderer and grouping stay in the source (plan
+    # §1.2), but the three-module training ground no longer exposes that floor
+    # or its old available/unlock dock. The module-level constants above use the
+    # legacy zh-CN projection, so this test reads the shipped source explicitly.
+    from frontend_source import raw_web_source
+
+    script = raw_web_source(ROOT / "web" / "app.js")
+    index = raw_web_source(ROOT / "web" / "index.html")
+    assert "function renderRelationshipTrainingFloor" in script
+    assert "function renderRelationshipTrainingAvailablePanel" in script
+    assert "renderRelationshipTrainingAvailablePanel(data, allInstances)" in script
+    assert "data-relationship-room-detail=" in script
+    assert "relationshipTrainingDetail(" in script
+    assert '<span>可用房间</span>' not in script
+    assert '<span>房间解锁</span>' not in script
+    module_block = script.split("const TRAINING_MODULES = [", 1)[1].split("];", 1)[0]
+    assert 'key:"player_training"' in module_block
+    assert 'key:"position_training"' in module_block
+    assert 'key:"staff_training"' in module_block
+    assert module_block.count('key:"') == 3
+    assert "relationship_8f" not in module_block
+    assert "relationship_8f" not in index
+    assert "data-training-scene=" not in index
+    assert 'data-training-module="relationship_8f"' not in script
+    assert 'id="training-dock-tabs"' not in index
+    assert 'category("occupied", uiText("relationship.occupied_group")' in script
+    assert 'category("idle", uiText("relationship.idle")' in script
 
 
 def test_relationship_floor_uses_exact_212_building_image():
