@@ -33,6 +33,7 @@ def extract(start: str, end: str) -> str:
 HELPERS = extract("const TRAINING_MODULES = [", "function managedFixtures() {")
 DATA_INDEX = extract("function trainingDataIndex() {", "function trainingProduct(sku)")
 FOCUS_SUMMARY = extract("function trainingFocusSummaryText(", "async function settleTrainingProgress")
+ITEM_OPERATION = extract("async function runItemOperation(", "function resetAccountScopedWorldState()")
 POSITION_RUNTIME = extract(
     "function positionTrainingPayload(player, slot, durationMode) {",
     "async function startPositionTrainingAssignments(button)",
@@ -81,7 +82,7 @@ const trainingAttributeKeysForPlayer = (project, player) => (
 );
 const trainingPlayerMatchesPositionGroup = (player, group) => (player.group || "defenders") === group;
 const trainingDurationTarget = (mode, current, direction = 1) => (
-  mode === "until_increase"
+  mode === "until_increase" || mode === "until_decrease"
     ? Number(current) + Number(direction)
     : Number(String(mode).split("_")[1])
 );
@@ -126,7 +127,7 @@ const fmoddConfirm = async (...args) => { confirms.push(args); return confirmImp
 const renderTraining = () => { rendered += 1; };
 const updateTrainingResponse = () => { updated += 1; };
 const renderIcons = () => {};
-const runItemOperation = async (_profile, _label, task) => task();
+__ITEM_OPERATION__
 let localSubmit = 0;
 const clientSubmissionId = () => `submission-${localSubmit += 1}`;
 const ensurePlayerDevelopmentRosterLoaded = async () => ensureDevelopmentRosterImpl();
@@ -177,6 +178,7 @@ def harness(test_code: str) -> subprocess.CompletedProcess[str]:
         .replace("__DATA_INDEX__", DATA_INDEX)
         .replace("__POSITION_RUNTIME__", POSITION_RUNTIME)
         .replace("__FOCUS_SUMMARY__", FOCUS_SUMMARY)
+        .replace("__ITEM_OPERATION__", ITEM_OPERATION)
         .replace("__TEST__", test_code)
     )
     if os.environ.get("T5_DUMP_SOURCE"):
@@ -188,7 +190,154 @@ def assert_node_ok(result: subprocess.CompletedProcess[str]) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+SUBMISSION_SETUP = r'''
+fixtures.data.catalog = [{
+  sku:"strength_rack",module:"player_training",attributes:["身体:强壮"],
+  direction:1,task_price_minor:1,training_multiplier:3,
+}];
+fixtures.profiles = [{
+  team:{id:1,name:"Current FC",team_type:"club"},
+  players:[player(1,"One")],
+  squads:[{team_id:1,type_code:0,players:[player(1,"One")]}],
+}];
+Object.assign(app, {
+  trainingModule:"player_training", trainingPersonKind:"player", trainingPersonId:1,
+  trainingProjectSku:"strength_rack", trainingTargetKey:"身体:强壮",
+  trainingDurationMode:"until_increase", trainingDirection:1, trainingRequestSeq:1,
+  state:{data_scope_id:"account-a"},
+});
+app.trainingScopeKey = trainingScopeKey();
+'''
+
+
 class TrainingTaskFrontendTests(unittest.TestCase):
+    def test_selected_hidden_direction_controls_modes_estimate_and_payload(self) -> None:
+        result = harness(SUBMISSION_SETUP + r'''
+    Object.assign(fixtures.data.catalog[0], {attribute_kind:"hidden", direction:1});
+    app.trainingDirection = -1;
+    app.trainingDurationMode = "until_decrease";
+    const content = {dataset:{},innerHTML:""};
+    fixtures.dom["#training-dock-content"] = content;
+    renderTrainingPersonDetail();
+    assert.equal(app.trainingDurationMode, "until_decrease");
+    assert.ok(content.innerHTML.includes('value="until_decrease" selected'));
+    assert.ok(!content.innerHTML.includes('value="until_increase"'));
+    assert.ok(content.innerHTML.includes("13 → 12"), content.innerHTML);
+    await submitTrainingPerson();
+    assert.equal(requestCalls[0].body.direction, -1);
+    assert.equal(requestCalls[0].body.duration_mode, "until_decrease");
+    app.trainingDirection = 1;
+    app.trainingDurationMode = "until_decrease";
+    renderTrainingPersonDetail();
+    assert.equal(app.trainingDurationMode, "until_increase");
+    assert.ok(content.innerHTML.includes("13 → 14"));
+        ''')
+        assert_node_ok(result)
+
+    def test_live_scope_change_off_page_discards_submit_and_cancel_responses(self) -> None:
+        for action in ("submit", "cancel"):
+            for change in ("save", "manager"):
+                with self.subTest(action=action, change=change):
+                    result = harness(SUBMISSION_SETUP + r'''
+    let release, sent;
+    const requestStarted = new Promise((resolve) => { sent = resolve; });
+    requestImpl = () => { sent(); return new Promise((resolve) => { release = resolve; }); };
+    const pending = ACTION === "submit" ? submitTrainingPerson() : cancelTrainingTask({id:"old-task"});
+    await requestStarted;
+    app.page = "home";
+    if (CHANGE === "save") app.state = {data_scope_id:"account-b"};
+    else fixtures.output = {...output(),selected_manager_id:8};
+    // Training has not rendered, so its cached key and sequence remain unchanged.
+    assert.notEqual(app.trainingScopeKey, trainingScopeKey());
+    release({training_ground:{},economy:{},payment:{total:1}});
+    await pending;
+    assert.equal(updated, 0);
+    assert.equal(toasts.length, 0);
+        '''.replace("ACTION", f'"{action}"').replace("CHANGE", f'"{change}"'))
+                    assert_node_ok(result)
+
+    def test_scope_change_during_confirmation_prevents_request(self) -> None:
+        for action in ("submit", "cancel"):
+            with self.subTest(action=action):
+                result = harness(SUBMISSION_SETUP + r'''
+    fixtures.profiles[0].players[0].pa = 120;
+    fixtures.profiles[0].squads[0].players[0].pa = 120;
+    let confirm;
+    confirmImpl = () => new Promise((resolve) => { confirm = resolve; });
+    const pending = ACTION === "submit" ? submitTrainingPerson() : cancelTrainingTask({id:"old-task"});
+    app.state = {data_scope_id:"account-b"};
+    confirm(true);
+    await pending;
+    assert.equal(requestCalls.length, 0);
+        '''.replace("ACTION", f'"{action}"'))
+                assert_node_ok(result)
+
+    def test_module_switch_clears_roster_loading_and_preserves_new_request(self) -> None:
+        result = harness(r'''
+    app.trainingModule = "player_training";
+    app.trainingRequestSeq = 1;
+    fixtures.rosterCurrent = false;
+    fixtures.coachingCurrent = false;
+    let releasePlayers, releaseStaff;
+    ensureDevelopmentRosterImpl = () => new Promise((resolve) => { releasePlayers = resolve; });
+    ensureCoachingRosterImpl = () => new Promise((resolve) => { releaseStaff = resolve; });
+    const oldLoad = loadTrainingRoster();
+    setTrainingModule("staff_training");
+    assert.equal(typeof releaseStaff, "function");
+    const newLoad = app.trainingRosterLoadPromise;
+    releasePlayers(true);
+    await oldLoad;
+    assert.equal(app.trainingRosterLoading, false);
+    assert.equal(app.trainingStaffLoading, true);
+    assert.equal(app.trainingRosterLoadPromise, newLoad);
+    releaseStaff(true);
+    await newLoad;
+    await Promise.resolve();
+    assert.equal(app.trainingStaffLoading, false);
+    assert.equal(app.trainingRosterLoadPromise, null);
+        ''')
+        assert_node_ok(result)
+
+    def test_module_switch_releases_finished_submit_busy_flag(self) -> None:
+        result = harness(SUBMISSION_SETUP + r'''
+    let release;
+    requestImpl = () => new Promise((resolve) => { release = resolve; });
+    const pending = submitTrainingPerson();
+    setTrainingModule("staff_training");
+    assert.equal(app.trainingActionBusy, true);
+    release({training_ground:{},economy:{},payment:{total:1}});
+    await pending;
+    assert.equal(app.trainingActionBusy, false);
+    assert.equal(updated, 0);
+        ''')
+        assert_node_ok(result)
+
+    def test_new_module_can_submit_after_previous_request_finishes(self) -> None:
+        result = harness(SUBMISSION_SETUP + r'''
+    const releases = [];
+    requestImpl = () => new Promise((resolve) => { releases.push(resolve); });
+    const oldSubmit = submitTrainingPerson();
+    setTrainingModule("staff_training");
+    setTrainingModule("player_training");
+    Object.assign(app, {trainingPersonKind:"player",trainingPersonId:1,
+      trainingProjectSku:"strength_rack",trainingTargetKey:"身体:强壮"});
+    await submitTrainingPerson();
+    assert.equal(releases.length, 1);
+    assert.equal(toasts.length, 0);
+    releases[0]({training_ground:{},economy:{},payment:{total:1}});
+    await oldSubmit;
+    assert.equal(app.trainingActionBusy, false);
+    assert.equal(updated, 0);
+    const newSubmit = submitTrainingPerson();
+    assert.equal(releases.length, 2);
+    assert.equal(app.trainingActionBusy, true);
+    releases[1]({training_ground:{},economy:{},payment:{total:1}});
+    await newSubmit;
+    assert.equal(app.trainingActionBusy, false);
+    assert.equal(updated, 1);
+        ''')
+        assert_node_ok(result)
+
     def test_markup_has_exactly_the_three_training_modules(self) -> None:
         helper_block = HELPERS.split("const TRAINING_MODULES = [", 1)[1].split("];", 1)[0]
         keys = re.findall(r'key:"([a-z_]+)"', helper_block)

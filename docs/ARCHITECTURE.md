@@ -146,6 +146,8 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 
 训练接口失败以稳定语义键返回：服务端提供 `message_key`（训练为 `training.error.*`）与 `message_params`，按请求头 `X-FMODD-Locale` 渲染 `message`（仅 `en-GB`、`zh-CN`）；保留的中文 legacy `error` 仅作诊断，前端优先显示 `message`。
 
+训练创建在绑定当前账户后，经 `betting_account.account_transaction` 按钱包进程锁、账户文档进程锁、账户文件跨进程锁的顺序加锁；任务/经济文档读取、重复请求与占用校验、资金分配、任务追加和最终单次账户写入均在锁内完成。提交后释放账户锁，再进行成长 Hook 同步和公共响应投影。
+
 业务文档、原生对象地址和前端选中状态属于不同层。训练、活动或医疗优化不能通过复用旧地址、吞掉等待状态、缓存伤病真值或绕过写后回读来换取速度。
 
 ### 3.6 前端与资源

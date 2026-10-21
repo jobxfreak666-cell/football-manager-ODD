@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import multiprocessing
 import tempfile
 import threading
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -27,21 +29,54 @@ def _fee_minor(sku: str) -> int:
     return training_task_fee_minor(FACILITIES[sku], load_settings())
 
 
+def _storage_patches(root: Path) -> list:
+    return [
+        patch.object(account_store, "account_save_path", return_value=root / "save.fmodd"),
+        patch.object(account_store, "save_data_root", return_value=root),
+        patch("tools.training_ground.save_data_root", return_value=root),
+        patch("tools.club_economy.save_data_root", return_value=root),
+        patch("tools.betting_account.save_data_root", return_value=root),
+    ]
+
+
+def _submit_training_process(root, player_id, submission_id, started, preview, resume, results):
+    """Use independent application/account locks against the same temporary file."""
+    with ExitStack() as stack:
+        for storage_patch in _storage_patches(Path(root)):
+            stack.enter_context(storage_patch)
+        case = TrainingTaskApplicationTests()
+        state = case.state()
+        case.player_target(state, player_id=player_id)
+        state._bind_current_save.side_effect = lambda: started.set()
+
+        def read_preview(_rows):
+            preview.set()
+            if resume is not None and not resume.wait(timeout=15):
+                raise RuntimeError("Timed out waiting to resume training")
+            return {"training-preview": 10}
+
+        stack.enter_context(patch("fm_odds_web.read_player_training_attributes", side_effect=read_preview))
+        stack.enter_context(patch("fm_odds_web.estimate_player_training_ca", return_value={
+            "attribute_before": 10, "ca_cost": 1, "ca_before": 100,
+            "pa": 130, "model": "test", "verified": True,
+        }))
+        try:
+            response = state.training_run({
+                "project_sku": "strength_rack", "player_id": player_id,
+                "team_id": 1, "operation": "attribute", "attribute_key": "身体:强壮",
+                "duration_mode": "until_increase", "client_submission_id": submission_id,
+            })
+            results.put(("ok", response["duplicate"]))
+        except Exception as error:  # Report child failures to the parent assertions.
+            results.put(("error", str(error)))
+
+
 class TrainingTaskApplicationTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.account_path = self.root / "save.fmodd"
-        self.storage_patches = [
-            patch.object(
-                account_store, "account_save_path",
-                return_value=self.account_path,
-            ),
-            patch.object(account_store, "save_data_root", return_value=self.root),
-            patch("tools.training_ground.save_data_root", return_value=self.root),
-            patch("tools.club_economy.save_data_root", return_value=self.root),
-            patch("tools.betting_account.save_data_root", return_value=self.root),
-        ]
+        self.storage_patches = _storage_patches(self.root)
         for storage_patch in self.storage_patches:
             storage_patch.start()
         self.set_wallet_balance(2_000_000_000)
@@ -392,6 +427,67 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         self.assertEqual(len(active), 1)
         self.assertEqual(self.wallet_minor(), wallet_before - fee)
         self.assertEqual(self.training_fee_count(), 1)
+
+    def test_cross_process_training_serializes_reads_checks_and_payment(self) -> None:
+        for scenario in ("different_players_wallet", "different_players_bank", "same_player", "retry"):
+            with self.subTest(scenario=scenario):
+                save_training_ground(training_ground_module._new_state())
+                fee = _fee_minor("strength_rack")
+                wallet_before = 2_000_000_000
+                self.set_wallet_balance(wallet_before)
+                economy = load_economy()
+                economy["transactions"] = []
+                bank_before = fee * 3 if scenario.endswith("bank") else 0
+                write_minor(economy, "general_balance", bank_before)
+                save_economy(economy)
+                ctx = multiprocessing.get_context("spawn")
+                first_started, first_preview, resume = ctx.Event(), ctx.Event(), ctx.Event()
+                second_started, second_preview = ctx.Event(), ctx.Event()
+                results = ctx.Queue()
+                second_player = 11 if scenario.startswith("different_players") else 10
+                second_id = "process-a" if scenario == "retry" else "process-b"
+                processes = [
+                    ctx.Process(target=_submit_training_process, args=(
+                        str(self.root), 10, "process-a", first_started, first_preview, resume, results,
+                    )),
+                    ctx.Process(target=_submit_training_process, args=(
+                        str(self.root), second_player, second_id, second_started, second_preview, None, results,
+                    )),
+                ]
+                try:
+                    processes[0].start()
+                    self.assertTrue(first_preview.wait(timeout=15), "first process never reached preview")
+                    processes[1].start()
+                    self.assertTrue(second_started.wait(timeout=15), "second process never attempted submission")
+                    # Before the fix both processes reach preview with stale task snapshots.
+                    # With the account transaction the second must wait until the first commits.
+                    second_preview.wait(timeout=0.5)
+                    resume.set()
+                    for process in processes:
+                        process.join(timeout=20)
+                        self.assertEqual(process.exitcode, 0)
+                    outcomes = [results.get(timeout=5) for _ in processes]
+                finally:
+                    resume.set()
+                    for process in processes:
+                        if process.is_alive():
+                            process.terminate()
+                        if process.pid is not None:
+                            process.join(timeout=5)
+                    results.close()
+                    results.join_thread()
+                expected_tasks = 2 if scenario.startswith("different_players") else 1
+                self.assertEqual(len(active_training_focuses("2026-01-01")), expected_tasks, outcomes)
+                self.assertEqual(self.training_fee_count(), expected_tasks, outcomes)
+                self.assertEqual(self.wallet_minor(), wallet_before - (0 if bank_before else expected_tasks * fee))
+                self.assertEqual(read_minor(load_economy(), "general_balance"), bank_before - (expected_tasks * fee if bank_before else 0))
+                if scenario == "same_player":
+                    self.assertEqual(sum(row[0] == "error" for row in outcomes), 1, outcomes)
+                    self.assertTrue(any("已有进行中的专项训练" in str(row[1]) for row in outcomes), outcomes)
+                elif scenario == "retry":
+                    self.assertCountEqual(outcomes, [("ok", False), ("ok", True)])
+                else:
+                    self.assertEqual(outcomes, [("ok", False), ("ok", False)])
 
     def test_two_players_can_use_one_project(self) -> None:
         state = self.state()

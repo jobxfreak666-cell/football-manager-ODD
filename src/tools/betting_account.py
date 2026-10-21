@@ -5,13 +5,14 @@ import math
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Any
 
 from tools.account_store import (
-    load_document, save_document, save_documents, update_documents,
+    load_document, locked_account, save_document, save_documents, update_documents,
 )
 from tools.app_paths import save_data_root
 from tools.money import (
@@ -252,6 +253,14 @@ def _adjust_wallet(
     write_minor(transaction, "balance_after", balance_minor)
     wallet.setdefault("transactions", []).append(transaction)
     return wallet
+
+
+@contextmanager
+def account_transaction():
+    """Hold wallet and cross-process account locks through read/validate/commit."""
+    # Wallet helpers always acquire _ACCOUNT_LOCK before account-store locks.
+    with _ACCOUNT_LOCK, locked_account(key="wallet", legacy_path=wallet_path()):
+        yield
 
 
 @_account_locked

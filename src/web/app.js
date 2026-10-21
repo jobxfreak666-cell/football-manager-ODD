@@ -814,6 +814,7 @@ const app = {
   trainingRosterLoading: false,
   trainingStaffLoading: false,
   trainingActionBusy: false,
+  trainingActionRequest: null,
   trainingSubmissionRetry: null,
   relationshipTrainingRooms: null,
   relationshipTrainingLoading: false,
@@ -12733,7 +12734,7 @@ function trainingTargetModes(project, person, target, direction) {
       .map((value) => ({mode:`until_${value}`, target:value})),
   ];
 }
-function trainingTaskEstimate(project, kind, person, target, durationMode) {
+function trainingTaskEstimate(project, kind, person, target, durationMode, selectedDirection) {
   const feeMinor = Math.max(0, Number(project?.task_price_minor || 0));
   if (!project || !person) return {feeMinor, days:0, current:null, targetValue:null};
   if (kind === "staff") {
@@ -12747,7 +12748,7 @@ function trainingTaskEstimate(project, kind, person, target, durationMode) {
   if (project.sku === "habit_lab") {
     return {feeMinor, days:7, current:null, targetValue:null};
   }
-  const direction = Number(project.direction || 1) < 0 ? -1 : 1;
+  const direction = Number(selectedDirection ?? project.direction ?? 1) < 0 ? -1 : 1;
   const multiplier = Number(project.training_multiplier || 3);
   const mode = durationMode || (direction < 0 ? "until_decrease" : "until_increase");
   const current = playerAttributeValue(person, target);
@@ -12865,9 +12866,11 @@ function resetTrainingWorkspaceState() {
   app.trainingPlayerSearch = "";
   app.trainingPlayerPositionFilter = "all";
   app.trainingActionBusy = false;
+  app.trainingActionRequest = null;
   app.trainingCancelFocusId = null;
   app.trainingRosterLoading = false;
   app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
   app._lastRosterSignature = null;
   app._lastDetailSignature = null;
 }
@@ -12925,6 +12928,11 @@ function setTrainingModule(module) {
   app.trainingTargetKey = null;
   app.trainingDurationMode = "until_increase";
   app.trainingDirection = 1;
+  // Invalidate roster/cancel UI; an in-flight submit owns its busy flag until it finishes.
+  app.trainingCancelFocusId = null;
+  app.trainingRosterLoading = false;
+  app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
   app._lastRosterSignature = null;
   app._lastDetailSignature = null;
   renderTraining();
@@ -13033,7 +13041,11 @@ function renderTrainingPersonDetail() {
   const activeFocus = trainingPersonFocus(kind, person.id);
   const applicable = trainingProjects(module).filter((project) => trainingProjectApplies(project, kind, person));
   let project = applicable.find((row) => row.sku === app.trainingProjectSku) || null;
-  if (!project && applicable.length) { project = applicable[0]; app.trainingProjectSku = project.sku; }
+  if (!project && applicable.length) {
+    project = applicable[0];
+    app.trainingProjectSku = project.sku;
+    app.trainingDirection = Number(project.direction || 1) < 0 ? -1 : 1;
+  }
   if (!project) app.trainingProjectSku = null;
   const edition = activeUiLocale();
   const preferred = app.trainingPreferredMoves;
@@ -13063,7 +13075,6 @@ function renderTrainingPersonDetail() {
   } else if (project?.sku !== "habit_lab") {
     app.trainingHabitLoadKey = null;
   }
-  const estimate = project ? trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode) : null;
   const staffIneligible = kind === "staff" && !trainingStaffEligible(person);
   const reason = activeFocus ? uiText("training.reason_active")
     : staffIneligible ? uiText("training.staff_ineligible")
@@ -13075,7 +13086,7 @@ function renderTrainingPersonDetail() {
   const operationToggle = project?.sku === "habit_lab"
     ? `<div class="training-operation-toggle" role="group">${[["learn","training.learn"],["unlearn","training.unlearn"]].map(([key,label]) => `<button type="button" class="${app.trainingOperation === key ? "active" : ""}" data-training-operation="${key}" aria-pressed="${app.trainingOperation === key}">${uiText(label)}</button>`).join("")}</div>`
     : "";
-  const direction = Number(project?.direction || 1) < 0 ? -1 : 1;
+  const direction = Number(app.trainingDirection ?? project?.direction ?? 1) < 0 ? -1 : 1;
   const directionField = project && project.attribute_kind === "hidden"
     ? `<label>${uiText("training.direction_label")}<select id="training-inline-direction"><option value="1" ${Number(app.trainingDirection) >= 0 ? "selected" : ""}>${uiText("training.direction_increase")}</option><option value="-1" ${Number(app.trainingDirection) < 0 ? "selected" : ""}>${uiText("training.direction_decrease")}</option></select></label>`
     : "";
@@ -13096,6 +13107,7 @@ function renderTrainingPersonDetail() {
       return `<option value="${row.mode}" ${row.mode === selectedMode ? "selected" : ""}>${escapeHtml(label)}（${uiText("training.estimated_days", {days})}）</option>`;
     }).join("")}</select></label>`;
   }
+  const estimate = project ? trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, direction) : null;
   const summary = project && estimate ? `<dl class="training-task-summary">
     <div><dt>${uiText("training.fee_label")}</dt><dd>${escapeHtml(trainingFeeLabel(estimate.feeMinor))}</dd></div>
     <div><dt>${uiText("training.estimated_time")}</dt><dd>${project.sku === "habit_lab" ? uiText("training.game_days", {days:7}) : estimate.days > 0 ? uiText("training.game_days", {days:estimate.days}) : uiText("training.pending_read")}</dd></div>
@@ -13161,11 +13173,11 @@ async function submitTrainingPerson() {
   if (kind === "staff" && !trainingStaffEligible(person)) { toast(uiText("training.staff_ineligible")); return; }
   const target = app.trainingTargetKey;
   if (!target) { toast(uiText("training.no_available_attribute")); return; }
-  const scopeAtStart = app.trainingScopeKey;
+  const scopeAtStart = trainingScopeKey();
   const seqAtStart = app.trainingRequestSeq;
   let caConfirmed = false;
   if (kind === "player" && project.sku !== "habit_lab") {
-    const estimate = trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode);
+    const estimate = trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, app.trainingDirection);
     const caCosts = person?.training_ca?.costs?.[target] || {};
     const caAffected = trainingAttributeAffectsCa(target, project, caCosts);
     const caSpace = Math.max(0, Number(person.pa || 0) - Number(person.ca || 0));
@@ -13181,6 +13193,7 @@ async function submitTrainingPerson() {
       caConfirmed = true;
     }
   }
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
   const semantic = trainingRunPayload(
     kind, person, project, target, app.trainingDurationMode, app.trainingDirection, "",
   );
@@ -13190,6 +13203,8 @@ async function submitTrainingPerson() {
     ...semantic,
     client_submission_id:trainingSubmissionFor(semantic),
   };
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
   app.trainingActionBusy = true;
   app._lastDetailSignature = null;
   renderTraining();
@@ -13203,7 +13218,7 @@ async function submitTrainingPerson() {
       }),
       uiText("training.arranged"),
     );
-    if (scopeAtStart !== app.trainingScopeKey || seqAtStart !== app.trainingRequestSeq) return;
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
     app.trainingSubmissionRetry = null;
     updateTrainingResponse(response);
     const paid = Number(response.payment?.total || 0);
@@ -13215,20 +13230,21 @@ async function submitTrainingPerson() {
           amount:paid > 0 ? formatPounds(paid) : uiText("training.free"),
         }));
   } catch (error) {
-    if (scopeAtStart !== app.trainingScopeKey || seqAtStart !== app.trainingRequestSeq) return;
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
     if (error.code !== "REQUEST_TIMEOUT") app.trainingSubmissionRetry = null;
     toast(error.message || uiText("training.arrange_failed"));
   } finally {
-    if (scopeAtStart === app.trainingScopeKey && seqAtStart === app.trainingRequestSeq) {
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
       app.trainingActionBusy = false;
       app._lastDetailSignature = null;
-      renderTraining();
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
     }
   }
 }
 async function cancelTrainingTask(focus) {
   if (!focus?.id || app.trainingCancelFocusId) return;
-  const scopeAtStart = app.trainingScopeKey;
+  const scopeAtStart = trainingScopeKey();
   const seqAtStart = app.trainingRequestSeq;
   const confirmed = await fmoddConfirm(
     uiText("training.cancel_message"),
@@ -13237,6 +13253,7 @@ async function cancelTrainingTask(focus) {
     uiText("training.cancel_keep"),
   );
   if (!confirmed) return;
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
   if (app.trainingCancelFocusId) return;
   app.trainingCancelFocusId = String(focus.id);
   app._lastRosterSignature = null;
@@ -13247,17 +13264,17 @@ async function cancelTrainingTask(focus) {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({focus_id:String(focus.id)}),
     });
-    if (scopeAtStart !== app.trainingScopeKey || seqAtStart !== app.trainingRequestSeq) return;
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
     updateTrainingResponse(response);
     toast(uiText("training.cancelled"));
   } catch (error) {
-    if (scopeAtStart === app.trainingScopeKey) toast(error.message || uiText("training.cancel_failed"));
+    if (scopeAtStart === trainingScopeKey() && seqAtStart === app.trainingRequestSeq) toast(error.message || uiText("training.cancel_failed"));
   } finally {
-    if (scopeAtStart === app.trainingScopeKey) {
+    if (seqAtStart === app.trainingRequestSeq) {
       app.trainingCancelFocusId = null;
       app._lastRosterSignature = null;
       app._lastDetailSignature = null;
-      renderTraining();
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
     }
   }
 }
@@ -29185,6 +29202,8 @@ function bindEvents() {
       app.trainingPreferredMoves=null;
       app.trainingHabitLoadKey=null;
       const project=trainingProduct(app.trainingProjectSku);
+      app.trainingDirection=Number(project?.direction||1)<0?-1:1;
+      app.trainingDurationMode=app.trainingDirection<0?"until_decrease":"until_increase";
       if(project?.sku==="habit_lab") loadTrainingPreferredMoves(app.trainingPersonId).catch((error)=>toast(error.message));
       rerenderTrainingAfterControl("#training-inline-project");
     }else if(event.target.matches("#training-inline-target")){

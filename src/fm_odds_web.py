@@ -16,7 +16,7 @@ import threading
 import traceback
 import uuid
 import webbrowser
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from datetime import date, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,6 +66,7 @@ from tools.betting_account import (
     LIVE_SETTLEMENT_MINIMUM_MATCH_MINUTES,
     RESULT_SEARCH_WAIT_DAYS,
     add_funds,
+    account_transaction,
     adjust_balance,
     available_balance,
     cheat_balance,
@@ -18925,9 +18926,10 @@ class LocalOddsState:
                 "training.error.submission_id_too_long",
                 "训练请求编号过长",
             )
-        with self.memory_lock:
+        with self.memory_lock, ExitStack() as transaction:
             with self.lock:
                 self._bind_current_save()
+                transaction.enter_context(account_transaction())
                 game_date = str(self.output.get("game_date") or "")
                 if not game_date:
                     raise _training_error(
@@ -19491,6 +19493,7 @@ class LocalOddsState:
                     "required_points": focus["required_points"],
                     "progress_points": focus["progress_points"],
                 })
+            transaction.close()
             try:
                 hook_status = (
                     self.attribute_growth_hook.sync([])
