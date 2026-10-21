@@ -2481,7 +2481,7 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertIn("data-training-roster-retry", script)
         self.assertIn("trainingScopeKey()", script)
         self.assertIn(
-            "if (scopeAtStart !== app.trainingScopeKey || seqAtStart !== app.trainingRequestSeq) return;",
+            "if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;",
             script,
         )
         self.assertIn('interactiveSurfaceBusy($("#training-dock-content"))', script)

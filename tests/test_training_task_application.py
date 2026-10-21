@@ -705,6 +705,178 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         active = active_training_focuses("2026-01-01")
         self.assertEqual([row["id"] for row in active], [result["focus"]["id"]])
 
+    def test_legacy_rooms_migrate_independently_of_training_document(self) -> None:
+        for entry in ("refresh_without_training", "refresh_with_new_training", "submit"):
+            with self.subTest(entry=entry):
+                if entry == "refresh_without_training":
+                    self.assertIsNone(account_store.load_document("training_ground", None))
+                else:
+                    save_training_ground(training_ground_module._new_state())
+                account_store.save_document("relationship_training_rooms", {
+                    "schema_version": 2,
+                    "rooms": [{"id": "old-room", "sku": "tactical_room",
+                               "status": "occupied", "participants": [{"id": 10}],
+                               "attributes": ["技术:传球"], "started_on": "2025-01-01"}],
+                })
+                state = self.state()
+                self.player_target(state)
+                wallet_before = self.wallet_minor()
+                if entry == "submit":
+                    self.run_attribute(state, submission_id="rooms-migration")
+                else:
+                    self.assertTrue(state._ensure_training_task_migration("2026-01-01"))
+                    self.assertEqual(self.wallet_minor(), wallet_before)
+                rooms = account_store.load_document("relationship_training_rooms", {})
+                room = rooms["rooms"][0]
+                self.assertEqual(room["status"], "idle")
+                self.assertEqual(room["participants"], [])
+                self.assertEqual(room["cancelled_session"]["cancel_reason"], "training_task_model_migration")
+                self.assertNotIn("effects", room["cancelled_session"])
+                self.assertFalse(state._ensure_training_task_migration("2026-01-02"))
+                if entry == "submit":
+                    self.assertEqual(len(active_training_focuses("2026-01-01")), 1)
+
+    def test_room_migration_failed_commit_can_retry_without_partial_marker(self) -> None:
+        account_store.save_document("relationship_training_rooms", {
+            "rooms": [{"id": "old-room", "sku": "tactical_room",
+                       "status": "occupied", "participants": [{"id": 10}]}],
+        })
+        state = self.state()
+        wallet_before = self.wallet_minor()
+        with patch("fm_odds_web.save_documents", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                state._ensure_training_task_migration("2026-01-01")
+        stored = account_store.load_document("relationship_training_rooms", {})
+        self.assertNotIn("task_rules_version", stored)
+        self.assertEqual(stored["rooms"][0]["status"], "occupied")
+        self.assertTrue(state._ensure_training_task_migration("2026-01-01"))
+        self.assertFalse(state._ensure_training_task_migration("2026-01-02"))
+        self.assertEqual(self.wallet_minor(), wallet_before)
+
+    def test_duplicate_submission_persists_independent_room_migration(self) -> None:
+        state = self.state()
+        self.player_target(state)
+        self.run_attribute(state, submission_id="existing-task")
+        account_store.save_document("relationship_training_rooms", {
+            "rooms": [{"id": "old-room", "sku": "tactical_room",
+                       "status": "occupied", "participants": [{"id": 10}]}],
+        })
+        wallet_before = self.wallet_minor()
+        self.assertTrue(self.run_attribute(state, submission_id="existing-task")["duplicate"])
+        room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
+        self.assertEqual(room["status"], "idle")
+        self.assertFalse(state._ensure_training_task_migration("2026-01-02"))
+        self.assertEqual(self.wallet_minor(), wallet_before)
+
+    def test_duplicate_response_releases_account_lock_before_public_readers(self) -> None:
+        state = self.state()
+        self.player_target(state)
+        self.run_attribute(state)
+        completed = threading.Event()
+        threads = []
+
+        def response_hook(_rows):
+            def read():
+                active_training_focuses("2026-01-01")
+                completed.set()
+            thread = threading.Thread(target=read, daemon=True)
+            threads.append(thread)
+            thread.start()
+            self.assertTrue(completed.wait(timeout=2), "public reader blocked by replay account lock")
+            return {"installed": False}
+
+        state.attribute_growth_hook.sync.side_effect = response_hook
+        try:
+            self.assertTrue(self.run_attribute(state)["duplicate"])
+        finally:
+            for thread in threads:
+                thread.join(timeout=5)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+
+    def test_direct_legacy_room_settlement_migrates_before_effects(self) -> None:
+        account_store.save_document("relationship_training_rooms", {
+            "rooms": [{"id": "old-room", "sku": "tactical_room",
+                       "status": "occupied", "participants": [{"id": 10}]}],
+        })
+        state = self.state()
+        state._data_scope_id = MagicMock(return_value="test-account")
+        wallet_before = self.wallet_minor()
+        with (
+            patch("fm_odds_web.FROZEN", False),
+            patch("fm_odds_web.assert_training_floor_unlocked"),
+            patch("fm_odds_web.borrow_game_operation", side_effect=AssertionError("old effects")) as native,
+        ):
+            with self.assertRaisesRegex(ValueError, "当前未被占用"):
+                state.relationship_training_room_settle({"room_id": "old-room"})
+            native.assert_not_called()
+        room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
+        self.assertEqual(room["status"], "idle")
+        self.assertEqual(room["cancelled_session"]["status"], "cancelled")
+        self.assertEqual(self.wallet_minor(), wallet_before)
+
+    def test_room_read_and_entry_migrate_before_new_occupancy(self) -> None:
+        from tools.relationship_training import enter_relationship_training_room
+
+        for entry in ("read", "enter"):
+            with self.subTest(entry=entry):
+                account_store.save_document("relationship_training_rooms", {
+                    "rooms": [{"id": "old-room", "sku": "mentoring_room",
+                               "status": "occupied", "participants": [{"id": 10}]}],
+                })
+                state = self.state()
+                state._bind_request_scope = MagicMock(return_value="test-account")
+                if entry == "read":
+                    state.relationship_training_rooms_state()
+                else:
+                    with patch("fm_odds_web.assert_training_floor_unlocked"):
+                        with self.assertRaisesRegex(ValueError, "参与者已不属于当前执教球队"):
+                            state.relationship_training_room_enter({
+                                "room_id": "old-room", "attributes": ["精神:领导力"],
+                                "participants": [{"id": 10, "team_id": 1, "kind": "player"}],
+                            })
+                room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
+                self.assertEqual(room["status"], "idle")
+                # The same room can now take a new task; later migration must preserve it.
+                enter_relationship_training_room("old-room", [
+                    {"id": 10, "kind": "player", "name": "A", "role": "mentor"},
+                    {"id": 11, "kind": "player", "name": "B", "role": "student"},
+                ], ["精神:领导力"], "2026-01-01", client_submission_id=f"new-{entry}")
+                self.assertFalse(state._ensure_training_task_migration("2026-01-02"))
+                room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
+                self.assertEqual(room["status"], "occupied")
+                self.assertEqual(room["client_submission_id"], f"new-{entry}")
+
+    def test_retry_after_history_retention_returns_receipt_without_charge(self) -> None:
+        state = self.state()
+        self.player_target(state)
+        original = self.run_attribute(state, submission_id="old-paid-task")
+        training_ground_module.cancel_training_focus(original["focus"]["id"], "2026-01-01")
+        payload = load_training_ground()
+        for index in range(501):
+            focus_id = f"later-{index}"
+            training_ground_module.append_training_task(
+                payload,
+                dict(original["focus"], id=focus_id, status="completed"),
+                dict(original["session"], id=f"session-{index}", focus_id=focus_id),
+                f"submission-{index}",
+            )
+        self.assertNotIn(original["focus"]["id"], [row["id"] for row in payload["focuses"]])
+        save_training_ground(payload)
+        account_store._CONTAINER_CACHE.clear()  # Verify persisted receipts, not an in-memory index.
+        wallet_before = self.wallet_minor()
+        fee_count = self.training_fee_count()
+        replay = self.run_attribute(state, submission_id="old-paid-task")
+        self.assertTrue(replay["duplicate"])
+        self.assertEqual(replay["focus"]["id"], original["focus"]["id"])
+        self.assertEqual(replay["focus"]["status"], "cancelled")
+        self.assertEqual(replay["session"]["id"], original["session"]["id"])
+        self.assertEqual(replay["payment"], original["payment"])
+        self.assertEqual(self.wallet_minor(), wallet_before)
+        self.assertEqual(self.training_fee_count(), fee_count)
+        with self.assertRaisesRegex(ValueError, "编号已用于其他安排"):
+            self.run_attribute(state, submission_id="old-paid-task", attribute_key="身体:速度")
+        self.assertEqual(self.wallet_minor(), wallet_before)
+
     def test_task_completes_at_target_without_renewal(self) -> None:
         state = self.state()
         player = self.player_target(state)

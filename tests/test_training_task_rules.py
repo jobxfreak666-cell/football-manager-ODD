@@ -229,6 +229,7 @@ def _relationship_payload() -> dict:
         "status": "pending_settlement",
     }
     state = relationship_training_module._new_state()
+    state.pop("task_rules_version", None)  # An account saved before the new task model.
     state["rooms"] = [
         {
             "id": "room-occupied", "sku": "mentoring_room", "scene": "relationship_8f",
@@ -386,6 +387,29 @@ class TrainingTaskMigrationTests(unittest.TestCase):
 
 
 class TrainingTaskIdentityTests(unittest.TestCase):
+    def test_retention_keeps_active_tasks_and_their_submission_receipts(self) -> None:
+        payload = _empty_payload()
+        training_ground_module.append_training_task(
+            payload,
+            {"id": "active", "status": "active", "task_rules_version": TASK_RULES_VERSION},
+            {"id": "active-session", "focus_id": "active", "task_rules_version": TASK_RULES_VERSION},
+            "active-submission",
+        )
+        for index in range(501):
+            training_ground_module.append_training_task(
+                payload,
+                {"id": str(index), "status": "completed", "task_rules_version": TASK_RULES_VERSION},
+                {"id": f"session-{index}", "focus_id": str(index), "task_rules_version": TASK_RULES_VERSION},
+                f"submission-{index}",
+            )
+        self.assertEqual(len(payload["focuses"]), 501)
+        focus, session = training_ground_module.find_training_submission_in(payload, "active-submission")
+        self.assertEqual(focus["status"], "active")
+        self.assertEqual(session["id"], "active-session")
+        retired_focus, retired_session = training_ground_module.find_training_submission_in(payload, "submission-0")
+        self.assertEqual(retired_focus["id"], "0")
+        self.assertEqual(retired_session["id"], "session-0")
+
     @staticmethod
     def _payload() -> dict:
         return _empty_payload([

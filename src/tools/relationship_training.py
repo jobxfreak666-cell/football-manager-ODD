@@ -17,6 +17,7 @@ from tools.training_archive import (
 SCENE_KEY = "relationship_8f"
 ROOM_LIMIT = 15
 RELATIONSHIP_TRAINING_MIGRATION_REASON = "training_task_model_migration"
+RELATIONSHIP_TRAINING_TASK_RULES_VERSION = 1
 _LOCK = threading.RLock()
 INTIMACY_PER_DAY = 0.33
 SPORTS_SCIENCE_JOB_TYPES = {40, 48}
@@ -203,7 +204,8 @@ def _now() -> str:
 
 def _new_state() -> dict[str, Any]:
     return {
-        "schema_version": 2, "scene": SCENE_KEY, "rooms": [], "submissions": [],
+        "schema_version": 2, "task_rules_version": RELATIONSHIP_TRAINING_TASK_RULES_VERSION,
+        "scene": SCENE_KEY, "rooms": [], "submissions": [],
         "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
     }
 
@@ -539,9 +541,10 @@ def migrate_relationship_training_rooms(
     Mutates only ``payload``; the caller saves it atomically with the training
     document. No effect is applied, and the 8F gate/room inventory is untouched.
     """
+    if int(payload.get("task_rules_version") or 0) >= RELATIONSHIP_TRAINING_TASK_RULES_VERSION:
+        return False
     state = _normalize_state(payload)
     migrated_at = _now()
-    changed = False
     for room in state["rooms"]:
         if room.get("status") not in {"occupied", "settling"}:
             continue
@@ -573,8 +576,8 @@ def migrate_relationship_training_rooms(
             "started_on": None, "entered_at": None, "client_submission_id": None,
             "pending_session": None, "settlement_started_at": None,
         })
-        changed = True
-    return changed
+    state["task_rules_version"] = RELATIONSHIP_TRAINING_TASK_RULES_VERSION
+    return True
 
 
 def relationship_training_effect_plan(session: dict[str, Any]) -> dict[str, Any]:

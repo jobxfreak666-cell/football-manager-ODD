@@ -4,6 +4,7 @@ import json
 import math
 import threading
 import uuid
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -477,9 +478,34 @@ def append_training_task(
         focus["client_submission_id"] = submission_id
         session["client_submission_id"] = submission_id
     payload["focuses"].append(focus)
-    payload["focuses"] = payload["focuses"][-500:]
     payload["sessions"].append(session)
-    payload["sessions"] = payload["sessions"][-500:]
+    # The recent-task window is not the lifetime of a paid request's receipt.
+    # Archive receipts before trimming, and never evict an active task.
+    retired = [row for row in payload["focuses"][:-500] if row.get("status") != "active"]
+    if retired:
+        sessions_by_focus = {row.get("focus_id"): row for row in payload["sessions"]}
+        receipts = payload.setdefault("submission_receipts", {})
+        for row in retired:
+            submission_id = str(row.get("client_submission_id") or "")
+            previous_session = sessions_by_focus.get(row.get("id"))
+            if (
+                submission_id and previous_session is not None
+                and int(row.get("task_rules_version") or 0) >= TASK_RULES_VERSION
+            ):
+                receipts.setdefault(submission_id, {
+                    "focus": deepcopy(row), "session": deepcopy(previous_session),
+                })
+    focus_cutoff = len(payload["focuses"]) - 500
+    payload["focuses"] = [
+        row for index, row in enumerate(payload["focuses"])
+        if index >= focus_cutoff or row.get("status") == "active"
+    ]
+    retained_ids = {row.get("id") for row in payload["focuses"]}
+    session_cutoff = len(payload["sessions"]) - 500
+    payload["sessions"] = [
+        row for index, row in enumerate(payload["sessions"])
+        if index >= session_cutoff or row.get("focus_id") in retained_ids
+    ]
     return dict(focus), dict(session)
 
 
@@ -2100,6 +2126,7 @@ def find_training_submission_in(
     submission_id = str(client_submission_id or "").strip()
     if not submission_id:
         return None
+    receipt = (payload.get("submission_receipts") or {}).get(submission_id) or {}
 
     def matches(row: dict[str, Any]) -> bool:
         return (
@@ -2109,13 +2136,13 @@ def find_training_submission_in(
 
     focus = next(
         (row for row in reversed(payload.get("focuses") or []) if matches(row)),
-        None,
+        receipt.get("focus"),
     )
     if not focus:
         return None
     session = next(
         (row for row in reversed(payload.get("sessions") or []) if matches(row)),
-        None,
+        receipt.get("session"),
     )
     if not session:
         return None

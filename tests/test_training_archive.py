@@ -39,6 +39,7 @@ def test_archives_survive_task_model_migration(tmp_path, monkeypatch):
     })
     training_ground.save_training_ground(payload)
     rooms = relationship_training.load_relationship_training_rooms()
+    rooms.pop("task_rules_version", None)  # Simulate rooms saved before the task migration.
     rooms["rooms"].append({
         "id": "room-legacy", "sku": next(iter(relationship_training.ROOMS)),
         "scene": relationship_training.SCENE_KEY, "status": "occupied",

@@ -10874,6 +10874,8 @@ class LocalOddsState:
             game_date = str(self.output.get("game_date") or "")
         if not scope_id:
             raise ValueError("尚未识别当前存档账户")
+        if game_date:
+            self._ensure_training_task_migration(game_date)
         ground = public_training_ground(game_date)
         floor = next((
             row for row in ground.get("floors") or []
@@ -11435,6 +11437,13 @@ class LocalOddsState:
             raise ValueError("缺少必要的房间或参与者信息")
         if not isinstance(attributes, list):
             raise ValueError("训练属性列表无效")
+        with self.lock:
+            self._bind_current_save()
+            game_date = str(self.output.get("game_date") or "")
+            profiles = [deepcopy(row) for row in self.club_profiles.values()]
+        if not game_date:
+            raise ValueError("尚未读取游戏日期")
+        self._ensure_training_task_migration(game_date)
         assert_training_floor_unlocked("relationship_8f")
         catalog = relationship_training_catalog()
         room_sku = next((
@@ -11445,13 +11454,6 @@ class LocalOddsState:
         ), "")
         if not room_sku:
             raise ValueError("房间实例不存在")
-        with self.lock:
-            self._bind_current_save()
-            game_date = str(self.output.get("game_date") or "")
-            profiles = [deepcopy(row) for row in self.club_profiles.values()]
-        if not game_date:
-            raise ValueError("尚未读取游戏日期")
-
         staged: list[tuple[str, int, int, str, dict[str, Any], dict[str, Any]]] = []
         for source in submitted:
             if not isinstance(source, dict):
@@ -11537,6 +11539,7 @@ class LocalOddsState:
         if not game_date or not scope_id:
             raise ValueError("尚未读取当前游戏日期或账户作用域")
 
+        self._ensure_training_task_migration(game_date)
         session = release_relationship_training_room(room_id, game_date)
         attribute_writes: list[dict[str, Any]] = []
         relationship_writes: list[dict[str, Any]] = []
@@ -18893,22 +18896,23 @@ class LocalOddsState:
 
     def _ensure_training_task_migration(self, game_date: str) -> bool:
         """Cancel pre-rule-1 tasks once and stamp the marker in one account write."""
-        payload = load_training_ground()
-        if int(payload.get("task_rules_version") or 0) >= TRAINING_TASK_RULES_VERSION:
-            return False
-        rooms_payload = load_relationship_training_rooms()
-        rooms_changed = migrate_relationship_training_rooms(
-            rooms_payload, game_date=game_date,
-        )
-        changed = migrate_training_tasks(payload, game_date=game_date)
-        documents: dict[str, Any] = {}
-        if changed:
-            documents["training_ground"] = payload
-        if rooms_changed:
-            documents["relationship_training_rooms"] = rooms_payload
-        if documents:
-            save_documents(documents)
-        return bool(documents)
+        with account_transaction():
+            payload = load_training_ground()
+            # Read under the account lock without acquiring the rooms module's
+            # process lock in the opposite order to its normal storage helpers.
+            rooms_payload = load_document("relationship_training_rooms", {}) or {}
+            rooms_changed = migrate_relationship_training_rooms(
+                rooms_payload, game_date=game_date,
+            )
+            changed = migrate_training_tasks(payload, game_date=game_date)
+            documents: dict[str, Any] = {}
+            if changed:
+                documents["training_ground"] = payload
+            if rooms_changed:
+                documents["relationship_training_rooms"] = rooms_payload
+            if documents:
+                save_documents(documents)
+            return bool(documents)
 
     def training_run(self, payload: dict[str, Any]) -> dict[str, Any]:
         project_sku = str(payload.get("project_sku") or "").strip()
@@ -18943,16 +18947,11 @@ class LocalOddsState:
                         "只能为当前执教球队安排训练，请刷新我的队伍后重试",
                     )
                 training_payload = load_training_ground()
-                rooms_payload: dict[str, Any] | None = None
-                rooms_changed = False
-                if int(
-                    training_payload.get("task_rules_version") or 0
-                ) < TRAINING_TASK_RULES_VERSION:
-                    rooms_payload = load_relationship_training_rooms()
-                    rooms_changed = migrate_relationship_training_rooms(
-                        rooms_payload, game_date=game_date,
-                    )
-                    migrate_training_tasks(training_payload, game_date=game_date)
+                rooms_payload = load_document("relationship_training_rooms", {}) or {}
+                rooms_changed = migrate_relationship_training_rooms(
+                    rooms_payload, game_date=game_date,
+                )
+                training_migrated = migrate_training_tasks(training_payload, game_date=game_date)
                 expire_training_focuses(training_payload, game_date)
                 try:
                     facility, product, module = training_project_for_request(
@@ -19050,6 +19049,16 @@ class LocalOddsState:
                                 "training.error.submission_id_conflict",
                                 "训练请求编号已用于其他安排，请重新提交",
                             )
+                        migration_documents: dict[str, Any] = {}
+                        if training_migrated:
+                            migration_documents["training_ground"] = training_payload
+                        if rooms_changed:
+                            migration_documents["relationship_training_rooms"] = rooms_payload
+                        if migration_documents:
+                            save_documents(migration_documents)
+                        # Public projections acquire domain locks before reading
+                        # account documents, so release the account lock first.
+                        transaction.close()
                         return self._training_replay_response(
                             previous_focus, previous_session, game_date,
                         )
