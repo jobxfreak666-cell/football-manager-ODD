@@ -16,6 +16,8 @@ from tools.training_archive import (
 
 SCENE_KEY = "relationship_8f"
 ROOM_LIMIT = 15
+RELATIONSHIP_TRAINING_MIGRATION_REASON = "training_task_model_migration"
+RELATIONSHIP_TRAINING_TASK_RULES_VERSION = 1
 _LOCK = threading.RLock()
 INTIMACY_PER_DAY = 0.33
 SPORTS_SCIENCE_JOB_TYPES = {40, 48}
@@ -202,7 +204,8 @@ def _now() -> str:
 
 def _new_state() -> dict[str, Any]:
     return {
-        "schema_version": 2, "scene": SCENE_KEY, "rooms": [], "submissions": [],
+        "schema_version": 2, "task_rules_version": RELATIONSHIP_TRAINING_TASK_RULES_VERSION,
+        "scene": SCENE_KEY, "rooms": [], "submissions": [],
         "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
     }
 
@@ -528,6 +531,53 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
 
     with _LOCK:
         return update_document("relationship_training_rooms", _new_state(), mutate)
+
+
+def migrate_relationship_training_rooms(
+    payload: dict[str, Any], *, game_date: str = "",
+) -> bool:
+    """Stop legacy 8F occupancy once and keep an inert record of each activity.
+
+    Mutates only ``payload``; the caller saves it atomically with the training
+    document. No effect is applied, and the 8F gate/room inventory is untouched.
+    """
+    if int(payload.get("task_rules_version") or 0) >= RELATIONSHIP_TRAINING_TASK_RULES_VERSION:
+        return False
+    state = _normalize_state(payload)
+    migrated_at = _now()
+    for room in state["rooms"]:
+        if room.get("status") not in {"occupied", "settling"}:
+            continue
+        definition = ROOMS.get(str(room.get("sku") or "")) or {}
+        pending = room.get("pending_session") or {}
+        participants = [dict(row) for row in room.get("participants") or []]
+        attributes = list(room.get("attributes") or [])
+        room["cancelled_session"] = {
+            **deepcopy(pending),
+            "id": str(pending.get("id") or uuid.uuid4()),
+            "focus_type": "relationship_training",
+            "scene": SCENE_KEY,
+            "room_id": str(room.get("id") or ""),
+            "room_sku": str(room.get("sku") or ""),
+            "facility_name": str(definition.get("name") or ""),
+            "participants": participants,
+            "attributes": attributes,
+            "training_content": "、".join(str(value) for value in attributes)
+            or "未记录具体训练属性",
+            "started_on": room.get("started_on") or pending.get("started_on"),
+            "completed_on": str(pending.get("completed_on") or game_date or ""),
+            "completed_at": migrated_at,
+            "status": "cancelled",
+            "cancel_reason": RELATIONSHIP_TRAINING_MIGRATION_REASON,
+            "client_submission_id": room.get("client_submission_id"),
+        }
+        room.update({
+            "status": "idle", "participants": [], "attributes": [],
+            "started_on": None, "entered_at": None, "client_submission_id": None,
+            "pending_session": None, "settlement_started_at": None,
+        })
+    state["task_rules_version"] = RELATIONSHIP_TRAINING_TASK_RULES_VERSION
+    return True
 
 
 def relationship_training_effect_plan(session: dict[str, Any]) -> dict[str, Any]:

@@ -773,6 +773,17 @@ const app = {
   trainingPlayerPickerOpen: false,
   trainingPlayerGroupState: {},
   trainingEquipmentState: {},
+  trainingModule: "player_training",
+  trainingPersonKind: null,
+  trainingPersonId: null,
+  trainingProjectSku: null,
+  trainingRosterError: "",
+  trainingRequestSeq: 0,
+  trainingScopeKey: "",
+  trainingCancelFocusId: null,
+  trainingPositionRetries: {},
+  trainingRosterLoadPromise: null,
+  trainingHabitLoadKey: null,
   canteenDock: "roster",
   canteenPlan: "basic",
   canteenBans: {},
@@ -803,6 +814,7 @@ const app = {
   trainingRosterLoading: false,
   trainingStaffLoading: false,
   trainingActionBusy: false,
+  trainingActionRequest: null,
   trainingSubmissionRetry: null,
   relationshipTrainingRooms: null,
   relationshipTrainingLoading: false,
@@ -2353,7 +2365,7 @@ async function applyStatePatchOrReload(response) {
   return true;
 }
 
-function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMODD") {
+function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMODD", cancelLabel = uiText("common.cancel")) {
   const dialog = $("#fmodd-confirm-dialog");
   const messageNode = $("#fmodd-confirm-message");
   const defaultDetails = $("#credit-default-details");
@@ -2368,7 +2380,7 @@ function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMOD
   defaultDetails.hidden = true;
   defaultDetails.open = false;
   okButton.textContent = uiLegacy(confirmLabel);
-  cancelButton.textContent = uiText("common.cancel");
+  cancelButton.textContent = uiLegacy(cancelLabel);
   okButton.type = "submit";
   okButton.value = "confirm";
   cancelButton.type = "submit";
@@ -3331,86 +3343,71 @@ function initializeTrainingDrag() {
   const stage = $("#training-stage");
   if (!stage) return;
   stage.addEventListener("click", (event) => {
-    if (app.trainingScene === "position_training") {
-      const preset = event.target.closest("[data-position-training-preset]");
-      const custom = event.target.closest("[data-position-training-custom]");
-      const customNew = event.target.closest("[data-position-training-custom-new]");
-      const customSelect = event.target.closest("[data-position-training-custom-select]");
-      const customSaveName = event.target.closest("[data-position-training-save-name]");
-      const customDelete = event.target.closest("[data-position-training-delete]");
-      const autoAdd = event.target.closest("[data-position-training-auto-add]");
-      const copy = event.target.closest("[data-position-training-copy]");
-      const editStart = event.target.closest("[data-position-training-edit-start]");
-      const editFinish = event.target.closest("[data-position-training-edit-finish]");
-      const setPosition = event.target.closest("[data-position-training-set-position]");
-      const unplace = event.target.closest("[data-position-training-unplace]");
-      const remove = event.target.closest("[data-position-training-remove]");
-      const slot = event.target.closest("[data-position-training-slot]");
-      const traySlot = event.target.closest("[data-position-training-tray-slot]");
-      if (preset) { positionTrainingSetPreset(preset.dataset.positionTrainingPreset); return; }
-      if (customNew) { positionTrainingCreateCustom(); return; }
-      if (customSelect) { positionTrainingSelectCustom(customSelect.dataset.positionTrainingCustomSelect); return; }
-      if (customSaveName) {
-        const input = stage.querySelector("[data-position-training-custom-name]");
-        positionTrainingSaveCustomName(input?.value);
-        return;
-      }
-      if (customDelete) { positionTrainingDeleteCustom(); return; }
-      if (custom) { positionTrainingSetPreset("custom"); return; }
-      if (autoAdd) { positionTrainingAutoAssign(); return; }
-      if (copy) { positionTrainingCopyCustom(); return; }
-      if (editStart || editFinish) {
-        const state = ensurePositionTrainingState();
-        state.editing = Boolean(editStart);
-        persistPositionTrainingState();
-        renderTraining();
-        return;
-      }
-      if (setPosition) {
-        positionTrainingSetSlotPosition(setPosition.dataset.positionTrainingSetPosition);
-        return;
-      }
-      if (unplace) {
-        event.stopPropagation();
-        positionTrainingUnplaceSlot(unplace.dataset.positionTrainingUnplace);
-        return;
-      }
-      if (remove) { event.stopPropagation(); positionTrainingAssign(remove.dataset.positionTrainingRemove,0); return; }
-      if (slot) {
-        const state = ensurePositionTrainingState();
-        if (Date.now() < Number(state.ignoreSlotClickUntil || 0)) return;
-        state.selectedSlot = slot.dataset.positionTrainingSlot;
-        persistPositionTrainingState();
-        renderTraining({skipStage:true});
-        return;
-      }
-      if (traySlot) {
-        const state = ensurePositionTrainingState();
-        state.selectedSlot = traySlot.dataset.positionTrainingTraySlot;
-        persistPositionTrainingState();
-        renderTraining();
-        return;
-      }
+    if (app.trainingModule !== "position_training") return;
+    const preset = event.target.closest("[data-position-training-preset]");
+    const custom = event.target.closest("[data-position-training-custom]");
+    const customNew = event.target.closest("[data-position-training-custom-new]");
+    const customSelect = event.target.closest("[data-position-training-custom-select]");
+    const customSaveName = event.target.closest("[data-position-training-save-name]");
+    const customDelete = event.target.closest("[data-position-training-delete]");
+    const autoAdd = event.target.closest("[data-position-training-auto-add]");
+    const copy = event.target.closest("[data-position-training-copy]");
+    const editStart = event.target.closest("[data-position-training-edit-start]");
+    const editFinish = event.target.closest("[data-position-training-edit-finish]");
+    const setPosition = event.target.closest("[data-position-training-set-position]");
+    const unplace = event.target.closest("[data-position-training-unplace]");
+    const remove = event.target.closest("[data-position-training-remove]");
+    const slot = event.target.closest("[data-position-training-slot]");
+    const traySlot = event.target.closest("[data-position-training-tray-slot]");
+    if (preset) { positionTrainingSetPreset(preset.dataset.positionTrainingPreset); return; }
+    if (customNew) { positionTrainingCreateCustom(); return; }
+    if (customSelect) { positionTrainingSelectCustom(customSelect.dataset.positionTrainingCustomSelect); return; }
+    if (customSaveName) {
+      const input = stage.querySelector("[data-position-training-custom-name]");
+      positionTrainingSaveCustomName(input?.value);
+      return;
     }
-    const room = event.target.closest("[data-relationship-room-detail]");
-    if (room) {
-      app.relationshipTrainingDetailId = room.dataset.relationshipRoomDetail;
-      app.relationshipTrainingSelections = {};
-      app.relationshipTrainingAttributes = new Set();
-      app.relationshipTrainingPreview = null;
-      app.relationshipTrainingPreviewSeq += 1;
-      app.trainingDock = "available";
+    if (customDelete) { positionTrainingDeleteCustom(); return; }
+    if (custom) { positionTrainingSetPreset("custom"); return; }
+    if (autoAdd) { positionTrainingAutoAssign(); return; }
+    if (copy) { positionTrainingCopyCustom(); return; }
+    if (editStart || editFinish) {
+      const state = ensurePositionTrainingState();
+      state.editing = Boolean(editStart);
+      persistPositionTrainingState();
       renderTraining();
       return;
     }
-    const button = event.target.closest("[data-training-floor-unlock]");
-    if (button) requestTrainingFloorUnlock(button.dataset.trainingFloorUnlock, button);
+    if (setPosition) {
+      positionTrainingSetSlotPosition(setPosition.dataset.positionTrainingSetPosition);
+      return;
+    }
+    if (unplace) {
+      event.stopPropagation();
+      positionTrainingUnplaceSlot(unplace.dataset.positionTrainingUnplace);
+      return;
+    }
+    if (remove) { event.stopPropagation(); positionTrainingAssign(remove.dataset.positionTrainingRemove,0); return; }
+    if (slot) {
+      const state = ensurePositionTrainingState();
+      if (Date.now() < Number(state.ignoreSlotClickUntil || 0)) return;
+      state.selectedSlot = slot.dataset.positionTrainingSlot;
+      persistPositionTrainingState();
+      renderTraining();
+      return;
+    }
+    if (traySlot) {
+      const state = ensurePositionTrainingState();
+      state.selectedSlot = traySlot.dataset.positionTrainingTraySlot;
+      persistPositionTrainingState();
+      renderTraining();
+    }
   });
   stage.addEventListener("pointerdown", (event) => {
     const positionSlot = event.target.closest("[data-position-training-slot]");
     const positionState = ensurePositionTrainingState();
     if (
-      app.trainingScene === "position_training" && positionSlot
+      app.trainingModule === "position_training" && positionSlot
       && positionState.preset === "custom" && positionState.editing
       && !event.target.closest("[data-position-training-remove]")
       && !event.target.closest("[data-position-training-unplace]")
@@ -3425,57 +3422,20 @@ function initializeTrainingDrag() {
       positionSlot.setPointerCapture(event.pointerId);
       positionSlot.classList.add("dragging");
       event.preventDefault();
-      return;
     }
-    const node = event.target.closest("[data-training-facility]");
-    if (!node || !app.trainingEditing || event.button !== 0) return;
-    const facility = trainingFacility(node.dataset.trainingFacility);
-    if (!facility) return;
-    app.trainingSelectedId = facility.id;
-    app.trainingDrag = {pointerId:event.pointerId,node,facility,originalX:Number(facility.x),originalY:Number(facility.y),moved:false};
-    node.setPointerCapture(event.pointerId);
-    node.classList.add("dragging");
-    event.preventDefault();
   });
   stage.addEventListener("pointermove", (event) => {
     const positionDrag = app.positionTrainingSlotDrag;
-    if (positionDrag && positionDrag.pointerId === event.pointerId) {
-      const pitch = stage.querySelector(".position-training-pitch");
-      if (!pitch) return;
-      const rect = pitch.getBoundingClientRect();
-      const x = Math.max(8,Math.min(92,(event.clientX-rect.left)/rect.width*100));
-      const y = Math.max(7,Math.min(93,(event.clientY-rect.top)/rect.height*100));
-      positionDrag.moved ||= Math.abs(x-positionDrag.originalX)>.4 || Math.abs(y-positionDrag.originalY)>.4;
-      positionDrag.slot.x=round(x);positionDrag.slot.y=round(y);
-      positionDrag.node.style.left=`${x}%`;positionDrag.node.style.top=`${y}%`;
-      return;
-    }
-    const drag = app.trainingDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const rect = stage.getBoundingClientRect();
-    const x = Math.max(5,Math.min(95,(event.clientX-rect.left)/rect.width*100));
-    const y = Math.max(8,Math.min(92,(event.clientY-rect.top)/rect.height*100));
-    drag.moved ||= Math.abs(x-drag.originalX)>.5 || Math.abs(y-drag.originalY)>.5;
-    drag.facility.x=round(x); drag.facility.y=round(y);
-    drag.node.style.left=`${x}%`; drag.node.style.top=`${y}%`; drag.node.style.zIndex=String(Math.round(y*10));
+    if (!positionDrag || positionDrag.pointerId !== event.pointerId) return;
+    const pitch = stage.querySelector(".position-training-pitch");
+    if (!pitch) return;
+    const rect = pitch.getBoundingClientRect();
+    const x = Math.max(8,Math.min(92,(event.clientX-rect.left)/rect.width*100));
+    const y = Math.max(7,Math.min(93,(event.clientY-rect.top)/rect.height*100));
+    positionDrag.moved ||= Math.abs(x-positionDrag.originalX)>.4 || Math.abs(y-positionDrag.originalY)>.4;
+    positionDrag.slot.x=round(x);positionDrag.slot.y=round(y);
+    positionDrag.node.style.left=`${x}%`;positionDrag.node.style.top=`${y}%`;
   });
-  const finish = async (event) => {
-    const drag = app.trainingDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    app.trainingDrag=null; drag.node.classList.remove("dragging");
-    if (!drag.moved) {
-      if (event.type === "pointercancel") renderTraining();
-      return;
-    }
-    app.trainingIgnoreFacilityClickUntil = Date.now() + 180;
-    try {
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:drag.facility.id,scene:drag.facility.scene,x:drag.facility.x,y:drag.facility.y,rotation:drag.facility.rotation,scale:drag.facility.scale||1})});
-      updateTrainingResponse(response);
-    } catch (error) {
-      drag.facility.x=drag.originalX; drag.facility.y=drag.originalY;
-      renderTraining(); toast(error.message);
-    }
-  };
   const finishPositionSlot = (event) => {
     const drag = app.positionTrainingSlotDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -3485,24 +3445,22 @@ function initializeTrainingDrag() {
       const state = ensurePositionTrainingState();
       state.ignoreSlotClickUntil = Date.now() + 180;
       persistPositionTrainingState();
-      renderTraining({skipStage:true});
+      renderTraining();
     }
   };
   stage.addEventListener("pointerup",finishPositionSlot);
   stage.addEventListener("pointercancel",finishPositionSlot);
-  stage.addEventListener("pointerup",finish);
-  stage.addEventListener("pointercancel",finish);
   stage.addEventListener("dragstart",(event)=>{
     const traySlot=event.target.closest("[data-position-training-tray-slot]");
     const state=ensurePositionTrainingState();
-    if(app.trainingScene!=="position_training"||!traySlot||state.preset!=="custom"||!state.editing)return;
+    if(app.trainingModule!=="position_training"||!traySlot||state.preset!=="custom"||!state.editing)return;
     const slot=state.customSlots.find((row)=>row.id===traySlot.dataset.positionTrainingTraySlot);
     if(!slot?.position){event.preventDefault();toast(uiText("position.choose_first"));return;}
     event.dataTransfer.effectAllowed="move";
     event.dataTransfer.setData("application/x-fmodd-position-slot",slot.id);
   });
   stage.addEventListener("dragover",(event)=>{
-    if(app.trainingScene!=="position_training")return;
+    if(app.trainingModule!=="position_training")return;
     const pitch=event.target.closest(".position-training-pitch");
     const playerSlot=event.target.closest("[data-position-training-slot]");
     const positionSlot=Array.from(event.dataTransfer.types || []).includes("application/x-fmodd-position-slot");
@@ -3512,7 +3470,7 @@ function initializeTrainingDrag() {
     event.dataTransfer.dropEffect="move";
   });
   stage.addEventListener("drop",(event)=>{
-    if(app.trainingScene!=="position_training")return;
+    if(app.trainingModule!=="position_training")return;
     const pitch=event.target.closest(".position-training-pitch");
     const positionSlotId=event.dataTransfer.getData("application/x-fmodd-position-slot");
     if(pitch&&positionSlotId){
@@ -3528,21 +3486,14 @@ function initializeTrainingDrag() {
     positionTrainingAssign(slot.dataset.positionTrainingSlot,playerId);
   });
   stage.addEventListener("keydown",(event)=>{
-    if(app.trainingScene!=="position_training"||!["Enter"," "].includes(event.key))return;
+    if(app.trainingModule!=="position_training"||!["Enter"," "].includes(event.key))return;
     const slot=event.target.closest("[data-position-training-slot]");
     const traySlot=event.target.closest("[data-position-training-tray-slot]");
     if(!slot&&!traySlot)return;
     event.preventDefault();
     const state=ensurePositionTrainingState();
     state.selectedSlot=slot?.dataset.positionTrainingSlot || traySlot.dataset.positionTrainingTraySlot;
-    persistPositionTrainingState();renderTraining({skipStage:true});
-  });
-  stage.addEventListener("click",(event)=>{
-    const node=event.target.closest("[data-training-facility]");
-    if (!node || app.trainingDrag) return;
-    if (Date.now() < Number(app.trainingIgnoreFacilityClickUntil || 0)) return;
-    app.trainingSelectedId=node.dataset.trainingFacility;
-    openTrainingDetail(node.dataset.trainingFacility).catch((error)=>toast(error.message));
+    persistPositionTrainingState();renderTraining();
   });
 }
 
@@ -3631,17 +3582,19 @@ async function loadClub() {
       app.clubSquadTeamId = Number(selectedSquad?.team_id || 0) || null;
       app.clubStatus = clubStatusSnapshot(payload);
       if (app.state) app.state.club_status = {...app.clubStatus};
-      app.trainingRosterLoading = Boolean(payload.refreshing && !allManagedPlayers().length);
+      app.trainingRosterLoading = Boolean(
+        payload.refreshing && !allManagedPlayers().length
+        && app.trainingModule !== "position_training"
+      );
       app.trainingStaffLoading = Boolean(
-        payload.refreshing
-        && trainingFacility(app.trainingDetailId)?.sku === "coaching_desk"
+        payload.refreshing && app.trainingModule === "staff_training"
         && !managedCoachingRostersAreCurrent()
       );
       if (!background || app.page === "club") renderClub();
       if (!background || app.page === "activity") renderActivity();
       if (!background || app.page === "hospital") renderHospital();
       if (app.page === "home") renderHome();
-      if (app.page === "training" && app.trainingDetailId) renderTraining();
+      if (app.page === "training") renderTraining();
       if (payload.refreshing) {
         if (!app.clubPoll) app.clubPoll = setInterval(loadClub, CLUB_REFRESH_POLL_MS);
       } else if (app.clubPoll) {
@@ -3663,28 +3616,6 @@ async function loadClub() {
       app.clubLoadPromise = null;
       app.clubLoadIncludesTrainingCa = false;
     }
-  }
-}
-
-async function requestTrainingFloorUnlock(scene, button) {
-  const floor = trainingFloor(scene);
-  if (!floor || floor.unlocked !== false || app.trainingActionBusy) return;
-  const floorName = trainingFloorLabel(scene, floor);
-  if (!await fmoddConfirm(uiText("training.floor_unlock_confirm", {name:floorName, amount:formatPounds(Number(floor.price || 0))}), uiText("training.floor_unlock_title"))) return;
-  app.trainingActionBusy = true;
-  if (button) button.disabled = true;
-  try {
-    const response = await request("/api/training/floor/purchase", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({scene}),
-    });
-    updateTrainingResponse(response);
-    toast(uiText("training.floor_unlocked", {name:floorName}));
-  } catch (error) {
-    toast(error.message || uiText("training.floor_unlock_failed"));
-  } finally {
-    app.trainingActionBusy = false;
-    renderTraining();
   }
 }
 
@@ -3783,13 +3714,20 @@ function ensureTrainingRosterLoaded(waitForResult = false, forceRefresh = false)
   return ensureManagedRostersLoaded(waitForResult, forceRefresh);
 }
 
-async function ensureTrainingCoachingRosterLoaded() {
+async function ensureTrainingCoachingRosterLoaded(waitForResult = false) {
   let status = await loadClub();
   if (!managedCoachingRostersAreCurrent() && !status?.refreshing) {
     await request("/api/club/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
     status = await loadClub();
   }
-  return managedCoachingRostersAreCurrent();
+  if (!waitForResult) return managedCoachingRostersAreCurrent();
+  for (let attempt = 0; attempt < CLUB_REFRESH_POLL_ATTEMPTS; attempt += 1) {
+    if (managedCoachingRostersAreCurrent() && !status?.refreshing) return true;
+    if (status && !status.refreshing && status.error) throw new Error(status.error);
+    await new Promise((resolve) => setTimeout(resolve, CLUB_REFRESH_POLL_MS));
+    status = await loadClub();
+  }
+  throw new Error(uiText("training.managed_team_timeout"));
 }
 
 function output() { return app.state?.output || {}; }
@@ -10965,7 +10903,7 @@ function positionTrainingAutoAssign() {
   const state = ensurePositionTrainingState();
   if (state.preset === "custom") return;
   const slots = positionTrainingSlots(state).filter((slot) => positionTrainingSlotPlaced(slot,state) && slot.position);
-  const players = trainingManagedPlayers().filter((player) => !activeTrainingFocus(player.id));
+  const players = trainingPositionPlayers().filter((player) => !activeTrainingFocus(player.id));
   const primaryById = new Map(players.map((player) => [Number(player.id), String(primaryPlayerPosition(player) || "").toUpperCase()]));
   const topById = new Map(players.map((player) => [Number(player.id), positionTrainingTopRatings(player).map((row) => row.position)]));
   const candidates = slots.flatMap((slot) => players.map((player) => {
@@ -11104,66 +11042,63 @@ function positionTrainingUnplaceSlot(slotId) {
   persistPositionTrainingState();
   renderTraining();
 }
+function positionTrainingPayload(player, slot, durationMode) {
+  return {
+    project_sku:"position_training_area",
+    module:"position_training",
+    player_id:Number(player.id),
+    team_id:Number(player.training_team_id || trainingCurrentTeamId()),
+    operation:"position",
+    position_key:String(slot.position || "").toUpperCase(),
+    duration_mode:String(durationMode || "until_increase"),
+  };
+}
+function positionTrainingSubmissionFor(payload) {
+  const fingerprint = JSON.stringify(payload);
+  const retries = app.trainingPositionRetries || (app.trainingPositionRetries = {});
+  if (!retries[fingerprint]) retries[fingerprint] = clientSubmissionId();
+  if (Object.keys(retries).length > 60) {
+    Object.keys(retries).slice(0, 20).forEach((key) => { delete retries[key]; });
+  }
+  return retries[fingerprint];
+}
 async function startPositionTrainingAssignments(button) {
   if (app.positionTrainingBusy) return;
   const state = ensurePositionTrainingState();
-  const slots = positionTrainingSlots(state);
-  const players = trainingManagedPlayers();
+  const players = trainingPositionPlayers();
   const playersById = new Map(players.map((player) => [Number(player.id),player]));
-  const rows = slots.flatMap((slot) => {
-    const player = positionTrainingAssignedPlayer(slot.id,playersById);
-    if (!player || !positionTrainingSlotPlaced(slot,state) || !slot.position || activeTrainingFocus(player.id)) return [];
-    const current = positionTrainingPlayerRating(player,slot.position);
-    if (!positionTrainingTargetRating(current,state.durationMode)) return [];
-    return [{slot,player}];
-  });
+  const rows = positionTrainingRows(state, playersById);
   if (!rows.length) { toast(uiText("training.no_position_rows")); return; }
+  const scopeAtStart = trainingScopeKey();
   app.positionTrainingBusy = true;
   button?.setAttribute("aria-busy","true");
-  renderTraining({skipStage:true});
+  renderTraining();
   let latest = null;
   const errors = [];
   let completed = 0;
   for (const {slot,player} of rows) {
+    if (scopeAtStart !== trainingScopeKey()) break;
+    const payload = positionTrainingPayload(player, slot, state.durationMode);
+    const fingerprint = JSON.stringify(payload);
+    payload.client_submission_id = positionTrainingSubmissionFor(payload);
     try {
       latest = await request("/api/training/run",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          facility_id:POSITION_TRAINING_AREA_ID,player_id:Number(player.id),
-          team_id:Number(player.training_team_id || 0),operation:"position",
-          position_key:slot.position,duration_mode:state.durationMode,
-          client_submission_id:crypto.randomUUID(),
-        }),
+        body:JSON.stringify(payload),
       });
+      const retries = app.trainingPositionRetries || {};
+      delete retries[fingerprint];
       completed += 1;
-    } catch (error) { errors.push(`${player.name}：${error.message}`); }
+    } catch (error) {
+      if (scopeAtStart === trainingScopeKey()) errors.push(`${player.name}：${error.message}`);
+    }
   }
   app.positionTrainingBusy = false;
   button?.removeAttribute("aria-busy");
+  if (scopeAtStart !== trainingScopeKey()) return;
   if (latest) updateTrainingResponse(latest); else renderTraining();
   if (completed) toast(uiText("training.position_scheduled", {completed, errors:errors.length ? uiPlural("training.position_errors", errors.length) : ""}));
   if (!completed && errors.length) toast(errors[0]);
-}
-
-async function cancelPositionTraining(focus, button) {
-  if (!focus || focus.focus_type !== "position" || !focus.id) return;
-  if (app.positionTrainingBusy) return;
-  button?.setAttribute("aria-busy", "true");
-  button?.setAttribute("disabled", "disabled");
-  try {
-    const response = await request("/api/training/cancel", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({focus_id: focus.id}),
-    });
-    updateTrainingResponse(response);
-    toast(uiText("training.cancelled"));
-  } catch (error) {
-    button?.removeAttribute("disabled");
-    toast(error.message || uiText("training.cancel_failed"));
-  } finally {
-    button?.removeAttribute("aria-busy");
-  }
 }
 
 const EMPTY_TRAINING_DATA = {catalog:[],facilities:[],sessions:[],focuses:[],preferred_moves:[],floors:[]};
@@ -11172,60 +11107,29 @@ function trainingDataIndex() {
   const data = trainingData();
   if (app.trainingIndexSource === data && app.trainingIndex) return app.trainingIndex;
   const productsBySku = new Map();
-  const floorsByScene = new Map();
   for (const item of data.catalog || []) {
     if (!productsBySku.has(item.sku)) productsBySku.set(item.sku,item);
   }
-  for (const item of data.floors || []) {
-    if (!floorsByScene.has(item.scene)) floorsByScene.set(item.scene,item);
-  }
-  const facilitiesById = new Map();
-  const facilitiesBySku = new Map();
-  const facilityOrdinalById = new Map();
-  for (const facility of data.facilities || []) {
-    if (!facilitiesById.has(facility.id)) facilitiesById.set(facility.id,facility);
-    const siblings = facilitiesBySku.get(facility.sku) || [];
-    siblings.push(facility);
-    facilitiesBySku.set(facility.sku,siblings);
-  }
-  facilitiesBySku.forEach((siblings) => siblings.forEach(
-    (facility,index) => {
-      if (!facilityOrdinalById.has(facility.id)) facilityOrdinalById.set(facility.id,index);
-    },
-  ));
   const activeFocusByPlayer = new Map();
-  const activeFocusesByFacility = new Map();
-  const lastCompletedByFacility = new Map();
+  const activeFocusByStaff = new Map();
   for (const focus of data.focuses || []) {
-    if (focus.status === "active") {
-      const playerId = Number(focus.player_id);
-      if (!Number.isNaN(playerId) && !activeFocusByPlayer.has(playerId)) {
-        activeFocusByPlayer.set(playerId,focus);
-      }
-      const rows = activeFocusesByFacility.get(focus.facility_id) || [];
-      rows.push(focus);
-      activeFocusesByFacility.set(focus.facility_id,rows);
-    } else if (
-      focus.status === "completed" && focus.focus_type === "attribute"
-      && !lastCompletedByFacility.has(focus.facility_id)
-    ) {
-      lastCompletedByFacility.set(focus.facility_id,focus);
+    if (focus.status !== "active") continue;
+    if (focus.focus_type === "coaching_license") {
+      const staffId = Number(focus.staff_id || 0);
+      if (staffId && !activeFocusByStaff.has(staffId)) activeFocusByStaff.set(staffId,focus);
+      continue;
+    }
+    const playerId = Number(focus.player_id);
+    if (!Number.isNaN(playerId) && !activeFocusByPlayer.has(playerId)) {
+      activeFocusByPlayer.set(playerId,focus);
     }
   }
   app.trainingIndexSource = data;
-  app.trainingIndex = {
-    productsBySku, floorsByScene, facilitiesById, facilitiesBySku,
-    facilityOrdinalById, activeFocusByPlayer, activeFocusesByFacility,
-    lastCompletedByFacility,
-  };
+  app.trainingIndex = {productsBySku, activeFocusByPlayer, activeFocusByStaff};
   return app.trainingIndex;
 }
+
 function trainingProduct(sku) { return trainingDataIndex().productsBySku.get(sku) || null; }
-function trainingFloor(scene) { return trainingDataIndex().floorsByScene.get(scene) || null; }
-function trainingFloorLabel(scene, floor = trainingFloor(scene)) {
-  const key = TRAINING_FLOOR_LABEL_KEYS[scene];
-  return key ? uiText(key) : String(floor?.name || floor?.floor || uiText("training.floor"));
-}
 function trainingFacilityName(sku, product = trainingProduct(sku) || {}) {
   const key = `training.facility.${sku}.name`;
   const localized = uiText(key);
@@ -11236,42 +11140,18 @@ function trainingFacilityDescription(sku, product = trainingProduct(sku) || {}) 
   const localized = uiText(key);
   return localized === key ? String(product?.description || "") : localized;
 }
-function trainingSceneUnlocked(scene) { return trainingFloor(scene)?.unlocked !== false; }
-function trainingSceneAcceptsProduct(scene, productScene) {
-  if (productScene === "indoor") return ["indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f"].includes(scene);
-  if (productScene === "office_6f") return ["office_3f", "office_6f"].includes(scene);
-  if (productScene === "comprehensive_7f") return scene === "comprehensive_7f";
-  if (productScene === "outdoor") return ["outdoor", "outdoor_2"].includes(scene);
-  return scene === productScene;
-}
-function trainingFacility(id) { return trainingDataIndex().facilitiesById.get(id) || null; }
 function activeTrainingFocus(playerId) {
   return trainingDataIndex().activeFocusByPlayer.get(Number(playerId)) || null;
 }
-function trainingFacilityFocuses(facilityId) {
-  return trainingDataIndex().activeFocusesByFacility.get(facilityId) || [];
+function activeTrainingStaffFocus(staffId) {
+  return trainingDataIndex().activeFocusByStaff.get(Number(staffId)) || null;
 }
-function trainingFacilityLastCompleted(facilityId) {
-  return trainingDataIndex().lastCompletedByFacility.get(facilityId) || null;
-}
-function trainingFacilityLabel(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const name = trainingFacilityName(facility.sku, product);
-  const index = trainingDataIndex();
-  const siblings = index.facilitiesBySku.get(facility.sku) || [];
-  if (siblings.length < 2) return name;
-  return `${name} #${Number(index.facilityOrdinalById.get(facility.id) ?? -1) + 1}`;
-}
-function trainingIsUnlimited(product) { return product?.unlimited === true; }
-function trainingIsFull(product, used) {
-  return !trainingIsUnlimited(product) && Number(used || 0) >= Number(product?.capacity || 1);
-}
-function trainingCapacityIcons(capacity, used, unlimited = false) {
-  if (unlimited) {
-    const occupied = Array.from({length:Math.min(Number(used || 0),6)},() => `<span class="training-person occupied"><i data-lucide="user-round"></i></span>`).join("");
-    return `${occupied}<span class="training-person open training-person-unlimited"><i data-lucide="infinity"></i></span>`;
-  }
-  return Array.from({length:Math.max(Number(capacity || 1),Number(used || 0))},(_,index) => `<span class="training-person ${index < used ? "occupied" : "open"}"><i data-lucide="user-round"></i></span>`).join("");
+
+function trainingFocusSummaryText(speed, action, attribute, range, guidance, status) {
+  const key = "training.active_summary";
+  const localized = uiText(key, {speed, action, attribute, range, guidance, status});
+  if (localized && localized !== key && !/\{[a-z_]+\}/i.test(localized)) return localized;
+  return `${speed} ${action} ${attribute}${range}${guidance} · ${status}`;
 }
 function trainingFocusUsage(focus) {
   const days = Number(focus.days_used || 0);
@@ -11318,26 +11198,10 @@ function trainingFocusUsage(focus) {
     const remaining = estimatedDays > 0
       ? uiText("training.until_target", {target, days:totalDays})
       : uiText("training.until_settling", {target});
-    return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
+    return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
   }
   const remaining = estimatedDays > 0 ? uiText("training.about_days", {days:estimatedDays}) : uiText("training.points_settling");
-  return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
-}
-function trainingMemberRows(focuses, facilityId) {
-  const activeRows = focuses.map((focus) => {
-    const team = focus.player_team_type === "national" && focus.player_team_name
-      ? ` · ${escapeHtml(focus.player_team_name)}` : "";
-    const name = focus.focus_type === "coaching_license"
-      ? (focus.staff_name || focus.staff_id) : (focus.player_name || focus.player_id);
-    const badge = ["preferred_move","coaching_license"].includes(focus.focus_type)
-      ? "" : `<b>x${Number(focus.multiplier || 3)}</b>`;
-    return `<div class="training-member-row"><span class="training-member-copy"><strong>${escapeHtml(name)}${team}</strong><small>${trainingFocusUsage(focus)}</small></span><span class="training-member-actions">${badge}<button class="training-cancel-use" type="button" data-training-cancel="${escapeHtml(focus.id)}" aria-label="${uiText("training.cancel_use")}" title="${uiText("training.cancel_use")}"><i data-lucide="x"></i></button></span></div>`;
-  }).join("");
-  const previous = trainingFacilityLastCompleted(facilityId);
-  if (!previous) return activeRows || `<div class="training-member-empty">${uiText("training.no_one")}</div>`;
-  const attribute = localizedTrainingAttribute(previous.attribute_key);
-  const previousRow = `<div class="training-member-row training-member-completed"><span class="training-member-copy"><strong>${escapeHtml(previous.player_name || previous.player_id)}</strong><small>${uiText("training.last_complete", {attribute:escapeHtml(attribute), before:Number(previous.initial_attribute || 0), after:Number(previous.attribute_after || previous.target_attribute || 0)})}</small></span><button class="training-repeat-use" type="button" data-training-repeat="${escapeHtml(previous.id)}"><i data-lucide="rotate-cw"></i><span>${uiText("training.repeat")}</span></button></div>`;
-  return `${activeRows}${previousRow}`;
+  return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
 }
 async function settleTrainingProgress({forceRoster = false, notify = false} = {}) {
   if (app.trainingSettlementReloading) return;
@@ -11430,132 +11294,6 @@ function updateTrainingResponse(response) {
   applyEconomySnapshot(response.economy);
   renderTraining();
 }
-function firstTrainingPosition(facility) {
-  const candidates = [[24,35],[48,35],[72,35],[30,60],[55,60],[78,62],[42,78],[68,78]];
-  const placed = (trainingData().facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene).length;
-  const [x,y] = candidates[placed % candidates.length];
-  return {...facility,x,y,status:"placed",scene:app.trainingScene};
-}
-function trainingSprite(sku, product = null) {
-  return `/assets/training/${encodeURIComponent(product?.image_sku || sku)}.webp`;
-}
-function trainingFacilityVisual(product, sku) {
-  return product?.built_in
-    ? `<span class="training-area-icon"><i data-lucide="${escapeHtml(product.icon || "flag-triangle-right")}"></i></span>`
-    : `<img src="${trainingSprite(sku, product)}" alt="">`;
-}
-
-function trainingAttributeWords(product) {
-  return trainingFacilityDescription(product?.sku, product);
-}
-
-function trainingAvailableItem(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const unlimited = trainingIsUnlimited(product);
-  const capacity = Number(product.capacity || 1);
-  const members = trainingMemberRows(focuses, facility.id);
-  const attributes = trainingAttributeWords(product);
-  return `<article class="training-available-item ${product.built_in ? "built-in" : ""}"><button class="training-available-head" type="button" data-training-open="${escapeHtml(facility.id)}"><span class="training-available-copy"><span class="training-available-title"><strong>${escapeHtml(trainingFacilityLabel(facility))}</strong><span class="training-capacity-badge">${unlimited ? uiText("training.unlimited") : `${focuses.length}/${capacity}`}</span></span>${attributes ? `<small class="training-available-attributes">${escapeHtml(attributes)}</small>` : ""}</span><span class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</span><i data-lucide="chevron-right"></i></button><div class="training-member-list">${members}</div></article>`;
-}
-
-function renderTrainingEquipmentList(facilities) {
-  const state = app.trainingEquipmentState;
-  if (state.available === undefined) state.available = true;
-  if (state.unavailable === undefined) state.unavailable = true;
-
-  const totalBySku = new Map();
-  facilities.forEach((facility) => {
-    totalBySku.set(facility.sku, Number(totalBySku.get(facility.sku) || 0) + 1);
-  });
-  const rows = facilities.map((facility) => {
-    const used = trainingFacilityFocuses(facility.id).length;
-    const product = trainingProduct(facility.sku) || {};
-    const capacity = Number(product.capacity || 1);
-    return {
-      facility,
-      used,
-      capacity,
-      partial: trainingIsUnlimited(product) ? used > 0 : capacity > 1 && used > 0 && used < capacity,
-      full: trainingIsFull(product, used),
-    };
-  });
-  const available = rows.filter((row) => !row.full);
-  const unavailable = rows.filter((row) => row.full);
-
-  function renderCategory(key, title, categoryRows) {
-    if (!categoryRows.length) return "";
-    const expanded = state[key] === true;
-    let html = `<button class="training-equipment-group main-group" type="button" data-training-equipment-toggle="${key}" aria-expanded="${expanded}"><span>${title} (${categoryRows.length})</span><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-    if (!expanded) return html;
-
-    const bySku = new Map();
-    categoryRows.forEach((row) => {
-      if (!bySku.has(row.facility.sku)) bySku.set(row.facility.sku, []);
-      bySku.get(row.facility.sku).push(row);
-    });
-    const sortedGroups = [...bySku.entries()].sort((left, right) => {
-      const partialDifference = Number(right[1].some((row) => row.partial))
-        - Number(left[1].some((row) => row.partial));
-      if (partialDifference) return partialDifference;
-      const totalDifference = Number(totalBySku.get(right[0]) || 0)
-        - Number(totalBySku.get(left[0]) || 0);
-      if (totalDifference) return totalDifference;
-      return String(trainingProduct(left[0])?.name || left[0]).localeCompare(
-        String(trainingProduct(right[0])?.name || right[0]), activeUiLocale(),
-      );
-    });
-    sortedGroups.forEach(([sku, skuRows]) => {
-      const skuKey = `${key}:${sku}`;
-      if (state[skuKey] === undefined) state[skuKey] = true;
-      const skuExpanded = state[skuKey] === true;
-      const product = trainingProduct(sku) || {};
-      html += `<button class="training-equipment-group sub-group" type="button" data-training-equipment-toggle="${escapeHtml(skuKey)}" aria-expanded="${skuExpanded}"><span>${escapeHtml(trainingFacilityName(sku,product))} (${skuRows.length}/${Number(totalBySku.get(sku) || 0)})</span><i data-lucide="${skuExpanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-      if (skuExpanded) {
-        skuRows
-          .sort((left, right) => Number(right.partial) - Number(left.partial))
-          .forEach((row) => { html += trainingAvailableItem(row.facility); });
-      }
-    });
-    return html;
-  }
-
-  return renderCategory("available", uiText("training.available"), available)
-    + renderCategory("unavailable", uiText("training.unavailable"), unavailable)
-    || `<div class="training-dock-empty"><i data-lucide="dumbbell"></i><strong>${uiText("training.no_equipment")}</strong></div>`;
-}
-
-function trainingCoachingDeskPanel(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const capacity = Number(product.capacity || 1);
-  const staff = trainingManagedStaff();
-  const activeStaffIds = new Set(
-    (trainingData().focuses || [])
-      .filter((focus) => focus.status === "active" && focus.focus_type === "coaching_license")
-      .map((focus) => Number(focus.staff_id || 0)),
-  );
-  const eligible = staff.filter((row) => !row.coaching_license?.maximum && !activeStaffIds.has(Number(row.id)));
-  if (!eligible.some((row) => Number(row.id) === Number(app.trainingStaffId))) {
-    app.trainingStaffId = Number(eligible[0]?.id || 0);
-  }
-  const selected = eligible.find((row) => Number(row.id) === Number(app.trainingStaffId)) || null;
-  const license = selected?.coaching_license || {};
-  const durationDays = Number(trainingData().coaching_license_course_days?.[license.code] || 0);
-  const full = focuses.length >= capacity;
-  const disabled = app.trainingActionBusy || !selected || full;
-  const options = staff.map((row) => {
-    const current = row.coaching_license || {};
-    const active = activeStaffIds.has(Number(row.id));
-    const unavailable = current.maximum || active;
-    const suffix = current.maximum ? ` · ${uiText("training.max_level")}` : (active ? ` · ${uiText("training.studying")}` : "");
-    return `<option value="${Number(row.id)}" ${Number(row.id) === Number(app.trainingStaffId) ? "selected" : ""} ${unavailable ? "disabled" : ""}>${escapeHtml(row.name)} · ${escapeHtml(localizedStaffRole(row))} · ${escapeHtml(current.name || uiText("training.licence_unread"))}${suffix}</option>`;
-  }).join("");
-  const summary = selected ? `<div class="training-coach-summary"><span><small>${uiText("training.current_licence")}</small><strong>${escapeHtml(license.name || uiText("hospital.loading_short"))}</strong></span><i data-lucide="arrow-right"></i><span><small>${uiText("training.graduation_target")}</small><strong>${escapeHtml(license.next_name || uiText("training.max_level"))}</strong></span></div>` : "";
-  const emptyOption = app.trainingStaffLoading ? uiText("training.sync_roster") : uiText("training.no_staff");
-  return `<div class="training-use-panel coaching-desk-panel"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_facilities")}" title="${uiText("training.back_facilities")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${uiText("training.people_studying", {count:`${focuses.length}/${capacity}`})}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length)}</div></div></div><section class="training-use-members"><h3>${uiText("training.study_people")}</h3>${trainingMemberRows(focuses,facility.id)}</section><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}"><label>${uiText("training.staff_or_manager")}<select id="training-inline-staff" ${disabled ? "disabled" : ""}>${options || `<option value="">${emptyOption}</option>`}</select></label>${summary}<label>${uiText("training.licence_target")}<select id="training-inline-target" ${disabled ? "disabled" : ""}><option value="${Number(license.next_code || 0)}">${escapeHtml(license.next_name || uiText("training.no_next_licence"))}</option></select></label><label>${uiText("training.expected_course")}<select id="training-inline-duration" disabled><option>${durationDays ? uiText("training.game_days", {days:durationDays}) : uiText("training.pending_read")}</option></select></label><p class="training-coaching-note">${uiText("training.coaching_note")}</p><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : uiText("training.start_licence")}</button></form></div>`;
-}
-
 function trainingPlayerMatchesPositionGroup(player, positionGroup) {
   if (positionGroup === "goalkeepers") {
     if (Number(player?.position_ratings?.GK || 0) > 1) return true;
@@ -11563,135 +11301,6 @@ function trainingPlayerMatchesPositionGroup(player, positionGroup) {
       .some((position) => String(position || "").toUpperCase() === "GK");
   }
   return playerPositionGroup(player) === positionGroup;
-}
-
-function trainingUsePanel(facility) {
-  if (facility.sku === "coaching_desk") return trainingCoachingDeskPanel(facility);
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const unlimited = trainingIsUnlimited(product);
-  const capacity = Number(product.capacity || 1);
-  const activeUsageLabel = (focus) => {
-    let target = localizedTrainingAttribute(focus.attribute_key) || uiText("training.attribute");
-    let remainingDays = ["until_increase","until_decrease"].includes(focus.duration_mode)
-      ? Number(focus.estimated_days || 0)
-      : Number(focus.estimated_total_days || focus.estimated_days || 0);
-    if (focus.focus_type === "preferred_move") {
-      target = localizedPreferredMove(focus);
-      remainingDays = Math.max(0, 7 - Number(focus.days_used || 0));
-    } else if (focus.focus_type === "position") {
-      target = focus.position_key || uiText("training.position");
-    }
-    return uiText("training.player_active_summary", {
-      name:escapeHtml(focus.player_name || focus.player_id),
-      target:escapeHtml(target),
-      days:Math.max(0, remainingDays),
-    });
-  };
-  const usageLabel = focuses.length === 1
-    ? activeUsageLabel(focuses[0])
-    : unlimited
-      ? `${focuses.length ? uiPlural("training.people_studying", focuses.length) : uiText("training.current_no_one")} · ${uiText("training.unlimited")}`
-      : uiText("training.people_training", {used:focuses.length, capacity});
-  const players = trainingManagedPlayers();
-  const eligiblePlayers = product.position_group
-    ? players.filter((player) => trainingPlayerMatchesPositionGroup(player, product.position_group))
-    : players;
-  const positionOrder = {forwards:0, midfielders:1, defenders:2, goalkeepers:3};
-  const positionLabels = {forwards:uiText("training.position_group.forwards"), midfielders:uiText("training.position_group.midfielders"), defenders:uiText("training.position_group.defenders"), goalkeepers:uiText("training.position_group.goalkeepers")};
-  const sortedPlayers = [...eligiblePlayers].sort((left, right) => {
-    const groupDifference = positionOrder[playerPositionGroup(left)] - positionOrder[playerPositionGroup(right)];
-    if (groupDifference) return groupDifference;
-    const positionDifference = String(primaryPlayerPosition(left)).localeCompare(String(primaryPlayerPosition(right)), activeUiLocale());
-    return positionDifference || String(left.name || "").localeCompare(String(right.name || ""), activeUiLocale());
-  });
-  if (!eligiblePlayers.some((player) => Number(player.id) === Number(app.trainingPlayerId))) app.trainingPlayerId = Number(sortedPlayers[0]?.id || 0);
-  const habit = facility.sku === "habit_lab";
-  const disabled = app.trainingActionBusy || !eligiblePlayers.length;
-  const selectedPlayer = sortedPlayers.find((player) => Number(player.id) === Number(app.trainingPlayerId)) || null;
-  const availableTargetKeys = !habit && selectedPlayer
-    ? trainingAttributeKeysForPlayer(product, selectedPlayer) : [];
-  const requestedTargetKey = app.trainingRepeatTarget || app.trainingTargetKey;
-  const selectedTargetKey = availableTargetKeys.includes(requestedTargetKey)
-    ? requestedTargetKey
-    : String(availableTargetKeys[0] || "");
-  if (!habit) app.trainingTargetKey = selectedTargetKey;
-  const playerSearch = String(app.trainingPlayerSearch || "").trim().toLocaleLowerCase();
-  const playerPositionFilter = String(app.trainingPlayerPositionFilter || "all");
-
-  function trainingPlayerStatus(player, focus) {
-    if (focus.focus_type === "preferred_move") {
-      const action = focus.operation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn");
-      const remainingDays = Math.max(0, 7 - Number(focus.days_used || 0));
-      return uiText("training.habit_study", {action:focus.operation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn"), move:escapeHtml(localizedPreferredMove(focus)), days:Math.max(0, 7 - remainingDays)});
-    }
-    const attributeName = escapeHtml(localizedTrainingAttribute(focus.attribute_key) || uiText("training.position"));
-    const current = playerAttributeValue(player, focus.attribute_key)
-      || Number(focus.initial_attribute || 0);
-    const direction = Number(focus.direction || 1) < 0 ? -1 : 1;
-    const target = Number(
-      focus.target_attribute
-      || (["until_increase","until_decrease"].includes(focus.duration_mode)
-        ? current + direction : current),
-    );
-    const remainingDays = ["until_increase","until_decrease"].includes(focus.duration_mode)
-      ? Number(focus.estimated_days || 0)
-      : Number(focus.estimated_total_days || focus.estimated_days || 0);
-    return uiText("training.position_progress", {position:attributeName, current, target, status:remainingDays > 0 ? uiText("training.about_days", {days:remainingDays}) : uiText("training.almost_done")});
-  }
-
-  function renderPlayerOption(player, playerFocus) {
-    const selected = Number(player.id) === Number(app.trainingPlayerId);
-    const source = player.training_team_type === "national"
-      ? (player.training_team_name || uiText("training.national_team")) : uiText("training.club");
-    const activeFacility = playerFocus ? trainingFacility(playerFocus.facility_id) : null;
-    const trainingLocation = playerFocus
-      ? trainingFacilityLabel(activeFacility || {sku:"", id:""}) || uiText("training.other_equipment")
-      : "";
-    const detailLine = selectedTargetKey
-      ? `<small class="training-target-attribute">${escapeHtml(localizedTrainingAttribute(selectedTargetKey))} · ${playerAttributeValue(player, selectedTargetKey)}</small>`
-      : (playerFocus ? `<small class="training-active-detail">${trainingPlayerStatus(player, playerFocus)}</small>` : "");
-    const abilityLine = app.showHiddenAttributes
-      ? `<small>CA ${Number(player.ca || 0)} | PA ${Number(player.pa || 0)}</small>`
-      : "";
-    return `<button class="training-player-option ${selected ? "selected" : ""} ${playerFocus ? "training" : "idle"}" type="button" role="option" aria-selected="${selected}" data-training-player-option="${Number(player.id)}"><span class="training-player-radio" aria-hidden="true"></span><span><strong>${escapeHtml(player.name)}${trainingLocation ? `<i class="training-location-tag">[${escapeHtml(trainingLocation)}]</i>` : ""}</strong><small>${escapeHtml(primaryPlayerPosition(player))} · ${escapeHtml(source)}</small>${abilityLine}${detailLine}</span>${selected ? '<i data-lucide="check"></i>' : ""}</button>`;
-  }
-
-  const filteredPlayers = sortedPlayers.filter((player) => {
-    if (playerPositionFilter !== "all" && playerPositionGroup(player) !== playerPositionFilter) return false;
-    if (!playerSearch) return true;
-    const source = player.training_team_type === "national"
-      ? (player.training_team_name || uiText("training.national_team")) : uiText("training.club");
-    return [player.name, primaryPlayerPosition(player), source]
-      .some((value) => String(value || "").toLocaleLowerCase().includes(playerSearch));
-  });
-  const playerRows = filteredPlayers.map((player) => renderPlayerOption(
-    player, activeTrainingFocus(player.id),
-  )).join("");
-  const idleCount = sortedPlayers.filter((player) => !activeTrainingFocus(player.id)).length;
-  const positionFilters = [["all", uiText("training.all_people")], ...Object.entries(positionLabels)];
-  const selectedTargetSummary = selectedPlayer && selectedTargetKey
-    ? ` · ${escapeHtml(localizedTrainingAttribute(selectedTargetKey))} ${playerAttributeValue(selectedPlayer, selectedTargetKey)}`
-    : (habit && app.showHiddenAttributes && selectedPlayer
-      ? ` · CA ${Number(selectedPlayer.ca || 0)}/PA ${Number(selectedPlayer.pa || 0)}`
-      : "");
-  const restrictedPositionLabel = product.position_group === "goalkeepers" ? uiText("training.position_group.goalkeepers")
-    : product.position_group === "defenders" ? uiText("training.position_group.defenders") : "";
-  const playerPicker = `<div class="training-player-field"><span>${uiText("training.player_label")}</span><input type="hidden" id="training-inline-player" value="${Number(selectedPlayer?.id || 0)}"><button class="training-player-trigger" type="button" data-training-player-toggle aria-expanded="${app.trainingPlayerPickerOpen}" ${disabled ? "disabled" : ""}><span>${selectedPlayer ? `<strong>${escapeHtml(selectedPlayer.name)}</strong><small>${escapeHtml(selectedPlayer.training_team_type === "national" ? (selectedPlayer.training_team_name || uiText("training.national_team")) : uiText("training.club"))}${selectedTargetSummary}</small>` : `<strong>${app.trainingRosterLoading ? uiText("training.team_loading") : restrictedPositionLabel ? uiText("training.no_available_position_players", {position:restrictedPositionLabel}) : uiText("training.no_available_players")}</strong>`}</span><i data-lucide="chevron-down"></i></button></div>`;
-  const playerPickerCard = app.trainingPlayerPickerOpen
-    ? `<div class="training-player-picker-layer" data-training-player-picker-layer><section class="training-player-picker-card" role="dialog" aria-modal="true" aria-labelledby="training-player-picker-title"><header><div><small>${uiText("training.personnel")}</small><h3 id="training-player-picker-title">${uiText("training.choose_player")}</h3><span>${selectedTargetKey ? uiText("training.current_target", {target:escapeHtml(localizedTrainingAttribute(selectedTargetKey))}) : uiText("training.choose_trainable_player")}</span></div><button class="icon-button" type="button" data-training-player-close aria-label="${uiText("common.close")}" title="${uiText("common.close")}"><i data-lucide="x"></i></button></header><label class="training-player-search"><i data-lucide="search"></i><input id="training-player-search" type="search" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.search_players")}" autocomplete="off"></label><div class="training-player-picker-filters" role="tablist" aria-label="${uiText("training.position_filter")}">${positionFilters.map(([key,label]) => `<button type="button" role="tab" aria-selected="${playerPositionFilter === key}" class="${playerPositionFilter === key ? "active" : ""}" data-training-player-position="${key}">${label}</button>`).join("")}</div><div class="training-player-picker-meta"><span>${uiText("training.shown_people", {count:filteredPlayers.length})}</span><span>${uiText("training.idle_people", {count:idleCount})}</span></div><div class="training-player-picker-list" role="listbox" aria-label="${uiText("training.personnel")}">${playerRows || `<div class="training-player-empty">${uiText("training.no_matching_players")}</div>`}</div></section></div>`
-    : "";
-  const durationOptions = habit ? `<option value="week">${uiText("training.week")}</option>` : "";
-  const membersSection = `<section class="training-use-members"><h3>${uiText("training.personnel")}</h3>${trainingMemberRows(focuses, facility.id)}</section>`;
-  const operationToggle = `<div class="training-operation-toggle" id="training-inline-operation" ${habit ? "" : "hidden"}><button class="${app.trainingOperation === "learn" ? "active" : ""}" type="button" data-training-operation="learn" ${disabled ? "disabled" : ""}>${uiText("training.learn")}</button><button class="${app.trainingOperation === "unlearn" ? "active" : ""}" type="button" data-training-operation="unlearn" ${disabled ? "disabled" : ""}>${uiText("training.unlearn")}</button></div>`;
-  const targetField = `<label class="training-target-field">${uiText("training.target_label")}<select id="training-inline-target" ${disabled ? "disabled" : ""}></select></label>`;
-  const labHiddenTraining = product.attribute_kind === "hidden" && product.scene === "comprehensive_7f";
-  const directionField = labHiddenTraining
-    ? `<label>${uiText("training.direction_label")}<select id="training-inline-direction" ${disabled ? "disabled" : ""}><option value="1" ${app.trainingDirection > 0 ? "selected" : ""}>${uiText("training.direction_increase")}</option><option value="-1" ${app.trainingDirection < 0 ? "selected" : ""}>${uiText("training.direction_decrease")}</option></select></label>`
-    : "";
-  const attributeFormFields = `${targetField}${directionField}${membersSection}${playerPicker}`;
-  const habitFormFields = `${membersSection}${playerPicker}${operationToggle}${targetField}`;
-  return `<div class="training-use-panel ${product.built_in ? "built-in-area-panel" : ""}"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_training")}" title="${uiText("training.back_training")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${usageLabel}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</div></div></div><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}">${habit ? habitFormFields : attributeFormFields}<label id="training-inline-duration-field">${uiText("training.duration_label")}<select id="training-inline-duration" ${disabled ? "disabled" : ""}>${durationOptions}</select></label><div class="training-focus-status" id="training-inline-status" hidden></div><div class="training-current-moves" id="training-inline-current-moves" hidden></div><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : habit ? uiText("training.start_habit") : uiText("training.start_specialist")}</button></form>${playerPickerCard}</div>`;
 }
 
 function selectedGameIsFm26() {
@@ -12810,7 +12419,7 @@ function renderPositionTrainingStudio() {
   const slots = positionTrainingSlots(state);
   if (!slots.some((slot) => slot.id === state.selectedSlot)) state.selectedSlot = slots[0]?.id || "";
   const selectedSlot = slots.find((slot) => slot.id === state.selectedSlot) || slots[0] || null;
-  const players = trainingManagedPlayers();
+  const players = trainingPositionPlayers();
   const playersById = new Map(players.map((player) => [Number(player.id),player]));
   const validPlayerIds = new Set(playersById.keys());
   Object.keys(state.assignments || {}).forEach((slotId) => {
@@ -12837,12 +12446,6 @@ function renderPositionTrainingStudio() {
   }).join("");
    stageItems.innerHTML = `<div class="position-training-studio">${formationControls}<div class="position-training-workspace ${state.preset==="custom"?"custom":"preset"}">${trayHtml}<div class="position-training-pitch" role="listbox" aria-label="${uiText("position.slots")}"><div class="position-pitch-markings" aria-hidden="true"><i></i><b></b><span></span><u></u></div>${slotHtml}</div></div></div>`;
   stage.classList.toggle("position-editing", state.preset === "custom" && state.editing);
-  $("#training-empty").hidden = true;
-  $("#training-floor-lock").hidden = true;
-  $("#training-selection").hidden = true;
-  $("#training-edit-toggle").disabled = true;
-  $("#training-rotate").disabled = true;
-  $("#training-store-selected").disabled = true;
 
   if (!selectedSlot) {
      content.innerHTML = `<div class="training-dock-empty">${uiText("position.no_slots")}</div>`;
@@ -12883,15 +12486,17 @@ function renderPositionTrainingStudio() {
   renderIcons();
 }
 
-function renderTraining({skipStage = false} = {}) {
+function renderTraining() {
   const root = $("#page-training");
   if (!root) return;
   if (interactiveSurfaceBusy($("#training-dock-content"))) return;
-  const viewMode = syncFacilityViewMode("training");
+  const scope = trainingScopeKey();
+  if (app.trainingScopeKey !== scope) {
+    app.trainingScopeKey = scope;
+    resetTrainingWorkspaceState();
+  }
   syncTrainingStatus();
   const data = trainingData();
-  const currentFloor = trainingFloor(app.trainingScene);
-  const floorLocked = Boolean(currentFloor && currentFloor.unlocked === false);
   const settlingFocusIds = (data.focuses || [])
     .filter((focus) => focus.status === "active" && ["attribute","position"].includes(focus.focus_type)
       && Number(focus.required_points || 0) > 0
@@ -12916,209 +12521,32 @@ function renderTraining({skipStage = false} = {}) {
   }
   if (data.growth_hook?.completed_habit_focus_ids?.length) {
     app.trainingPreferredMoves = null;
+    app.trainingHabitLoadKey = null;
     data.growth_hook.completed_habit_focus_ids = [];
   }
   renderFundingSummary("#training-balance");
-  $("#training-stage").className = `training-stage ${app.trainingScene} ${app.trainingEditing ? "editing" : ""} ${floorLocked ? "locked" : ""}`;
-  const floorLock = $("#training-floor-lock");
-  if (floorLock) {
-    floorLock.hidden = !floorLocked;
-    floorLock.innerHTML = floorLocked
-      ? `<i data-lucide="lock-keyhole"></i><strong>${escapeHtml(trainingFloorLabel(app.trainingScene,currentFloor))}</strong><span>${uiText("training.floor_unlock_note")}</span><button type="button" data-training-floor-unlock="${escapeHtml(app.trainingScene)}">${uiText("training.unlock_price", {amount:formatPounds(Number(currentFloor.price || 0))})}</button>`
-      : "";
-  }
-  document.querySelectorAll("[data-training-scene]").forEach((button) => {
-    const floor = trainingFloor(button.dataset.trainingScene);
-    button.classList.toggle("active", button.dataset.trainingScene === app.trainingScene);
-    button.classList.toggle("locked", floor?.unlocked === false);
-    button.title = floor?.unlocked === false ? uiText("training.unlock_price", {amount:trainingFloorLabel(button.dataset.trainingScene,floor)}) : "";
-  });
-  const relationshipFloor = app.trainingScene === "relationship_8f";
-  const positionFloor = app.trainingScene === "position_training";
-  root.classList.toggle("position-training-active",positionFloor);
-  const dockTabs = $("#training-dock-tabs");
-  const dockMode = positionFloor ? "position" : relationshipFloor ? "rooms" : "equipment";
-  if (dockTabs?.dataset.mode !== dockMode) {
-    dockTabs.dataset.mode = dockMode;
-    dockTabs.innerHTML = positionFloor
-      ? `<button class="active" data-training-dock="available"><i data-lucide="users-round"></i><span>${uiText("training.formation_roster")}</span></button>`
-      : relationshipFloor
-      ? `<button data-training-dock="available"><i data-lucide="door-open"></i><span>${uiText("training.available_rooms")}</span></button><button data-training-dock="shop"><i data-lucide="key-round"></i><span>${uiText("training.room_unlocks")}</span></button>`
-      : `<button data-training-dock="available"><span>${uiText("training.available_equipment")}</span></button><button data-training-dock="shop"><span>${uiText("training.equipment_shop")}</span></button><button data-training-dock="storage"><span>${uiText("training.equipment_storage")}</span></button>`;
-  }
-  const toolbarActions = document.querySelector("#page-training .training-toolbar-actions");
-  if (toolbarActions) toolbarActions.hidden = relationshipFloor || positionFloor || viewMode === "text";
-  if (positionFloor) {
-    app.trainingDock = "available";
-    app.trainingDetailId = null;
-    app.trainingSelectedId = null;
-    app._lastStageHash = null;
-    app._lastDockHash = null;
+  renderTrainingModuleTabs();
+  const stage = $("#training-stage");
+  const roster = $("#training-roster");
+  const stageItems = $("#training-stage-items");
+  const positionModule = app.trainingModule === "position_training";
+  root.classList.toggle("position-training-active", positionModule);
+  if (stage) stage.className = positionModule ? "training-stage position_training" : "training-stage roster";
+  if (roster) roster.hidden = positionModule;
+  if (stageItems) stageItems.hidden = !positionModule;
+  if (positionModule) {
+    app.trainingPersonKind = null;
+    app.trainingPersonId = null;
+    app.trainingProjectSku = null;
+    app._lastRosterSignature = null;
+    app._lastDetailSignature = null;
+    ensureTrainingWorkspaceRosterLoaded();
     renderPositionTrainingStudio();
     return;
   }
-  if (relationshipFloor) {
-    if (app.trainingDock === "storage") app.trainingDock = "available";
-    renderRelationshipTrainingFloor({floorLocked});
-    return;
-  }
-  $("#training-edit-toggle").disabled = false;
-  document.querySelectorAll("[data-training-dock]").forEach((button) => { button.disabled = false; });
-  document.querySelectorAll("[data-training-dock]").forEach((button) => button.classList.toggle("active", button.dataset.trainingDock === app.trainingDock));
-  $("#training-edit-toggle").classList.toggle("active", app.trainingEditing);
-  $("#training-edit-toggle").setAttribute("aria-pressed", String(app.trainingEditing));
-  const placed = (data.facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene);
-  $("#training-empty").hidden = placed.length > 0;
-  const visiblePlaced = placed.filter((facility) => !trainingProduct(facility.sku)?.built_in);
-  const selected = trainingFacility(app.trainingSelectedId);
-  if (!selected || selected.status !== "placed" || selected.scene !== app.trainingScene) app.trainingSelectedId = null;
-  if (!skipStage) {
-    const stageHash = JSON.stringify({
-      viewMode,
-      selectedId: app.trainingSelectedId,
-      scene: app.trainingScene,
-      editing: app.trainingEditing,
-      facilities: visiblePlaced.map((facility) => {
-        const product = trainingProduct(facility.sku) || {};
-        return {
-          id: facility.id, sku: facility.sku, x: facility.x, y: facility.y,
-          scale: facility.scale, rotation: facility.rotation,
-          name: trainingFacilityName(facility.sku,product), productScene: product.scene, size: product.size,
-        };
-      }),
-    });
-    if (app._lastStageHash !== stageHash) {
-      app._lastStageHash = stageHash;
-      $("#training-stage-items").innerHTML = visiblePlaced.map((facility) => {
-        const product = trainingProduct(facility.sku) || {};
-        const isSelected = facility.id === app.trainingSelectedId;
-        const width = Number(product.size?.[0] || 18) * Number(facility.scale || 1);
-        const visual = `<img src="${trainingSprite(facility.sku, product)}" alt="">`;
-        return `<button class="training-facility ${product.scene === "outdoor" ? "outdoor-equipment" : "indoor-equipment"} ${isSelected ? "selected" : ""}" type="button" data-training-facility="${escapeHtml(facility.id)}" style="left:${Number(facility.x)}%;top:${Number(facility.y)}%;z-index:${Math.round(Number(facility.y)*10)};--facility-width:${width}%;--facility-rotation:${facility.rotation ? -1 : 1}">${visual}<span>${escapeHtml(trainingFacilityName(facility.sku,product))}</span></button>`;
-      }).join("");
-    }
-  }
-  $("#training-rotate").disabled = floorLocked || !app.trainingEditing || !app.trainingSelectedId;
-  $("#training-store-selected").disabled = floorLocked || !app.trainingEditing || !app.trainingSelectedId || trainingFacilityFocuses(app.trainingSelectedId).length > 0;
-  const stored = (data.facilities || []).filter((item) => {
-    const product = trainingProduct(item.sku);
-    return item.status === "stored" && trainingSceneAcceptsProduct(app.trainingScene, product?.scene);
-  });
-  const content = $("#training-dock-content");
-  let detail = trainingFacility(app.trainingDetailId);
-  if (app.trainingDock === "available" && (!detail || detail.status !== "placed" || detail.scene !== app.trainingScene)) {
-    app.trainingDetailId = null;
-    detail = null;
-  }
-  const dockHash = JSON.stringify({
-    viewMode,
-    dock: app.trainingDock,
-    detailId: app.trainingDetailId,
-    scene: app.trainingScene,
-    selectedId: app.trainingSelectedId,
-    equipmentState: app.trainingEquipmentState,
-    playerPickerOpen: app.trainingPlayerPickerOpen,
-    playerGroupState: app.trainingPlayerGroupState,
-    playerId: app.trainingPlayerId,
-    showHiddenAttributes: app.showHiddenAttributes,
-    staffId: app.trainingStaffId,
-    durationMode: app.trainingDurationMode,
-    operation: app.trainingOperation,
-    actionBusy: app.trainingActionBusy,
-    submissionRetry: app.trainingSubmissionRetry,
-    rosterLoading: app.trainingRosterLoading,
-    staffLoading: app.trainingStaffLoading,
-    targetKey: app.trainingTargetKey,
-    trainingPlayerSearch: app.trainingPlayerSearch,
-    trainingPlayerPositionFilter: app.trainingPlayerPositionFilter,
-    repeatTarget: app.trainingRepeatTarget,
-    preferredMoves: app.trainingPreferredMoves,
-    gameDate: String(app.gameClock?.date || app.state?.game_clock?.date || output().game_date || ""),
-    clubPolicies: data.club_policies,
-    facilities: (data.facilities || []).map((facility) => ({
-      id: facility.id, sku: facility.sku, status: facility.status,
-      scene: facility.scene, x: facility.x, y: facility.y,
-      rotation: facility.rotation, scale: facility.scale,
-    })),
-    focuses: (data.focuses || []).map((focus) => ({
-      id: focus.id, status: focus.status, focusType: focus.focus_type,
-      facilityId: focus.facility_id, playerId: focus.player_id,
-      playerName: focus.player_name, playerTeamName: focus.player_team_name,
-      playerTeamType: focus.player_team_type, attributeKey: focus.attribute_key,
-      initialAttribute: focus.initial_attribute, targetAttribute: focus.target_attribute,
-      attributeAfter: focus.attribute_after, multiplier: focus.multiplier,
-      requiredPoints: focus.required_points, progressPoints: focus.progress_points,
-      estimatedDays: focus.estimated_days, estimatedTotalDays: focus.estimated_total_days,
-      durationMode: focus.duration_mode, daysUsed: focus.days_used,
-      operation: focus.operation, preferredMoveName: focus.preferred_move_name,
-      staffId: focus.staff_id, staffName: focus.staff_name,
-      initialLicenseCode: focus.initial_license_code,
-      targetLicenseCode: focus.target_license_code,
-      dueOn: focus.due_on, remainingDays: focus.remaining_days,
-    })),
-    catalog: (data.catalog || []).map((item) => ({
-      sku: item.sku, name: trainingFacilityName(item.sku,item), description: trainingFacilityDescription(item.sku,item),
-      price: item.price, available: item.available, scene: item.scene,
-      capacity: item.capacity, unlimited: item.unlimited,
-      builtIn: item.built_in, icon: item.icon,
-      trainingMultiplier: item.training_multiplier, attributes: item.attributes,
-    })),
-    floors: (data.floors || []).map((floor) => ({
-      scene: floor.scene, unlocked: floor.unlocked, price: floor.price,
-    })),
-    players: trainingManagedPlayers().map((player) => ({
-      id: player.id, name: player.name, ca: player.ca, pa: player.pa,
-      primaryPositions: player.primary_positions, positions: player.positions,
-      positionRatings: player.position_ratings, attributes: player.attributes,
-      trainingTeamId: player.training_team_id,
-      trainingTeamName: player.training_team_name,
-      trainingTeamType: player.training_team_type,
-    })),
-  });
-  if (app._lastDockHash !== dockHash) {
-    app._lastDockHash = dockHash;
-    if (floorLocked) {
-       content.innerHTML = `<div class="training-floor-panel"><strong>${escapeHtml(trainingFloorLabel(app.trainingScene,currentFloor))}</strong><span>${uiText("training.floor_locked_note", {amount:formatPounds(Number(currentFloor.price || 0))})}</span><button type="button" data-training-floor-unlock="${escapeHtml(app.trainingScene)}"><i data-lucide="lock-keyhole"></i><span>${uiText("training.unlock_now")}</span></button></div>`;
-    } else if (app.trainingDock === "available") {
-      if (detail) content.innerHTML = trainingUsePanel(detail);
-      else {
-        const available = (data.facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene);
-        content.innerHTML = renderTrainingEquipmentList(available);
-      }
-    } else if (app.trainingDock === "shop") {
-      content.innerHTML = (data.catalog || []).filter((item) => !item.built_in && item.available !== false && trainingSceneAcceptsProduct(app.trainingScene, item.scene)).map((item) => {
-        const owned = (data.facilities || []).filter((facility) => facility.sku === item.sku).length;
-         const unit = item.facility_kind === "room" ? uiText("training.room_unit") : uiText("training.equipment_unit");
-         return `<article class="training-dock-item">${trainingFacilityVisual(item,item.sku)}<div><strong>${escapeHtml(trainingFacilityName(item.sku,item))}</strong><small>${escapeHtml(trainingFacilityDescription(item.sku,item))}</small><span>${owned ? `${uiText("training.owned_count", {count:owned, unit})} · ` : ""}${formatPounds(item.price)}</span></div><button type="button" data-training-buy="${escapeHtml(item.sku)}">${uiText("training.buy")}</button></article>`;
-      }).join("");
-    } else {
-       content.innerHTML = stored.map((facility) => { const item=trainingProduct(facility.sku)||{}; return `<article class="training-dock-item">${trainingFacilityVisual(item,facility.sku)}<div><strong>${escapeHtml(trainingFacilityLabel(facility))}</strong><small>${escapeHtml(trainingFacilityDescription(facility.sku,item))}</small></div><button type="button" data-training-place="${escapeHtml(facility.id)}">${uiText("training.place")}</button></article>`; }).join("") || `<div class="training-dock-empty"><i data-lucide="package-open"></i><strong>${uiText("training.no_equipment")}</strong></div>`;
-    }
-  }
-  const selection = $("#training-selection");
-  const active = trainingFacility(app.trainingSelectedId);
-  selection.hidden = !active || Boolean(app.trainingDetailId);
-  if (active) {
-    const activeFocusCount = trainingFacilityFocuses(active.id).length;
-    const selHash = JSON.stringify({
-      viewMode,
-      selectedId: active.id,
-      sku: active.sku,
-      scale: active.scale,
-      focusCount: activeFocusCount,
-      detailId: app.trainingDetailId,
-      label: trainingFacilityLabel(active),
-    });
-    if (app._lastSelHash !== selHash) {
-      app._lastSelHash = selHash;
-      const scalePercent = Math.round(Number(active.scale || 1) * 100);
-      const inUse = activeFocusCount > 0;
-       selection.innerHTML = `<div>${trainingFacilityVisual(trainingProduct(active.sku) || {},active.sku)}<span><strong>${escapeHtml(trainingFacilityLabel(active))}</strong></span></div><label class="training-scale-control"><span>${uiText("training.size")}</span><input type="range" min="50" max="200" step="5" value="${scalePercent}" data-training-scale="${escapeHtml(active.id)}"><output>${scalePercent}%</output></label><div><button type="button" data-training-use="${escapeHtml(active.id)}"><i data-lucide="play"></i><span>${uiText("training.use")}</span></button><button class="danger" type="button" data-training-sell="${escapeHtml(active.id)}" ${inUse ? `disabled title="${uiText("training.in_use")}"` : ""}><i data-lucide="badge-pound-sterling"></i><span>${uiText("training.sell")}</span></button></div>`;
-    }
-  } else {
-    app._lastSelHash = null;
-  }
-  if (app.trainingDock === "available" && app.trainingDetailId) renderTrainingTargets();
+  renderTrainingRoster();
+  renderTrainingPersonDetail();
+  ensureTrainingWorkspaceRosterLoaded();
   renderIcons();
 }
 
@@ -13195,355 +12623,669 @@ function trainingEstimatedDays(player, attributeKey, durationMode = "until_incre
   }
   return Math.ceil(remaining / Math.max(1,Number(multiplier || 3)));
 }
-function updateTrainingDurationEstimate() {
-  const facility = trainingFacility(app.trainingDetailId);
-  if (!facility || facility.sku === "habit_lab") return;
-  const product = trainingProduct(facility.sku) || {};
-  const player = trainingPlayerContext(Number($("#training-inline-player")?.value || 0));
-  const attributeKey = $("#training-inline-target")?.value || "";
-  const multiplier = Number(product.training_multiplier || 3);
-  const direction = Number($("#training-inline-direction")?.value ?? product.direction ?? 1) < 0 ? -1 : 1;
-  const durationSelect = $("#training-inline-duration");
-  const submit = $("#training-inline-submit");
-  const current = playerAttributeValue(player, attributeKey);
-  const caSpace = Math.max(0, Number(player?.pa || 0) - Number(player?.ca || 0));
-  const caCosts = player?.training_ca?.costs?.[attributeKey] || {};
-  const caAffected = trainingAttributeAffectsCa(attributeKey, product, caCosts);
-  const defaultMode = direction < 0 ? "until_decrease" : "until_increase";
-  const previousMode = durationSelect?.value || app.trainingDurationMode || defaultMode;
-  const fixedTargets = direction < 0 ? TRAINING_REDUCTION_TARGETS : TRAINING_FIXED_TARGETS;
-   const modes = [
-     {mode:defaultMode,target:current + direction,label:direction < 0 ? uiText("training.lower_next") : uiText("training.until_next")},
-     ...fixedTargets.filter((target) => direction > 0 ? target > current : target < current).map((target) => ({
-       mode:`until_${target}`,target,label:uiText("training.until_value", {target}),
-     })),
-  ];
-  if (durationSelect) {
-    durationSelect.innerHTML = modes.map(({mode,target,label}) => {
-      const days = trainingEstimatedDays(player, attributeKey, mode, multiplier, direction);
-      const costKey = mode === "until_increase" ? "next" : `to_${target}`;
-      const requiredCa = Math.max(0, Number(caCosts[costKey] ?? Math.abs(target - current)));
-       const detail = !caAffected
-         ? uiText("training.estimated_days", {days})
-         : (caSpace < requiredCa
-           ? uiText("training.estimated_over_pa", {required:requiredCa, space:caSpace})
-           : (days > 0 ? uiText("training.estimated_ca", {days, required:requiredCa}) : uiText("training.estimated_ca_only", {required:requiredCa})));
-      return `<option value="${mode}">${label}（${detail}）</option>`;
-    }).join("");
-    durationSelect.value = modes.some(({mode}) => mode === previousMode) ? previousMode : defaultMode;
-    app.trainingDurationMode = durationSelect.value;
-  }
-  if (submit) submit.disabled = app.trainingActionBusy || !attributeKey || !durationSelect?.value;
+const TRAINING_MODULES = [
+  {key:"player_training", icon:"users", labelKey:"training.module.player_training"},
+  {key:"position_training", icon:"crosshair", labelKey:"training.module.position_training"},
+  {key:"staff_training", icon:"briefcase-business", labelKey:"training.module.staff_training"},
+];
+
+function trainingCurrentTeamId() {
+  const teams = managedTeams();
+  const club = teams.find((team) => String(team.team_type || "club") === "club");
+  if (club) return Number(club.id || 0);
+  const fallback = output().managed_team || {};
+  return String(fallback.team_type || "club") === "club" ? Number(fallback.id || 0) : 0;
 }
-function renderTrainingTargets() {
-  const facility = trainingFacility(app.trainingDetailId);
-  const product = trainingProduct(facility?.sku) || {};
-  const playerSelect = $("#training-inline-player");
-  const targetSelect = $("#training-inline-target");
-  const submit = $("#training-inline-submit");
-  const status = $("#training-inline-status");
-  if (!facility || !playerSelect || !targetSelect || !submit || !status) return;
-  const durationSelect = $("#training-inline-duration");
-  const directionSelect = $("#training-inline-direction");
-  targetSelect.disabled = app.trainingActionBusy;
-  if (durationSelect) durationSelect.disabled = app.trainingActionBusy;
-  if (directionSelect) directionSelect.disabled = app.trainingActionBusy;
-  app.trainingPlayerId = Number(playerSelect.value || 0);
-  const player = trainingPlayerContext(app.trainingPlayerId);
-   if (!player) {
-     targetSelect.innerHTML = `<option value="">${uiText("training.no_available_players")}</option>`;
-    submit.disabled = true;
-    return;
-  }
-  const full = trainingIsFull(product, trainingFacilityFocuses(facility.id).length);
-  if (facility.sku !== "habit_lab") {
-    const options = trainingAttributeKeysForPlayer(product, player).map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(localizedTrainingAttribute(key))}</option>`).join("");
-     targetSelect.innerHTML = options || `<option value="">${uiText("training.no_available_attribute")}</option>`;
-    const requestedTarget = app.trainingRepeatTarget || app.trainingTargetKey;
-    if (requestedTarget && [...targetSelect.options].some((option) => option.value === requestedTarget)) {
-      targetSelect.value = requestedTarget;
-    }
-    app.trainingTargetKey = targetSelect.value || null;
-    app.trainingRepeatTarget = null;
-    const active = activeTrainingFocus(player.id);
-    if (active) {
-      if (durationSelect) {
-        const durationLabel = ["until_increase","until_decrease"].includes(active.duration_mode)
-           ? (Number(active.direction || 1) < 0 ? uiText("training.lower_next") : uiText("training.until_next"))
-           : uiText("training.until_value", {target:Number(active.target_attribute || 20)});
-        durationSelect.innerHTML = `<option value="${escapeHtml(active.duration_mode || "until_increase")}">${durationLabel}</option>`;
-        durationSelect.disabled = true;
-      }
-      submit.disabled = true;
-      status.hidden = false;
-      status.classList.add("active");
-      const activeFacility = trainingFacility(active.facility_id);
-       const activeFacilityName = activeFacility ? trainingFacilityLabel(activeFacility) : uiText("training.other_equipment");
-      const activeMultiplier = Number(active.multiplier || 3);
-       const activeSpeed = uiText("training.speed", {multiplier:activeMultiplier});
-      const activeDays = Number(active.estimated_days || 0);
-      const activeTarget = Number(active.target_attribute || 0);
-       const activeRemaining = !["until_increase","until_decrease"].includes(active.duration_mode)
-         ? (activeDays > 0 ? uiText("training.until_target", {target:activeTarget, days:Number(active.estimated_total_days || 0)}) : uiText("training.until_settling", {target:activeTarget}))
-         : (activeDays > 0 ? uiText("training.about_days", {days:activeDays}) : uiText("training.points_settling"));
-       const playerSource = player.training_team_type === "national" && player.training_team_name
-         ? (activeUiLocale() === "zh-CN" ? `（${player.training_team_name}）` : ` (${player.training_team_name})`) : "";
-       status.textContent = uiText("training.active_attribute_status", {name:player.name, source:playerSource, facility:activeFacilityName, speed:activeSpeed, remaining:activeRemaining});
-      return;
-    }
-    if (full) {
-      submit.disabled = true;
-      status.hidden = false;
-      status.classList.add("active");
-       status.textContent = uiText("training.full_capacity_status", {used:trainingFacilityFocuses(facility.id).length, capacity:Number(product.capacity || 1)});
-      return;
-    }
-    status.hidden = true;
-    status.classList.remove("active");
-    const currentAttribute = playerAttributeValue(player, targetSelect.value);
-    const direction = Number(product.direction || 1) < 0 ? -1 : 1;
-    const atLimit = direction > 0 ? currentAttribute >= 20 : currentAttribute <= 1;
-    if (currentAttribute <= 0 || atLimit) {
-       const attributeName = localizedTrainingAttribute(targetSelect.value) || uiText("training.attribute");
-       if (durationSelect) {
-         durationSelect.innerHTML = `<option value="">${atLimit ? (direction > 0 ? uiText("training.attribute_at_max") : uiText("training.attribute_at_min")) : uiText("training.attribute_untrainable")}</option>`;
-        durationSelect.disabled = true;
-      }
-      submit.disabled = true;
-      status.hidden = false;
-       const statusText = atLimit
-         ? uiText(direction > 0 ? "training.attribute_reached_max" : "training.attribute_reached_min")
-         : uiText("training.attribute_unavailable");
-       status.textContent = `${player.name} ${attributeName} ${statusText}`;
-      return;
-    }
-    submit.disabled = app.trainingActionBusy || !options;
-    updateTrainingDurationEstimate();
-    return;
-  }
-  const active = activeTrainingFocus(player.id);
-  status.hidden = !active && !full;
-  status.classList.toggle("active", Boolean(active || full));
-  if (active) {
-    const activeFacility = trainingFacility(active.facility_id);
-     const activeName = activeFacility ? trainingFacilityLabel(activeFacility) : uiText("training.other_equipment");
-     status.textContent = uiText("training.active_habit_status", {name:player.name, facility:activeName, days:Number(active.days_used || 0)});
-   } else if (full) status.textContent = uiText("training.full_habit_status");
-  if (Number(app.trainingPreferredMoves?.player_id) === Number(player.id)) {
-    renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
-  } else {
-    loadTrainingPreferredMoves(player.id).catch((error) => toast(error.message));
-  }
+function trainingCurrentTeamProfile() {
+  const teamId = trainingCurrentTeamId();
+  if (!teamId) return null;
+  return teamProfile(teamId)
+    || app.clubProfiles.find((profile) => Number(profile?.team?.id || 0) === teamId)
+    || null;
 }
-function renderTrainingPreferredMoveTargets(current) {
-  const targetSelect = $("#training-inline-target");
-  const currentMoves = $("#training-inline-current-moves");
-  const submit = $("#training-inline-submit");
-  if (!targetSelect || !currentMoves || !submit) return;
-  const verified = new Map((trainingData().preferred_moves || []).map((item) => [Number(item.bit),localizedPreferredMove(item)]));
-  const currentBits = new Set((current.moves || []).map((item) => Number(item.bit)));
-  const choices = app.trainingOperation === "learn"
-    ? [...verified].filter(([bit]) => !currentBits.has(bit)).map(([bit,name]) => ({bit,name}))
-    : (current.moves || []).filter((item) => verified.has(Number(item.bit)));
-   targetSelect.innerHTML = choices.map((item) => `<option value="${Number(item.bit)}">${escapeHtml(item.name)}</option>`).join("") || `<option value="">${uiText("training.no_available_habit")}</option>`;
-  currentMoves.hidden = false;
-   currentMoves.innerHTML = `<strong>${uiText("training.current_habits")}</strong><span>${(current.moves || []).map((item) => escapeHtml(localizedPreferredMove(item))).join(" · ") || uiText("training.none")}</span>`;
-  const facility = trainingFacility(app.trainingDetailId);
-  const blocked = Boolean(activeTrainingFocus(current.player_id)) || trainingIsFull(trainingProduct(facility?.sku), trainingFacilityFocuses(facility?.id).length);
-  submit.disabled = app.trainingActionBusy || !choices.length || blocked;
+function trainingTeamFields(team) {
+  return {
+    training_team_id:Number(team?.id || 0),
+    training_team_name:String(team?.name || ""),
+    training_team_type:String(team?.team_type || "club"),
+  };
 }
-async function loadTrainingPreferredMoves(playerId) {
-  app.trainingPreferredMoves = null;
-  const targetSelect = $("#training-inline-target");
-  const submit = $("#training-inline-submit");
-   if (targetSelect) targetSelect.innerHTML = `<option>${uiText("training.reading")}</option>`;
-  if (submit) submit.disabled = true;
-  const player = trainingPlayerContext(playerId);
-  const current = await request("/api/training/preferred-moves", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:Number(playerId),team_id:Number(player?.training_team_id || 0)})});
-  app.trainingPreferredMoves = {...current,player_id:Number(playerId)};
-  if (app.trainingDetailId && Number(app.trainingPlayerId) === Number(playerId)) renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
+function trainingFirstTeamPlayers() {
+  const profile = trainingCurrentTeamProfile();
+  if (!profile) return [];
+  const team = profile.team || {};
+  const squads = clubProfileSquads(profile);
+  const firstTeam = squads.find((squad) => squad.type_code != null && Number(squad.type_code) === 0);
+  const players = firstTeam ? (firstTeam.players || []) : (profile.players || []);
+  return players.map((player) => ({...player, ...trainingTeamFields(team)}));
 }
-async function openTrainingDetail(facilityId) {
-  const facility = trainingFacility(facilityId);
-  if (!facility || facility.status !== "placed") { toast(uiText("training.no_equipment")); return; }
-  app.trainingDock = "available";
-  app.trainingDetailId = facility.id;
-  app.trainingPlayerPickerOpen = false;
-  if (facility.sku === "coaching_desk") {
-    const staff = trainingManagedStaff().filter((row) => !row.coaching_license?.maximum);
-    if (!staff.some((row) => Number(row.id) === Number(app.trainingStaffId))) {
-      app.trainingStaffId = Number(staff[0]?.id || 0);
-    }
-  }
-  const product = trainingProduct(facility.sku) || {};
-  const players = trainingManagedPlayers();
-  if (!players.some((player) => Number(player.id) === Number(app.trainingPlayerId))) {
-    app.trainingPlayerId = Number(players[0]?.id || 0);
-  }
-  app.trainingOperation = "learn";
-  if (!app.trainingSubmissionRetry) {
-    app.trainingDirection = Number(product.direction || 1) < 0 ? -1 : 1;
-    app.trainingDurationMode = Number(product.direction || 1) < 0
-      ? "until_decrease" : "until_increase";
-  }
-  app.trainingPreferredMoves = null;
-  renderTraining();
-  const coachingDesk = facility.sku === "coaching_desk";
-  const requiresStaff = coachingDesk;
-  const rosterCurrent = requiresStaff
-    ? managedCoachingRostersAreCurrent()
-    : trainingRosterIsCurrent();
-  if (!rosterCurrent) {
-    app.trainingRosterLoading = true;
-    if (requiresStaff) app.trainingStaffLoading = true;
-    renderTraining();
-    const needsFormulaSnapshots = !requiresStaff && product.attribute_kind !== "hidden";
-    const rosterLoad = requiresStaff
-      ? ensureTrainingCoachingRosterLoaded()
-      : (needsFormulaSnapshots
-        ? ensurePlayerDevelopmentRosterLoaded()
-        : ensureTrainingRosterLoaded(false));
-    rosterLoad.catch((error) => toast(error.message)).finally(() => {
-      app.trainingRosterLoading = Boolean(app.clubStatus?.refreshing && !trainingManagedPlayers().length);
-      if (requiresStaff) {
-        app.trainingStaffLoading = Boolean(
-          app.clubStatus?.refreshing && !managedCoachingRostersAreCurrent()
-        );
-      }
-      if (app.trainingDetailId === facility.id) renderTraining();
+function trainingPositionPlayers() {
+  const teamId = trainingCurrentTeamId();
+  return trainingManagedPlayers().filter(
+    (player) => !teamId || Number(player.training_team_id || 0) === teamId,
+  );
+}
+function trainingCurrentStaff() {
+  const profile = trainingCurrentTeamProfile();
+  const team = profile?.team || {};
+  const rows = [];
+  const playerManager = trainingData().player_manager;
+  if (playerManager?.id) {
+    rows.push({
+      ...playerManager,
+      role:String(playerManager.role || uiText("world.club.player_manager")),
+      training_subject_type:"player_manager",
+      ...trainingTeamFields(team),
     });
   }
+  for (const staff of profile?.staff || []) {
+    rows.push({
+      ...staff,
+      training_subject_type:"staff",
+      ...trainingTeamFields(team),
+    });
+  }
+  return rows;
 }
-
-async function submitInlineTraining(form) {
-  if (app.trainingActionBusy) return;
-  const facility = trainingFacility(form.querySelector("#training-inline-facility")?.value);
-  const target = form.querySelector("#training-inline-target")?.value;
-  if (!facility || !target) return;
-  const coaching = facility.sku === "coaching_desk";
-  const habit = facility.sku === "habit_lab";
-  if (coaching) {
-    const staffId = Number(form.querySelector("#training-inline-staff")?.value || 0);
-    const staff = trainingStaffContext(staffId);
-     if (!staff) return toast(uiText("training.no_coach_manager"));
-    const license = staff.coaching_license || {};
-    const durationDays = Number(trainingData().coaching_license_course_days?.[license.code] || 0);
-    const payload = {
-      facility_id:facility.id, staff_id:staffId, player_id:staffId,
-      team_id:Number(staff.training_team_id || 0), operation:"coaching_license",
-      subject_type:String(staff.training_subject_type || "staff"),
-      target_license_code:Number(target),
+function trainingStaffEligible(staff) {
+  if (!staff?.coaching_license) return false;
+  if (staff.training_subject_type === "player_manager") {
+    return !staff.coaching_license.maximum && Boolean(staff.coaching_license.next_code);
+  }
+  return COACHING_STAFF_JOB_TYPES.has(Number(staff.job_type || 0))
+    && !staff.coaching_license.maximum
+    && Boolean(staff.coaching_license.next_code);
+}
+function trainingFocusKey(focus) {
+  if (!focus) return "";
+  if (focus.focus_type === "coaching_license") return `staff:${Number(focus.staff_id || 0)}`;
+  return `player:${Number(focus.player_id || 0)}`;
+}
+function trainingPersonFocus(kind, personId) {
+  const index = trainingDataIndex();
+  return kind === "staff"
+    ? (index.activeFocusByStaff.get(Number(personId)) || null)
+    : (index.activeFocusByPlayer.get(Number(personId)) || null);
+}
+function trainingProjects(module) {
+  return (trainingData().catalog || []).filter((project) => project.module === module);
+}
+function trainingProjectApplies(project, kind, person) {
+  if (!project || !person) return false;
+  if (kind === "staff") return project.module === "staff_training" && trainingStaffEligible(person);
+  if (project.module !== "player_training") return false;
+  if (project.sku === "habit_lab") return true;
+  if (project.position_group && !trainingPlayerMatchesPositionGroup(person, project.position_group)) return false;
+  return trainingAttributeKeysForPlayer(project, person).length > 0;
+}
+function trainingProjectTargets(project, kind, person) {
+  if (!project || kind === "staff" || project.sku === "habit_lab") return [];
+  return trainingAttributeKeysForPlayer(project, person);
+}
+function trainingTargetModes(project, person, target, direction) {
+  const current = playerAttributeValue(person, target);
+  const resolvedDirection = Number(direction) < 0 ? -1 : 1;
+  const defaultMode = resolvedDirection < 0 ? "until_decrease" : "until_increase";
+  const fixedTargets = resolvedDirection < 0 ? TRAINING_REDUCTION_TARGETS : TRAINING_FIXED_TARGETS;
+  return [
+    {mode:defaultMode, target:current + resolvedDirection},
+    ...fixedTargets
+      .filter((value) => (resolvedDirection > 0 ? value > current : value < current))
+      .map((value) => ({mode:`until_${value}`, target:value})),
+  ];
+}
+function trainingTaskEstimate(project, kind, person, target, durationMode, selectedDirection) {
+  const feeMinor = Math.max(0, Number(project?.task_price_minor || 0));
+  if (!project || !person) return {feeMinor, days:0, current:null, targetValue:null};
+  if (kind === "staff") {
+    const code = Number(person.coaching_license?.code ?? -1);
+    return {
+      feeMinor,
+      days:Number(trainingData().coaching_license_course_days?.[code] || 0),
+      current:null, targetValue:null,
     };
-     const confirmed = await fmoddConfirm(
-       uiText("training.confirm_licence", {name:staff.name, facility:trainingFacilityLabel(facility), next:license.next_name, current:license.name, days:durationDays}),
-       uiText("training.start_licence"),
-     );
-    if (!confirmed) return;
-    const fingerprint = JSON.stringify(payload);
-    if (app.trainingSubmissionRetry?.fingerprint !== fingerprint) {
-      app.trainingSubmissionRetry = {fingerprint,id:clientSubmissionId()};
-    }
-    payload.client_submission_id = app.trainingSubmissionRetry.id;
-    app.trainingActionBusy = true;
-    form.querySelectorAll("button,select").forEach((control) => { control.disabled = true; });
-    try {
-      const response = await runItemOperation(
-         "development", uiText("training.licence_busy", {person:staff.name}),
-        () => request("/api/training/run", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(payload), timeoutMs:60000,
-           timeoutMessage:uiText("training.licence_timeout"),
-        }),
-         uiText("training.licence_started_note"),
-      );
-      app.trainingSubmissionRetry = null;
-      updateTrainingResponse(response);
-       toast(response.duplicate ? uiText("training.licence_duplicate") : uiText("training.licence_started", {name:staff.name, licence:license.next_name}));
-    } catch (error) {
-      if (error.code !== "REQUEST_TIMEOUT") app.trainingSubmissionRetry = null;
-      throw error;
-    } finally {
-      app.trainingActionBusy = false;
-      renderTraining();
-    }
-    return;
   }
-  const payload = {
-    facility_id:facility.id,
-    player_id:Number(form.querySelector("#training-inline-player")?.value || 0),
-    operation:habit ? app.trainingOperation : "attribute",
-    duration_mode:habit ? "week" : (
-      form.querySelector("#training-inline-duration")?.value
-      || (Number(trainingProduct(facility.sku)?.direction || 1) < 0
-        ? "until_decrease" : "until_increase")
-    ),
+  if (project.sku === "habit_lab") {
+    return {feeMinor, days:7, current:null, targetValue:null};
+  }
+  const direction = Number(selectedDirection ?? project.direction ?? 1) < 0 ? -1 : 1;
+  const multiplier = Number(project.training_multiplier || 3);
+  const mode = durationMode || (direction < 0 ? "until_decrease" : "until_increase");
+  const current = playerAttributeValue(person, target);
+  const targetValue = trainingDurationTarget(mode, current, direction);
+  const days = trainingEstimatedDays(person, target, mode, multiplier, direction);
+  const caCosts = person?.training_ca?.costs?.[target] || {};
+  const caAffected = trainingAttributeAffectsCa(target, project, caCosts);
+  const requiredCa = Math.max(0, Number(
+    caCosts[mode === "until_increase" ? "next" : `to_${targetValue}`]
+    ?? Math.abs(targetValue - current)
+  ));
+  return {
+    feeMinor, days, current, targetValue,
+    caAffected, requiredCa,
+    ca:Number(person.ca || 0), pa:Number(person.pa || 0),
   };
-  const selectedPlayer = trainingPlayerContext(payload.player_id);
-  payload.team_id = Number(selectedPlayer?.training_team_id || 0);
-  if (habit) payload.preferred_move_bit = Number(target);
-  else {
-    payload.attribute_key = target;
-    if (form.querySelector("#training-inline-direction")) {
-      payload.direction = Number(form.querySelector("#training-inline-direction").value) < 0 ? -1 : 1;
-    }
-    payload.duration_mode = form.querySelector("#training-inline-duration")?.value
-      || (Number(trainingProduct(facility.sku)?.direction || 1) < 0
-        ? "until_decrease" : "until_increase");
-    const player = selectedPlayer;
-    const current = playerAttributeValue(player, target);
-    const product = trainingProduct(facility.sku) || {};
-    const caCosts = player?.training_ca?.costs?.[target] || {};
-    if (trainingAttributeAffectsCa(target, product, caCosts)) {
-      const targetAttribute = trainingDurationTarget(payload.duration_mode, current, 1);
-      const costKey = payload.duration_mode === "until_increase" ? "next" : `to_${targetAttribute}`;
-      const requiredCa = Math.max(0, Number(caCosts[costKey] ?? (targetAttribute - current)));
-      const currentCa = Number(player?.ca || 0);
-      const currentPa = Number(player?.pa || 0);
-      if (currentCa + requiredCa > currentPa) {
-         const confirmed = await fmoddConfirm(
-           uiText("training.confirm_continue_ca", {required:requiredCa, current:currentCa, after:currentCa + requiredCa, pa:currentPa}),
-           uiText("training.continue"),
-         );
-        if (!confirmed) return;
-        payload.confirm_ca_over_pa = true;
-      }
-    }
+}
+function trainingRoster(module) {
+  if (module === "staff_training") return trainingCurrentStaff();
+  if (module === "position_training") return trainingPositionPlayers();
+  return trainingFirstTeamPlayers();
+}
+function trainingScopeKey() {
+  return [
+    String(app.state?.data_scope_id || output().save_instance_id || ""),
+    Number(output().selected_manager_id || output().manager?.id || 0),
+    trainingCurrentTeamId(),
+  ].join(":");
+}
+function trainingProjectName(project) {
+  return trainingFacilityName(project?.sku, project || {});
+}
+function trainingProjectDescription(project) {
+  return trainingFacilityDescription(project?.sku, project || {});
+}
+function trainingFeeLabel(feeMinor) {
+  return Number(feeMinor || 0) > 0
+    ? formatPounds(Number(feeMinor) / 100)
+    : uiText("training.free");
+}
+function trainingPersonRoleLabel(kind, person) {
+  if (kind !== "staff") return primaryPlayerPosition(person);
+  if (person?.training_subject_type === "player_manager") {
+    return String(person.role || uiText("world.club.player_manager"));
   }
+  return localizedStaffRole(person);
+}
+function filteredTrainingRoster(kind, people) {
+  const query = String(app.trainingPlayerSearch || "").trim().toLocaleLowerCase();
+  const group = String(app.trainingPlayerPositionFilter || "all");
+  return people.filter((person) => {
+    if (kind === "player" && group !== "all" && playerPositionGroup(person) !== group) return false;
+    if (!query) return true;
+    return [
+      person.name,
+      trainingPersonRoleLabel(kind, person),
+      person.training_team_name,
+    ].some((value) => String(value || "").toLocaleLowerCase().includes(query));
+  });
+}
+function trainingRunPayload(kind, person, project, target, durationMode, direction, submissionId) {
+  if (!person || !project) return null;
+  const payload = {
+    project_sku:String(project.sku),
+    module:String(project.module || ""),
+    team_id:Number(person.training_team_id || trainingCurrentTeamId()),
+    operation:"attribute",
+    duration_mode:String(durationMode || "until_increase"),
+    client_submission_id:String(submissionId || ""),
+  };
+  if (kind === "staff") {
+    return {
+      ...payload,
+      operation:"coaching_license",
+      staff_id:Number(person.id),
+      player_id:Number(person.id),
+      subject_type:String(person.training_subject_type || "staff"),
+      target_license_code:Number(person.coaching_license?.next_code || 0),
+      duration_mode:"until_increase",
+    };
+  }
+  payload.player_id = Number(person.id);
+  if (project.sku === "habit_lab") {
+    payload.operation = app.trainingOperation === "unlearn" ? "unlearn" : "learn";
+    payload.preferred_move_bit = Number(target);
+    payload.duration_mode = "week";
+    return payload;
+  }
+  const resolvedDirection = Number(direction ?? project.direction ?? 1) < 0 ? -1 : 1;
+  payload.operation = "attribute";
+  payload.attribute_key = String(target || "");
+  payload.attribute_kind = String(project.attribute_kind || "visible");
+  payload.direction = resolvedDirection;
+  return payload;
+}
+function trainingSubmissionFor(payload) {
   const fingerprint = JSON.stringify(payload);
   if (app.trainingSubmissionRetry?.fingerprint !== fingerprint) {
-    app.trainingSubmissionRetry = {fingerprint,id:clientSubmissionId()};
+    app.trainingSubmissionRetry = {fingerprint, id:clientSubmissionId()};
   }
-  payload.client_submission_id = app.trainingSubmissionRetry.id;
+  return app.trainingSubmissionRetry.id;
+}
+function resetTrainingWorkspaceState() {
+  app.trainingRequestSeq = Number(app.trainingRequestSeq || 0) + 1;
+  app.trainingPersonKind = null;
+  app.trainingPersonId = null;
+  app.trainingProjectSku = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingRosterError = "";
+  app.trainingTargetKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  app.trainingPlayerSearch = "";
+  app.trainingPlayerPositionFilter = "all";
+  app.trainingActionBusy = false;
+  app.trainingActionRequest = null;
+  app.trainingCancelFocusId = null;
+  app.trainingRosterLoading = false;
+  app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+}
+function trainingRosterStale() {
+  if (app.trainingModule === "staff_training") return !managedCoachingRostersAreCurrent();
+  return !trainingRosterIsCurrent();
+}
+function ensureTrainingWorkspaceRosterLoaded() {
+  if (app.trainingRosterLoading || app.trainingStaffLoading || app.trainingRosterError) return;
+  if (!trainingRosterStale()) return;
+  loadTrainingRoster().catch(() => {});
+}
+async function loadTrainingRoster({force = false} = {}) {
+  if (app.trainingRosterLoadPromise && !force) return app.trainingRosterLoadPromise;
+  const module = app.trainingModule;
+  const seq = app.trainingRequestSeq;
+  const task = (async () => {
+    app.trainingRosterError = "";
+    if (module === "staff_training") app.trainingStaffLoading = true;
+    else app.trainingRosterLoading = true;
+    renderTraining();
+    try {
+      if (module === "staff_training") await ensureTrainingCoachingRosterLoaded(true);
+      else if (module === "position_training") await ensureTrainingRosterLoaded(true);
+      else await ensurePlayerDevelopmentRosterLoaded();
+    } catch (error) {
+      if (seq === app.trainingRequestSeq && module === app.trainingModule) {
+        app.trainingRosterError = String(error?.message || uiText("training.roster_failed"));
+      }
+    } finally {
+      if (seq === app.trainingRequestSeq && module === app.trainingModule) {
+        app.trainingRosterLoading = false;
+        app.trainingStaffLoading = false;
+        renderTraining();
+      }
+    }
+  })();
+  app.trainingRosterLoadPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (app.trainingRosterLoadPromise === task) app.trainingRosterLoadPromise = null;
+  }
+}
+function setTrainingModule(module) {
+  app.trainingModule = TRAINING_MODULES.some((row) => row.key === module) ? module : "player_training";
+  app.trainingRequestSeq = Number(app.trainingRequestSeq || 0) + 1;
+  app.trainingPersonKind = null;
+  app.trainingPersonId = null;
+  app.trainingProjectSku = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingRosterError = "";
+  app.trainingTargetKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  // Invalidate roster/cancel UI; an in-flight submit owns its busy flag until it finishes.
+  app.trainingCancelFocusId = null;
+  app.trainingRosterLoading = false;
+  app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+  renderTraining();
+  ensureTrainingWorkspaceRosterLoaded();
+}
+function openTrainingPerson(kind, personId) {
+  app.trainingPersonKind = kind === "staff" ? "staff" : "player";
+  app.trainingPersonId = Number(personId || 0) || null;
+  app.trainingProjectSku = null;
+  app.trainingTargetKey = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  app._lastDetailSignature = null;
+  renderTraining();
+}
+function renderTrainingModuleTabs() {
+  const root = $("#training-module-tabs");
+  if (!root) return;
+  root.setAttribute("aria-label", uiText("training.modules"));
+  const rows = TRAINING_MODULES.map((module) => {
+    const active = app.trainingModule === module.key;
+    const count = module.key === "position_training"
+      ? null
+      : (module.key === "staff_training" ? trainingCurrentStaff().length : trainingFirstTeamPlayers().length);
+    return {module, active, count};
+  });
+  const signature = JSON.stringify(rows.map((row) => [row.module.key, row.active, row.count]));
+  if (root.dataset.signature === signature) return;
+  root.dataset.signature = signature;
+  root.innerHTML = rows.map(({module, active, count}) => {
+    const counter = count === null ? "" : `<small>${count}</small>`;
+    return `<button type="button" role="tab" aria-selected="${active}" class="${active ? "active" : ""}" data-training-module="${module.key}"><i data-lucide="${module.icon}"></i><span>${escapeHtml(uiText(module.labelKey))}</span>${counter}</button>`;
+  }).join("");
+}
+function renderTrainingRoster() {
+  const roster = $("#training-roster");
+  if (!roster) return;
+  const module = app.trainingModule;
+  if (module === "position_training") { roster.innerHTML = ""; return; }
+  const kind = module === "staff_training" ? "staff" : "player";
+  const loading = kind === "staff" ? app.trainingStaffLoading : app.trainingRosterLoading;
+  const people = trainingRoster(module);
+  const visible = filteredTrainingRoster(kind, people);
+  const focusRows = visible.map((person) => [Number(person.id), trainingFocusKey(trainingPersonFocus(kind, person.id))]);
+  const signature = JSON.stringify({
+    module, kind, loading, error:app.trainingRosterError,
+    selected:[app.trainingPersonKind, app.trainingPersonId],
+    search:app.trainingPlayerSearch, filter:app.trainingPlayerPositionFilter,
+    people:people.map((person) => [
+      Number(person.id), String(person.name || ""), String(person.shirt_number || ""),
+      String(person.primary_positions?.[0] || ""), Number(person.coaching_license?.code ?? -1),
+      String(person.training_subject_type || ""), trainingStaffEligible(person),
+    ]),
+    focusRows,
+  });
+  if (roster.dataset.signature === signature) return;
+  roster.dataset.signature = signature;
+  if (app.trainingRosterError) {
+    roster.innerHTML = `<div class="training-roster-state"><i data-lucide="cloud-off"></i><strong>${uiText("training.roster_error")}</strong><small>${escapeHtml(app.trainingRosterError)}</small><button type="button" data-training-roster-retry>${uiText("training.roster_retry")}</button></div>`;
+    return;
+  }
+  if (loading && !people.length) {
+    roster.innerHTML = `<div class="training-roster-state"><i data-lucide="refresh-cw"></i><strong>${uiText("training.roster.loading")}</strong></div>`;
+    return;
+  }
+  const head = `<div class="training-roster-head"><strong>${uiText(kind === "staff" ? "training.roster.staff_title" : "training.roster.player_title")}</strong><span>${uiPlural(kind === "staff" ? "training.roster.staff_count" : "training.roster.player_count", people.length)}</span></div>`;
+  const tools = `<div class="training-roster-tools"><label class="training-person-search"><i data-lucide="search"></i><input id="training-person-search" type="search" aria-label="${uiText("training.roster.search")}" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.roster.search")}" autocomplete="off"></label>${kind === "player" ? `<div class="training-position-filters" role="group">${[["all","training.all_people"],["goalkeepers","training.position_group.goalkeepers"],["defenders","training.position_group.defenders"],["midfielders","training.position_group.midfielders"],["forwards","training.position_group.forwards"]].map(([key,label]) => `<button type="button" class="${String(app.trainingPlayerPositionFilter || "all") === key ? "active" : ""}" data-training-position-filter="${key}">${uiText(label)}</button>`).join("")}</div>` : ""}</div>`;
+  const rows = visible.map((person) => {
+    const activeFocus = trainingPersonFocus(kind, person.id);
+    const selected = app.trainingPersonKind === kind && Number(app.trainingPersonId) === Number(person.id);
+    const eligible = kind === "player" || trainingStaffEligible(person);
+    const role = trainingPersonRoleLabel(kind, person);
+    const status = activeFocus ? trainingFocusUsage(activeFocus)
+      : kind === "staff" && !eligible ? uiText("training.not_eligible")
+      : uiText("training.idle");
+    return `<article class="training-person-row ${selected ? "selected" : ""} ${activeFocus ? "training" : ""}">
+      <button type="button" class="training-person-open" data-training-person="${kind}:${Number(person.id)}">
+        <span class="training-person-shirt">${kind === "staff" ? `<i data-lucide="${person.training_subject_type === "player_manager" ? "user-cog" : "briefcase-business"}"></i>` : escapeHtml(String(person.shirt_number || "—"))}</span>
+        <span class="training-person-copy"><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(role || "")} · ${escapeHtml(status)}</small></span>
+        ${activeFocus
+          ? `<span class="training-person-badge">${uiText("training.studying")}</span>`
+          : eligible ? `<i data-lucide="chevron-right"></i>` : `<span class="training-person-badge muted">${uiText("training.not_eligible")}</span>`}
+      </button>
+      ${activeFocus ? `<button type="button" class="training-person-cancel" data-training-cancel-focus="${escapeHtml(activeFocus.id)}" aria-label="${uiText("training.cancel_use")}"><i data-lucide="x"></i></button>` : ""}
+    </article>`;
+  }).join("");
+  roster.innerHTML = head + tools + (rows || `<div class="training-roster-state"><strong>${uiText("training.roster_empty")}</strong></div>`);
+}
+function renderTrainingPersonDetail() {
+  const content = $("#training-dock-content");
+  if (!content) return;
+  const module = app.trainingModule;
+  const kind = app.trainingPersonKind;
+  const roster = module === "staff_training" ? trainingCurrentStaff() : trainingFirstTeamPlayers();
+  const person = kind ? roster.find((row) => Number(row.id) === Number(app.trainingPersonId)) : null;
+  if (!person) {
+    app.trainingPersonId = null;
+    app.trainingProjectSku = null;
+    app._lastDetailSignature = null;
+    content.innerHTML = `<div class="training-detail-empty"><i data-lucide="${kind === "staff" || module === "staff_training" ? "briefcase-business" : "user-round"}"></i><strong>${uiText("training.select_person")}</strong><small>${uiText(module === "staff_training" ? "training.select_staff_hint" : "training.select_player_hint")}</small></div>`;
+    return;
+  }
+  const activeFocus = trainingPersonFocus(kind, person.id);
+  const applicable = trainingProjects(module).filter((project) => trainingProjectApplies(project, kind, person));
+  let project = applicable.find((row) => row.sku === app.trainingProjectSku) || null;
+  if (!project && applicable.length) {
+    project = applicable[0];
+    app.trainingProjectSku = project.sku;
+    app.trainingDirection = Number(project.direction || 1) < 0 ? -1 : 1;
+  }
+  if (!project) app.trainingProjectSku = null;
+  const edition = activeUiLocale();
+  const preferred = app.trainingPreferredMoves;
+  const habitReady = Boolean(preferred && Number(preferred.player_id) === Number(person.id));
+  let targetOptions = [];
+  if (project?.sku === "habit_lab") {
+    const verified = new Map((trainingData().preferred_moves || []).map((item) => [Number(item.bit), localizedPreferredMove(item)]));
+    const currentBits = new Set((preferred?.moves || []).map((item) => Number(item.bit)));
+    targetOptions = app.trainingOperation === "unlearn"
+      ? (preferred?.moves || []).filter((item) => verified.has(Number(item.bit))).map((item) => ({value:String(Number(item.bit)), label:verified.get(Number(item.bit))}))
+      : [...verified].filter(([bit]) => !currentBits.has(bit)).map(([bit, name]) => ({value:String(bit), label:name}));
+  } else if (project && kind === "staff") {
+    const license = person.coaching_license || {};
+    targetOptions = [{value:String(license.next_code || 0), label:String(license.next_name || uiText("training.no_next_licence"))}];
+  } else if (project) {
+    targetOptions = trainingProjectTargets(project, kind, person).map((key) => ({value:key, label:localizedTrainingAttribute(key)}));
+  }
+  let target = app.trainingTargetKey;
+  if (!targetOptions.some((row) => row.value === String(target))) target = targetOptions[0]?.value || null;
+  app.trainingTargetKey = target;
+  if (project?.sku === "habit_lab" && !habitReady) {
+    const habitKey = `${Number(person.id)}:${app.trainingOperation}`;
+    if (app.trainingHabitLoadKey !== habitKey) {
+      app.trainingHabitLoadKey = habitKey;
+      loadTrainingPreferredMoves(person.id).catch((error) => toast(error.message));
+    }
+  } else if (project?.sku !== "habit_lab") {
+    app.trainingHabitLoadKey = null;
+  }
+  const staffIneligible = kind === "staff" && !trainingStaffEligible(person);
+  const reason = activeFocus ? uiText("training.reason_active")
+    : staffIneligible ? uiText("training.staff_ineligible")
+    : !project ? uiText("training.reason_no_project")
+    : project.sku === "habit_lab" && !habitReady ? uiText("training.roster.loading")
+    : !target ? uiText("training.no_available_attribute")
+    : "";
+  const disabled = Boolean(app.trainingActionBusy || activeFocus || staffIneligible || !project || !target);
+  const operationToggle = project?.sku === "habit_lab"
+    ? `<div class="training-operation-toggle" role="group">${[["learn","training.learn"],["unlearn","training.unlearn"]].map(([key,label]) => `<button type="button" class="${app.trainingOperation === key ? "active" : ""}" data-training-operation="${key}" aria-pressed="${app.trainingOperation === key}">${uiText(label)}</button>`).join("")}</div>`
+    : "";
+  const direction = Number(app.trainingDirection ?? project?.direction ?? 1) < 0 ? -1 : 1;
+  const directionField = project && project.attribute_kind === "hidden"
+    ? `<label>${uiText("training.direction_label")}<select id="training-inline-direction"><option value="1" ${Number(app.trainingDirection) >= 0 ? "selected" : ""}>${uiText("training.direction_increase")}</option><option value="-1" ${Number(app.trainingDirection) < 0 ? "selected" : ""}>${uiText("training.direction_decrease")}</option></select></label>`
+    : "";
+  let targetField = "";
+  if (project && project.sku !== "habit_lab") {
+    targetField = `<label>${uiText(kind === "staff" ? "training.licence_target" : "training.target_label")}<select id="training-inline-target">${targetOptions.map((row) => `<option value="${escapeHtml(row.value)}" ${row.value === String(target) ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select></label>`;
+  }
+  let durationField = "";
+  if (project && project.sku !== "habit_lab" && kind === "player") {
+    const modes = trainingTargetModes(project, person, target, direction);
+    const selectedMode = modes.some((row) => row.mode === app.trainingDurationMode) ? app.trainingDurationMode : modes[0]?.mode;
+    if (selectedMode) app.trainingDurationMode = selectedMode;
+    durationField = `<label>${uiText("training.duration_label")}<select id="training-inline-duration">${modes.map((row) => {
+      const days = trainingEstimatedDays(person, target, row.mode, Number(project.training_multiplier || 3), direction);
+      const label = row.mode === "until_increase" ? uiText("training.until_next")
+        : row.mode === "until_decrease" ? uiText("training.lower_next")
+        : uiText("training.until_value", {target:row.target});
+      return `<option value="${row.mode}" ${row.mode === selectedMode ? "selected" : ""}>${escapeHtml(label)}（${uiText("training.estimated_days", {days})}）</option>`;
+    }).join("")}</select></label>`;
+  }
+  const estimate = project ? trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, direction) : null;
+  const summary = project && estimate ? `<dl class="training-task-summary">
+    <div><dt>${uiText("training.fee_label")}</dt><dd>${escapeHtml(trainingFeeLabel(estimate.feeMinor))}</dd></div>
+    <div><dt>${uiText("training.estimated_time")}</dt><dd>${project.sku === "habit_lab" ? uiText("training.game_days", {days:7}) : estimate.days > 0 ? uiText("training.game_days", {days:estimate.days}) : uiText("training.pending_read")}</dd></div>
+    <div><dt>${uiText("training.current_target_label")}</dt><dd>${project.sku === "habit_lab" ? escapeHtml(app.trainingOperation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn")) : kind === "staff" ? escapeHtml(`${person.coaching_license?.name || uiText("training.licence_unread")} → ${person.coaching_license?.next_name || ""}`) : escapeHtml(`${Number(estimate.current || 0)} → ${Number(estimate.targetValue || 0)}`)}</dd></div>
+  </dl>` : "";
+  const activeBlock = activeFocus
+    ? `<section class="training-active-task"><header><strong>${uiText("training.active_task")}</strong><button type="button" class="danger" data-training-cancel-focus="${escapeHtml(activeFocus.id)}">${uiText("training.cancel_task")}</button></header><p>${escapeHtml(trainingFocusUsage(activeFocus))}</p></section>`
+    : "";
+  const projectField = applicable.length
+    ? `<label>${uiText("training.project_label")}<select id="training-inline-project">${applicable.map((row) => `<option value="${escapeHtml(row.sku)}" ${row.sku === project?.sku ? "selected" : ""}>${escapeHtml(trainingProjectName(row))}</option>`).join("")}</select></label>`
+    : "";
+  const description = project ? `<small class="training-project-description">${escapeHtml(trainingProjectDescription(project))}</small>` : "";
+  const habitCurrent = project?.sku === "habit_lab" ? `<div class="training-current-moves">${uiText("training.current_habits")}：${escapeHtml((preferred?.moves || []).map((item) => localizedPreferredMove(item)).join(" · ") || uiText("training.none"))}</div>` : "";
+  const signature = JSON.stringify({
+    edition, module, kind, person:person.id, project:project?.sku, target, duration:app.trainingDurationMode,
+    operation:app.trainingOperation, direction:app.trainingDirection, busy:app.trainingActionBusy,
+    cancel:app.trainingCancelFocusId, focus:trainingFocusKey(activeFocus),
+    preferred:preferred?.player_id, moves:(preferred?.moves || []).length, error:app.trainingRosterError,
+  });
+  if (content.dataset.signature === signature) return;
+  content.dataset.signature = signature;
+  content.innerHTML = `<section class="training-detail-panel">
+    <header class="training-detail-head"><div><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(trainingPersonRoleLabel(kind, person) || "")}</small></div>${kind === "player" ? `<span class="training-detail-ability">CA ${Number(person.ca || 0)}/${Number(person.pa || 0)}</span>` : ""}</header>
+    ${activeBlock}
+    <form id="training-inline-form" class="training-inline-form">
+      ${projectField}
+      ${description}
+      ${operationToggle}
+      ${targetField}
+      ${directionField}
+      ${durationField}
+      ${habitCurrent}
+      ${summary}
+      <p class="training-task-reason" ${reason ? "" : "hidden"}>${escapeHtml(reason)}</p>
+      <button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : uiText("training.arrange")}</button>
+    </form>
+  </section>`;
+}
+async function loadTrainingPreferredMoves(playerId) {
+  const seq = app.trainingRequestSeq;
+  app.trainingPreferredMoves = null;
+  renderTrainingPersonDetail();
+  try {
+    const current = await request("/api/training/preferred-moves", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({player_id:Number(playerId), team_id:trainingCurrentTeamId()}),
+    });
+    if (seq !== app.trainingRequestSeq || app.trainingPersonKind !== "player" || Number(app.trainingPersonId) !== Number(playerId)) return;
+    app.trainingPreferredMoves = {...current, player_id:Number(playerId)};
+    renderTrainingPersonDetail();
+  } catch (error) {
+    if (seq === app.trainingRequestSeq && Number(app.trainingPersonId) === Number(playerId)) toast(error.message);
+  }
+}
+async function submitTrainingPerson() {
+  if (app.trainingActionBusy) return;
+  const kind = app.trainingPersonKind;
+  const person = (kind === "staff" ? trainingCurrentStaff() : trainingFirstTeamPlayers())
+    .find((row) => Number(row.id) === Number(app.trainingPersonId));
+  const project = trainingProduct(app.trainingProjectSku);
+  if (!person || !project) return;
+  if (trainingPersonFocus(kind, person.id)) { toast(uiText("training.reason_active")); return; }
+  if (kind === "staff" && !trainingStaffEligible(person)) { toast(uiText("training.staff_ineligible")); return; }
+  const target = app.trainingTargetKey;
+  if (!target) { toast(uiText("training.no_available_attribute")); return; }
+  const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
+  let caConfirmed = false;
+  if (kind === "player" && project.sku !== "habit_lab") {
+    const estimate = trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, app.trainingDirection);
+    const caCosts = person?.training_ca?.costs?.[target] || {};
+    const caAffected = trainingAttributeAffectsCa(target, project, caCosts);
+    const caSpace = Math.max(0, Number(person.pa || 0) - Number(person.ca || 0));
+    if (caAffected && caSpace < estimate.requiredCa) {
+      const confirmed = await fmoddConfirm(
+        uiText("training.confirm_continue_ca", {
+          required:estimate.requiredCa, current:Number(person.ca || 0),
+          after:Number(person.ca || 0) + estimate.requiredCa, pa:Number(person.pa || 0),
+        }),
+        uiText("training.continue"),
+      );
+      if (!confirmed) return;
+      caConfirmed = true;
+    }
+  }
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+  const semantic = trainingRunPayload(
+    kind, person, project, target, app.trainingDurationMode, app.trainingDirection, "",
+  );
+  if (!semantic) return;
+  if (caConfirmed) semantic.confirm_ca_over_pa = true;
+  const payload = {
+    ...semantic,
+    client_submission_id:trainingSubmissionFor(semantic),
+  };
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
   app.trainingActionBusy = true;
-  form.querySelectorAll("button,select").forEach((control) => { control.disabled = true; });
-  const submitButton = form.querySelector("#training-inline-submit");
-   if (submitButton) submitButton.textContent = uiText("training.arranging");
+  app._lastDetailSignature = null;
+  renderTraining();
   try {
     const response = await runItemOperation(
-       "development", uiText("training.using_equipment", {name:trainingProduct(facility.sku)?.name || uiText("training.other_equipment")}),
+      "development", uiText("training.arranging"),
       () => request("/api/training/run", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify(payload), timeoutMs:60000,
-         timeoutMessage:uiText("training.arrangement_timeout"),
+        timeoutMessage:uiText("training.arrangement_timeout"),
       }),
-       habit ? uiText("training.habit_started") : uiText("training.attribute_started"),
+      uiText("training.arranged"),
     );
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
     app.trainingSubmissionRetry = null;
-    app.trainingPreferredMoves = null;
     updateTrainingResponse(response);
-     toast(response.duplicate
-       ? uiText("training.duplicate_confirmed")
-       : habit ? uiText("training.habit_started") : uiText("training.attribute_started"));
+    const paid = Number(response.payment?.total || 0);
+    toast(response.duplicate
+      ? uiText("training.duplicate_confirmed")
+      : uiText("training.arranged", {
+          name:String(person.name || ""),
+          project:trainingProjectName(project),
+          amount:paid > 0 ? formatPounds(paid) : uiText("training.free"),
+        }));
   } catch (error) {
-    if (error.code === "REQUEST_TIMEOUT") {
-      if (!habit) app.trainingRepeatTarget = target;
-      app.trainingDurationMode = payload.duration_mode;
-    } else app.trainingSubmissionRetry = null;
-    throw error;
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+    if (error.code !== "REQUEST_TIMEOUT") app.trainingSubmissionRetry = null;
+    toast(error.message || uiText("training.arrange_failed"));
   } finally {
-    app.trainingActionBusy = false;
-    renderTraining();
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      app._lastDetailSignature = null;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
   }
+}
+async function cancelTrainingTask(focus) {
+  if (!focus?.id || app.trainingCancelFocusId) return;
+  const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
+  const confirmed = await fmoddConfirm(
+    uiText("training.cancel_message"),
+    uiText("training.cancel_confirm"),
+    uiText("training.cancel_title"),
+    uiText("training.cancel_keep"),
+  );
+  if (!confirmed) return;
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+  if (app.trainingCancelFocusId) return;
+  app.trainingCancelFocusId = String(focus.id);
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+  renderTraining();
+  try {
+    const response = await request("/api/training/cancel", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({focus_id:String(focus.id)}),
+    });
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+    updateTrainingResponse(response);
+    toast(uiText("training.cancelled"));
+  } catch (error) {
+    if (scopeAtStart === trainingScopeKey() && seqAtStart === app.trainingRequestSeq) toast(error.message || uiText("training.cancel_failed"));
+  } finally {
+    if (seqAtStart === app.trainingRequestSeq) {
+      app.trainingCancelFocusId = null;
+      app._lastRosterSignature = null;
+      app._lastDetailSignature = null;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
+  }
+}
+function positionTrainingRows(state, playersById) {
+  return positionTrainingSlots(state).flatMap((slot) => {
+    const player = positionTrainingAssignedPlayer(slot.id, playersById);
+    if (!player || !positionTrainingSlotPlaced(slot,state) || !slot.position || activeTrainingFocus(player.id)) return [];
+    const current = positionTrainingPlayerRating(player,slot.position);
+    if (!positionTrainingTargetRating(current,state.durationMode)) return [];
+    return [{slot,player}];
+  });
 }
 
 function managedFixtures() {
@@ -29120,14 +28862,6 @@ function bindEvents() {
   });
   $("#world-player-editor-form")?.addEventListener("submit", saveWorldPlayerEditor);
   $("[data-close-world-player-editor]")?.addEventListener("click", () => $("#world-player-editor-dialog")?.close());
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !app.trainingPlayerPickerOpen) return;
-    event.preventDefault();
-    app.trainingPlayerPickerOpen = false;
-    app.trainingPlayerSearch = "";
-    app.trainingPlayerPositionFilter = "all";
-    renderTraining({skipStage:true});
-  });
   document.addEventListener("pointerdown", (event) => {
     const surface = event.target.closest?.("#training-dock-content,#activity-content");
     app.interactiveSurfacePointer = surface?.id || null;
@@ -29331,55 +29065,59 @@ function bindEvents() {
     else if (ban) toggleCanteenBan(Number(ban.dataset.canteenBan));
     else if (reward) rewardCanteenSeaCucumber(Number(reward.dataset.canteenSeaCucumber));
   });
-  $("#training-scene-tabs").addEventListener("click",async(event)=>{
-    const button=event.target.closest("[data-training-scene]"); if(!button)return;
-    app.trainingScene=button.dataset.trainingScene; app.trainingSelectedId=null; app.trainingDetailId=null; app.relationshipTrainingDetailId=null; app.trainingPlayerPickerOpen=false;
-    app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;
-    if(app.trainingScene==="relationship_8f"&&!app.relationshipTrainingRooms){loadRelationshipTrainingRooms();return;}
+  const rerenderTrainingAfterControl = (selector) => {
+    const active = document.activeElement;
+    if (active && active.matches?.("select, .fmodd-select-trigger")) active.blur();
     renderTraining();
-    if(app.trainingScene==="position_training"&&!trainingRosterIsCurrent()){
-      app.trainingRosterLoading=true;renderTraining();
-       try{await ensureTrainingRosterLoaded(true);}catch(error){toast(error.message||uiText("training.roster_failed"));}
-      finally{app.trainingRosterLoading=false;renderTraining();}
-    }
+    if (!selector) return;
+    requestAnimationFrame(() => {
+      const node = typeof selector === "string" ? $(selector) : selector;
+      node?.focus?.();
+    });
+  };
+  $("#training-module-tabs").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-training-module]");
+    if (!button) return;
+    setTrainingModule(button.dataset.trainingModule);
   });
-  $("#training-dock-tabs").addEventListener("click",(event)=>{
-    const button=event.target.closest("[data-training-dock]"); if(!button)return;
-    if(app.trainingScene==="relationship_8f"&&button.dataset.trainingDock==="storage")return;
-    app.trainingDock=button.dataset.trainingDock; app.trainingDetailId=null; app.trainingPlayerPickerOpen=false;
-    if(app.trainingScene==="relationship_8f"){
-      app.relationshipTrainingDetailId=null;app.relationshipTrainingPickerOpen=null;
-      app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;
+  $("#training-roster").addEventListener("click", (event) => {
+    const retry = event.target.closest("[data-training-roster-retry]");
+    if (retry) { loadTrainingRoster({force:true}).catch(() => {}); return; }
+    const filter = event.target.closest("[data-training-position-filter]");
+    if (filter) {
+      app.trainingPlayerPositionFilter = filter.dataset.trainingPositionFilter || "all";
+      renderTrainingRoster();
+      return;
     }
-    renderTraining();
+    const cancel = event.target.closest("[data-training-cancel-focus]");
+    if (cancel) {
+      const focus = (trainingData().focuses || []).find((row) => row.id === cancel.dataset.trainingCancelFocus);
+      cancelTrainingTask(focus);
+      return;
+    }
+    const person = event.target.closest("[data-training-person]");
+    if (!person) return;
+    const [kind, personId] = String(person.dataset.trainingPerson || "").split(":");
+    openTrainingPerson(kind, Number(personId));
   });
-  $("#training-edit-toggle").addEventListener("click",()=>{
-    app.trainingEditing=!app.trainingEditing;
-    if(!app.trainingEditing)app.trainingSelectedId=null;
-    renderTraining();
+  $("#training-roster").addEventListener("input", (event) => {
+    if (!event.target.matches("#training-person-search")) return;
+    app.trainingPlayerSearch = event.target.value || "";
+    renderTrainingRoster();
+    requestAnimationFrame(() => {
+      const input = $("#training-person-search");
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
   });
   $("#training-settle-button").addEventListener("click",()=>{
     settleTrainingProgress({forceRoster:true,notify:true}).catch((error)=>{
        toast(error.message || uiText("training.settlement_failed", {error:uiText("request.failed")}));
     });
   });
-  $("#training-rotate").addEventListener("click",async()=>{
-    const facility=trainingFacility(app.trainingSelectedId); if(!facility)return;
-    const original=facility.rotation; facility.rotation=original?0:1;
-    try{
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:facility.scene,x:facility.x,y:facility.y,rotation:facility.rotation,scale:facility.scale||1})});
-      updateTrainingResponse(response);
-    }catch(error){facility.rotation=original;renderTraining();toast(error.message);}
-  });
-  $("#training-store-selected").addEventListener("click",async()=>{
-    const facility=trainingFacility(app.trainingSelectedId);if(!facility)return;
-    try{
-      const response=await request("/api/training/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id})});
-      app.trainingSelectedId=null;updateTrainingResponse(response);
-    }catch(error){toast(error.message);}
-  });
   $("#training-dock-content").addEventListener("click",async(event)=>{
-    if(app.trainingScene==="position_training"){
+    if(app.trainingModule==="position_training"){
       const player=event.target.closest("[data-position-training-player]");
       const duration=event.target.closest("[data-position-training-duration]");
       const start=event.target.closest("[data-position-training-start]");
@@ -29392,222 +29130,44 @@ function bindEvents() {
       }
       if(duration){
         state.durationMode=duration.dataset.positionTrainingDuration;
-        persistPositionTrainingState();renderTraining({skipStage:true});return;
+        persistPositionTrainingState();renderTraining();return;
       }
       if(cancel){
-        const playersById = new Map(trainingManagedPlayers().map((item) => [Number(item.id), item]));
+        const playersById = new Map(trainingPositionPlayers().map((item) => [Number(item.id), item]));
         const slot = positionTrainingSlots(state).find((row) => row.id === state.selectedSlot);
         const selectedPlayer = slot ? positionTrainingAssignedPlayer(slot.id, playersById) : null;
-        await cancelPositionTraining(selectedPlayer ? activeTrainingFocus(selectedPlayer.id) : null, cancel);
+        await cancelTrainingTask(selectedPlayer ? activeTrainingFocus(selectedPlayer.id) : null);
         return;
       }
       if(start){await startPositionTrainingAssignments(start);return;}
     }
-    const roomDetail=event.target.closest("[data-relationship-room-detail]");
-    const roomBack=event.target.closest("[data-relationship-room-back]");
-    const roomUnlock=event.target.closest("[data-relationship-room-unlock]");
-    const roomEnter=event.target.closest("[data-relationship-room-enter]");
-    const roomSettle=event.target.closest("[data-relationship-room-settle]");
-    const roomRename=event.target.closest("[data-relationship-room-rename]");
-    const roomRemove=event.target.closest("[data-relationship-room-remove]");
-    const roomPicker=event.target.closest("[data-relationship-room-picker]");
-    const roomOption=event.target.closest("[data-relationship-room-option]");
-    if(roomDetail){
-      app.relationshipTrainingDetailId=roomDetail.dataset.relationshipRoomDetail;
-      app.relationshipTrainingSelections={};
-      app.relationshipTrainingAttributes=new Set();
-      app.relationshipTrainingPickerOpen=null;
-      app.relationshipTrainingPreview=null;
-      app.relationshipTrainingPreviewSeq+=1;
-      renderTraining();return;
-    }
-    if(roomBack){app.relationshipTrainingDetailId=null;app.relationshipTrainingPickerOpen=null;app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;renderTraining();return;}
-    if(roomRename){event.stopPropagation();openRelationshipTrainingRoomRename(String(roomRename.dataset.relationshipRoomRename||""));return;}
-    if(roomUnlock){unlockRelationshipTrainingRoom(roomUnlock.dataset.relationshipRoomUnlock,roomUnlock);return;}
-    if(roomEnter){enterRelationshipTrainingRoom(roomEnter.dataset.relationshipRoomEnter,roomEnter);return;}
-    if(roomSettle){settleRelationshipTrainingRoom(roomSettle.dataset.relationshipRoomSettle,roomSettle);return;}
-    if(roomRemove){
-      const roleKey=roomRemove.dataset.relationshipRoomRemoveRole;
-      const ref=roomRemove.dataset.relationshipRoomRemove;
-      app.relationshipTrainingSelections[roleKey]=(app.relationshipTrainingSelections[roleKey]||[]).filter((value)=>value!==ref);
-      const selectedRoom=relationshipTrainingRoomByInstance(app.relationshipTrainingDetailId);
-      relationshipTrainingNormalizeGuidanceSelections(selectedRoom?.definition);
-      renderTraining();return;
-    }
-    if(roomPicker){
-      const roleKey=roomPicker.dataset.relationshipRoomPicker;
-      app.relationshipTrainingPickerOpen=app.relationshipTrainingPickerOpen===roleKey?null:roleKey;
-      renderTraining({skipStage:true});return;
-    }
-    if(roomOption){
-      const selectedRoom=relationshipTrainingRoomByInstance(app.relationshipTrainingDetailId);
-      const roleKey=roomOption.dataset.relationshipRoomOptionRole;
-      const ref=roomOption.dataset.relationshipRoomOption;
-      const role=selectedRoom?.definition?.roles?.find((row)=>row.key===roleKey);
-      if(!role||roomOption.disabled)return;
-      const current=app.relationshipTrainingSelections[roleKey]||[];
-      const chosen=current.includes(ref);
-      Object.keys(app.relationshipTrainingSelections).forEach((key)=>{
-        if(key!==roleKey)app.relationshipTrainingSelections[key]=(app.relationshipTrainingSelections[key]||[]).filter((value)=>value!==ref);
-      });
-      if(chosen){
-        app.relationshipTrainingSelections[roleKey]=current.filter((value)=>value!==ref);
-      }else if(Number(role.max||1)===1){
-        app.relationshipTrainingSelections[roleKey]=[ref];
-        app.relationshipTrainingPickerOpen=null;
-      }else if(current.length<Number(role.max||1)){
-        app.relationshipTrainingSelections[roleKey]=[...current,ref];
-        if(current.length+1>=Number(role.max||1))app.relationshipTrainingPickerOpen=null;
-      }
-      relationshipTrainingNormalizeGuidanceSelections(selectedRoom.definition);
-      renderTraining({skipStage:true});return;
-    }
-    const buy=event.target.closest("[data-training-buy]");
-    const floorUnlock=event.target.closest("[data-training-floor-unlock]");
-    const place=event.target.closest("[data-training-place]");
-    const cancel=event.target.closest("[data-training-cancel]");
-    const repeat=event.target.closest("[data-training-repeat]");
-    const open=event.target.closest("[data-training-open]");
-    const back=event.target.closest("[data-training-back]");
-    const operation=event.target.closest("[data-training-operation]");
-    const playerToggle=event.target.closest("[data-training-player-toggle]");
-    const playerOption=event.target.closest("[data-training-player-option]");
-    const playerClose=event.target.closest("[data-training-player-close]");
-    const playerPosition=event.target.closest("[data-training-player-position]");
-    const playerPickerLayer=event.target.closest("[data-training-player-picker-layer]");
-    const playerGroupToggle=event.target.closest("[data-training-player-group-toggle]");
-    const equipmentToggle=event.target.closest("[data-training-equipment-toggle]");
-    if (floorUnlock) {
-      requestTrainingFloorUnlock(floorUnlock.dataset.trainingFloorUnlock, floorUnlock);
+    const cancelFocus = event.target.closest("[data-training-cancel-focus]");
+    if (cancelFocus) {
+      const focus = (trainingData().focuses || []).find((row) => row.id === cancelFocus.dataset.trainingCancelFocus);
+      await cancelTrainingTask(focus);
       return;
     }
-    if(playerGroupToggle){
-      const group=playerGroupToggle.dataset.trainingPlayerGroupToggle;
-      app.trainingPlayerGroupState[group]=!app.trainingPlayerGroupState[group];
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(equipmentToggle){
-      const key=equipmentToggle.dataset.trainingEquipmentToggle;
-      app.trainingEquipmentState[key]=!app.trainingEquipmentState[key];
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerClose || (playerPickerLayer && event.target === playerPickerLayer)){
-      app.trainingPlayerPickerOpen=false;
-      app.trainingPlayerSearch="";
-      app.trainingPlayerPositionFilter="all";
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerPosition){
-      app.trainingPlayerPositionFilter=playerPosition.dataset.trainingPlayerPosition || "all";
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerOption){
-      app.trainingPlayerId=Number(playerOption.dataset.trainingPlayerOption||0);
-      app.trainingPlayerPickerOpen=false;
-      app.trainingPreferredMoves=null;
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerToggle){
-      app.trainingPlayerPickerOpen=!app.trainingPlayerPickerOpen;
-      if(app.trainingPlayerPickerOpen){
-        app.trainingPlayerSearch="";
-        app.trainingPlayerPositionFilter="all";
-      }
-      renderTraining({skipStage:true});
-      if(app.trainingPlayerPickerOpen) requestAnimationFrame(()=>$("#training-player-search")?.focus());
-      return;
-    }
-    if(cancel){
-      cancel.disabled=true;
-      try{
-        const response=await request("/api/training/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({focus_id:cancel.dataset.trainingCancel})});
-         updateTrainingResponse(response);toast(uiText("training.item_cancelled"));
-      }catch(error){cancel.disabled=false;toast(error.message);}
-      return;
-    }
-    if(repeat){
-      const previous=(trainingData().focuses||[]).find((focus)=>focus.id===repeat.dataset.trainingRepeat);
-      const facility=trainingFacility(previous?.facility_id);
-       if(!facility){toast(uiText("training.repeat_equipment_missing"));return;}
-      if(!trainingRosterIsCurrent()){
-        app.trainingDock="available";
-        app.trainingDetailId=facility.id;
-        app.trainingRosterLoading=true;
-        renderTraining();
-        try{
-          await ensureTrainingRosterLoaded(true);
-         }catch(error){toast(error.message||uiText("training.roster_failed"));return;}
-        finally{app.trainingRosterLoading=false;renderTraining();}
-      }
-      const player=trainingManagedPlayers().find((item)=>
-        Number(item.id)===Number(previous?.player_id)
-        && (!Number(previous?.player_team_id)||Number(item.training_team_id)===Number(previous.player_team_id))
-      ) || trainingPlayerContext(previous?.player_id);
-      const attributeKey=String(previous?.attribute_key||"");
-      const product=trainingProduct(facility?.sku);
-      const previousDirection=Number(product?.direction||1)<0?-1:1;
-      const previousValue=playerAttributeValue(player,attributeKey);
-       if(!player||!product?.attributes?.includes(attributeKey)||previousValue<=0||(previousDirection>0?previousValue>=20:previousValue<=1)){
-         toast(uiText("training.repeat_people_missing"));return;
-      }
-      app.trainingDock="available";
-      app.trainingDetailId=facility.id;
-      app.trainingPlayerId=Number(player.id);
-      app.trainingRepeatTarget=attributeKey;
-      app.trainingTargetKey=attributeKey;
-      app.trainingPreferredMoves=null;
+    const operation = event.target.closest("[data-training-operation]");
+    if (operation) {
+      app.trainingOperation = operation.dataset.trainingOperation === "unlearn" ? "unlearn" : "learn";
+      app.trainingPreferredMoves = null;
+      app.trainingHabitLoadKey = null;
       renderTraining();
-       toast(uiText("training.repeat_ready"));
+      if (app.trainingPersonId) loadTrainingPreferredMoves(app.trainingPersonId).catch((error) => toast(error.message));
       return;
     }
-    if(open)return openTrainingDetail(open.dataset.trainingOpen).catch((error)=>toast(error.message));
-    if(back){app.trainingDetailId=null;app.trainingPlayerPickerOpen=false;app.trainingPreferredMoves=null;renderTraining();return;}
-    if(operation){
-      app.trainingOperation=operation.dataset.trainingOperation;
-      document.querySelectorAll("#training-inline-operation [data-training-operation]").forEach((button)=>button.classList.toggle("active",button===operation));
-      if(app.trainingPreferredMoves)renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
-      return;
-    }
-    try{
-      if(buy){
-        const product=trainingProduct(buy.dataset.trainingBuy);const total=Number(product?.price||0);
-        if(!await fmoddPurchaseConfirm(product,fundingPaymentSplit(total)))return;
-        const response=await request("/api/training/purchase",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:product.sku})});
-         app.trainingDock="storage";updateTrainingResponse(response);toast(uiText("training.sent_to_storage"));
-      }else if(place){
-        const facility=trainingFacility(place.dataset.trainingPlace);
-        const placedCount=(trainingData().facilities||[]).filter((item)=>item.status==="placed"&&item.scene===app.trainingScene).length;
-         if(["indoor","indoor_2f","office_3f"].includes(app.trainingScene)&&placedCount>=15){toast(uiText("training.floor_capacity"));return;}
-        const position=firstTrainingPosition(facility);
-        const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:app.trainingScene,x:position.x,y:position.y,rotation:facility.rotation,scale:facility.scale||1})});
-        app.trainingSelectedId=facility.id;app.trainingEditing=true;updateTrainingResponse(response);
-      }
-    }catch(error){toast(error.message);}
   });
   $("#training-dock-content").addEventListener("dragstart",(event)=>{
     const row=event.target.closest("[data-position-training-player-drag]");
-    if(!row||app.trainingScene!=="position_training")return;
+    if(!row||app.trainingModule!=="position_training")return;
     event.dataTransfer.effectAllowed="move";
     event.dataTransfer.setData("application/x-fmodd-player",String(row.dataset.positionTrainingPlayerDrag||""));
-  });
-  $("#training-dock-content").addEventListener("change",(event)=>{
-    const attribute=event.target.closest("input[data-relationship-room-attribute]");
-    if(attribute){
-      if(attribute.checked)app.relationshipTrainingAttributes.add(attribute.dataset.relationshipRoomAttribute);
-      else app.relationshipTrainingAttributes.delete(attribute.dataset.relationshipRoomAttribute);
-      renderTraining();
-    }
   });
   $("#training-dock-content").addEventListener("input",(event)=>{
     if(event.target.matches("[data-position-training-search]")){
       const state=ensurePositionTrainingState();
       state.search=event.target.value||"";
-      renderTraining({skipStage:true});
+      renderTraining();
       requestAnimationFrame(()=>{
         const input=$("[data-position-training-search]");
         if(!input)return;
@@ -29625,17 +29185,7 @@ function bindEvents() {
       coordinate.parentElement.querySelector("output").textContent=`${Math.round(Number(coordinate.value))}%`;
       const node=document.querySelector(`[data-position-training-slot="${CSS.escape(slot.id)}"]`);
       if(node){node.style.left=`${slot.x}%`;node.style.top=`${slot.y}%`;}
-      return;
     }
-    if(!event.target.matches("#training-player-search")) return;
-    app.trainingPlayerSearch=event.target.value || "";
-    renderTraining({skipStage:true});
-    requestAnimationFrame(()=>{
-      const input=$("#training-player-search");
-      if(!input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length,input.value.length);
-    });
   });
   $("#training-dock-content").addEventListener("change",(event)=>{
     if(event.target.matches("[data-position-training-slot-position]")){
@@ -29645,59 +29195,35 @@ function bindEvents() {
         slot.position=event.target.value;persistPositionTrainingState();renderTraining();
       }
     }else if(event.target.matches("[data-position-training-slot-x],[data-position-training-slot-y]")){
-      persistPositionTrainingState();renderTraining({skipStage:true});
-    }else if(event.target.matches("#training-inline-staff")){
-      app.trainingStaffId=Number(event.target.value||0);
-      renderTraining({skipStage:true});
-    }else if(event.target.matches("#training-inline-player")){
-      app.trainingPlayerId=Number(event.target.value||0);
+      persistPositionTrainingState();renderTraining();
+    }else if(event.target.matches("#training-inline-project")){
+      app.trainingProjectSku=event.target.value||null;
+      app.trainingTargetKey=null;
       app.trainingPreferredMoves=null;
-      renderTrainingTargets();
+      app.trainingHabitLoadKey=null;
+      const project=trainingProduct(app.trainingProjectSku);
+      app.trainingDirection=Number(project?.direction||1)<0?-1:1;
+      app.trainingDurationMode=app.trainingDirection<0?"until_decrease":"until_increase";
+      if(project?.sku==="habit_lab") loadTrainingPreferredMoves(app.trainingPersonId).catch((error)=>toast(error.message));
+      rerenderTrainingAfterControl("#training-inline-project");
     }else if(event.target.matches("#training-inline-target")){
       app.trainingTargetKey=event.target.value||null;
-      renderTraining({skipStage:true});
+      rerenderTrainingAfterControl("#training-inline-target");
     }else if(event.target.matches("#training-inline-direction")){
       app.trainingDirection=Number(event.target.value)<0?-1:1;
       app.trainingDurationMode=app.trainingDirection<0?"until_decrease":"until_increase";
-      updateTrainingDurationEstimate();
+      rerenderTrainingAfterControl("#training-inline-direction");
     }else if(event.target.matches("#training-inline-duration")){
-      updateTrainingDurationEstimate();
+      app.trainingDurationMode=event.target.value||"until_increase";
+      rerenderTrainingAfterControl("#training-inline-duration");
     }
   });
   $("#training-dock-content").addEventListener("submit",async(event)=>{
     const form=event.target.closest("#training-inline-form");if(!form)return;
     event.preventDefault();
-    try{await submitInlineTraining(form);}catch(error){toast(error.message);}
+    await submitTrainingPerson();
   });
-  $("#training-selection").addEventListener("input",(event)=>{
-    const input=event.target.closest("[data-training-scale]");if(!input)return;
-    const facility=trainingFacility(input.dataset.trainingScale);if(!facility)return;
-    const scale=Number(input.value)/100;
-    const product=trainingProduct(facility.sku)||{};
-    const node=document.querySelector(`[data-training-facility="${CSS.escape(facility.id)}"]`);
-    if(node)node.style.setProperty("--facility-width",`${Number(product.size?.[0]||18)*scale}%`);
-    input.parentElement.querySelector("output").textContent=`${Math.round(scale*100)}%`;
-  });
-  $("#training-selection").addEventListener("change",async(event)=>{
-    const input=event.target.closest("[data-training-scale]");if(!input)return;
-    const facility=trainingFacility(input.dataset.trainingScale);if(!facility)return;
-    const scale=Number(input.value)/100;
-    try{
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:facility.scene,x:facility.x,y:facility.y,rotation:facility.rotation,scale})});
-      updateTrainingResponse(response);
-    }catch(error){renderTraining();toast(error.message);}
-  });
-  $("#training-selection").addEventListener("click",async(event)=>{
-    const use=event.target.closest("[data-training-use]");const sell=event.target.closest("[data-training-sell]");
-    if(use)return openTrainingDetail(use.dataset.trainingUse).catch((error)=>toast(error.message));
-    if(!sell)return;
-    const facility=trainingFacility(sell.dataset.trainingSell);const product=trainingProduct(facility?.sku);
-     if(!facility||!await fmoddConfirm(uiText("training.sell_confirm", {name:product?.name||uiText("training.other_equipment"), amount:formatPounds(Number(product?.price||0)*.5)}),uiText("training.sell_title")))return;
-    try{
-      const response=await request("/api/training/sell",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id})});
-       app.trainingSelectedId=null;updateTrainingResponse(response);toast(uiText("training.sell_done", {amount:formatPounds(response.refund)}));
-    }catch(error){toast(error.message);}
-  });
+
   $("#activity-player-refresh-button").addEventListener("click", async () => {
     if (app.activityRosterRefreshing || app.clubStatus?.refreshing) return;
     app.activityRosterRefreshing = true;

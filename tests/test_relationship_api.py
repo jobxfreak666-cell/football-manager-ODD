@@ -47,11 +47,13 @@ def test_relationship_room_catalog_uses_ready_connection_scope_while_identity_is
     value.wallet_ready = True
     with (
         patch("fm_odds_web.set_active_save_id") as activate,
+        patch.object(value, "_ensure_training_task_migration", return_value=False) as migrate,
         patch("fm_odds_web.public_training_ground", return_value={"floors": []}),
         patch("fm_odds_web.relationship_training_catalog", return_value={"rooms": []}),
     ):
         result = value.relationship_training_rooms_state()
     activate.assert_called_once_with("connection-account")
+    migrate.assert_called_once_with("2026-08-20")
     assert result == {"rooms": [], "floor": None}
 
 
