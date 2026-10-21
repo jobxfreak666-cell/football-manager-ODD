@@ -12786,10 +12786,12 @@ function trainingProjectDescription(project) {
 }
 function trainingProjectOptionLabel(project) {
   const name = trainingProjectName(project);
-  const attribute = String((project?.attributes || [])[0] || "");
-  if (!attribute) return name;
+  const directions = (project?.attributes || [])
+    .map((attribute) => localizedTrainingAttribute(attribute))
+    .filter(Boolean);
+  if (!directions.length) return name;
   return uiText("training.project_direction", {
-    name, direction: localizedTrainingAttribute(attribute),
+    name, direction: directions.join("-"),
   });
 }
 function trainingFeeLabel(feeMinor) {

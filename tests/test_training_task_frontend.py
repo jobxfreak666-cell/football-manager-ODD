@@ -377,7 +377,7 @@ class TrainingTaskFrontendTests(unittest.TestCase):
             I18N_FACILITIES,
         )
 
-    def test_project_option_label_appends_first_attribute_direction(self) -> None:
+    def test_project_option_label_appends_all_attribute_directions(self) -> None:
         source = (
             'const assert = require("node:assert/strict");\n'
             'const trainingFacilityName = (sku, product = {}) => product.name || sku;\n'
@@ -389,6 +389,7 @@ class TrainingTaskFrontendTests(unittest.TestCase):
             '};\n'
             + PROJECT_LABEL +
             'assert.equal(trainingProjectOptionLabel({sku:"strength_rack", name:"综合力量架", attributes:["身体:强壮"]}), "综合力量架（强壮）");\n'
+            'assert.equal(trainingProjectOptionLabel({sku:"treadmill", name:"专业跑步机", attributes:["身体:速度","身体:爆发力"]}), "专业跑步机（速度-爆发力）");\n'
             'assert.equal(trainingProjectOptionLabel({sku:"habit_lab", name:"习惯塑形机"}), "习惯塑形机");\n'
         )
         result = run_node(source)
