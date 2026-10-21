@@ -131,6 +131,7 @@
     "training.select_player_hint":["Choose a first-team player to see training options.", "选择一名一线队球员查看训练项目。"],
     "training.select_staff_hint":["Choose a staff member to see coaching options.", "选择一名职员查看考证项目。"],
     "training.project_label":["Training project", "训练项目"],
+    "training.project_direction":["{name} ({direction})", "{name}（{direction}）"],
     "training.fee_label":["Fixed fee", "单次费用"],
     "training.current_target_label":["Current → target", "当前 → 目标"],
     "training.free":["Free", "免费"],
