@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1] / "src"
 APP_JS = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 INDEX_HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 APP_CSS = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
+I18N_FACILITIES = (ROOT / "web" / "i18n.facilities.js").read_text(encoding="utf-8")
 
 
 def extract(start: str, end: str) -> str:
@@ -33,6 +34,7 @@ def extract(start: str, end: str) -> str:
 HELPERS = extract("const TRAINING_MODULES = [", "function managedFixtures() {")
 DATA_INDEX = extract("function trainingDataIndex() {", "function trainingProduct(sku)")
 FOCUS_SUMMARY = extract("function trainingFocusSummaryText(", "async function settleTrainingProgress")
+PROJECT_LABEL = extract("function trainingProjectName(", "function trainingFeeLabel(")
 ITEM_OPERATION = extract("async function runItemOperation(", "function resetAccountScopedWorldState()")
 POSITION_RUNTIME = extract(
     "function positionTrainingPayload(player, slot, durationMode) {",
@@ -365,6 +367,32 @@ class TrainingTaskFrontendTests(unittest.TestCase):
         self.assertIn("client_submission_id", APP_JS)
         for css in (".training-roster {", ".training-person-row {", ".training-detail-panel {"):
             self.assertIn(css, APP_CSS, css)
+
+        # Roster auto rows must keep their natural height when the list overflows.
+        self.assertIn("grid-auto-rows:max-content", APP_CSS)
+        self.assertIn("trainingProjectOptionLabel(row)", APP_JS)
+        self.assertIn('uiText("training.project_direction"', APP_JS)
+        self.assertIn(
+            '"training.project_direction":["{name} ({direction})", "{name}（{direction}）"]',
+            I18N_FACILITIES,
+        )
+
+    def test_project_option_label_appends_first_attribute_direction(self) -> None:
+        source = (
+            'const assert = require("node:assert/strict");\n'
+            'const trainingFacilityName = (sku, product = {}) => product.name || sku;\n'
+            'const trainingFacilityDescription = (sku, product = {}) => product.description || "";\n'
+            'const localizedTrainingAttribute = (key) => String(key).split(":").pop();\n'
+            'const uiText = (key, params = {}) => {\n'
+            '  if (key === "training.project_direction") return `${params.name}（${params.direction}）`;\n'
+            '  return key;\n'
+            '};\n'
+            + PROJECT_LABEL +
+            'assert.equal(trainingProjectOptionLabel({sku:"strength_rack", name:"综合力量架", attributes:["身体:强壮"]}), "综合力量架（强壮）");\n'
+            'assert.equal(trainingProjectOptionLabel({sku:"habit_lab", name:"习惯塑形机"}), "习惯塑形机");\n'
+        )
+        result = run_node(source)
+        assert_node_ok(result)
 
     def test_module_tabs_render_three_entries(self) -> None:
         result = harness(r'''

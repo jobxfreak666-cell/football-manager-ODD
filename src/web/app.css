@@ -5494,7 +5494,7 @@ body { background:#f1f4f2; }
 .training-dock { grid-template-rows:minmax(0,1fr); }
 .training-page.position-training-active .training-dock { grid-template-rows:minmax(0,1fr); }
 .training-stage.roster { background-image:none; background-color:#f2f6f4; }
-.training-roster { position:absolute; inset:0; display:grid; align-content:start; gap:8px; overflow:auto; padding:12px; }
+.training-roster { position:absolute; inset:0; display:grid; align-content:start; grid-auto-rows:max-content; gap:8px; overflow:auto; padding:12px; }
 .training-roster-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:2px 4px; }
 .training-roster-head strong { font-size:15px; color:#243b32; }
 .training-roster-head span { color:#6b7a72; font-size:13px; }

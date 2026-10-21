@@ -237,7 +237,7 @@ def test_training_ground_catalog_and_renderers_use_current_project_semantic_keys
 
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     for call in (
-        "trainingProjectName(row)",
+        "trainingProjectOptionLabel(row)",
         "trainingProjectName(project)",
         "trainingFacilityName(project?.sku, project || {})",
         "trainingFacilityDescription(project?.sku, project || {})",

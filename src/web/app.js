@@ -12784,6 +12784,14 @@ function trainingProjectName(project) {
 function trainingProjectDescription(project) {
   return trainingFacilityDescription(project?.sku, project || {});
 }
+function trainingProjectOptionLabel(project) {
+  const name = trainingProjectName(project);
+  const attribute = String((project?.attributes || [])[0] || "");
+  if (!attribute) return name;
+  return uiText("training.project_direction", {
+    name, direction: localizedTrainingAttribute(attribute),
+  });
+}
 function trainingFeeLabel(feeMinor) {
   return Number(feeMinor || 0) > 0
     ? formatPounds(Number(feeMinor) / 100)
@@ -13117,7 +13125,7 @@ function renderTrainingPersonDetail() {
     ? `<section class="training-active-task"><header><strong>${uiText("training.active_task")}</strong><button type="button" class="danger" data-training-cancel-focus="${escapeHtml(activeFocus.id)}">${uiText("training.cancel_task")}</button></header><p>${escapeHtml(trainingFocusUsage(activeFocus))}</p></section>`
     : "";
   const projectField = applicable.length
-    ? `<label>${uiText("training.project_label")}<select id="training-inline-project">${applicable.map((row) => `<option value="${escapeHtml(row.sku)}" ${row.sku === project?.sku ? "selected" : ""}>${escapeHtml(trainingProjectName(row))}</option>`).join("")}</select></label>`
+    ? `<label>${uiText("training.project_label")}<select id="training-inline-project">${applicable.map((row) => `<option value="${escapeHtml(row.sku)}" ${row.sku === project?.sku ? "selected" : ""}>${escapeHtml(trainingProjectOptionLabel(row))}</option>`).join("")}</select></label>`
     : "";
   const description = project ? `<small class="training-project-description">${escapeHtml(trainingProjectDescription(project))}</small>` : "";
   const habitCurrent = project?.sku === "habit_lab" ? `<div class="training-current-moves">${uiText("training.current_habits")}：${escapeHtml((preferred?.moves || []).map((item) => localizedPreferredMove(item)).join(" · ") || uiText("training.none"))}</div>` : "";
