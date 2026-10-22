@@ -48,39 +48,21 @@ def test_relationship_room_catalog_uses_ready_connection_scope_while_identity_is
     with (
         patch("fm_odds_web.set_active_save_id") as activate,
         patch.object(value, "_ensure_training_task_migration", return_value=False) as migrate,
-        patch("fm_odds_web.public_training_ground", return_value={"floors": []}),
         patch("fm_odds_web.relationship_training_catalog", return_value={"rooms": []}),
     ):
         result = value.relationship_training_rooms_state()
     activate.assert_called_once_with("connection-account")
     migrate.assert_called_once_with("2026-08-20")
-    assert result == {"rooms": [], "floor": None}
+    assert result == {"rooms": []}
 
 
-def test_relationship_room_unlock_charges_real_combined_funds():
+def test_relationship_room_unlock_endpoint_is_retired_and_charges_nothing():
     value = relationship_training_state()
-    payment = {
-        "bank": 4_000_000.0, "wallet": 1_000_000.0,
-        "total": 5_000_000.0, "transaction_id": "payment-1",
-    }
-    economy = {"bank_balance": 6_000_000.0, "casino_balance": 2_000_000.0}
-    rooms = {"rooms": [{"sku": "mind_room", "instances": [{"id": "mind-1"}]}]}
-    with (
-        patch.object(value, "_bind_request_scope", return_value=True),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
-        patch("fm_odds_web.local_purchase_price", return_value=5_000_000.0),
-        patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-        patch("fm_odds_web.unlock_relationship_training_room", return_value={"id": "mind-1"}),
-        patch.object(value, "relationship_training_rooms_state", return_value=rooms),
-        patch("fm_odds_web.public_economy", return_value=economy),
-    ):
-        result = value.relationship_training_room_unlock({"room_sku": "mind_room"})
-
-    charge.assert_called_once_with(
-        5_000_000.0, "relationship_training_room_unlock", room_sku="mind_room",
-    )
-    assert result["payment"] == payment
-    assert result["economy"] == economy
+    with patch("fm_odds_web.charge_combined_funds") as charge:
+        with pytest.raises(ValueError, match="无需解锁") as caught:
+            value.relationship_training_room_unlock({"room_sku": "mind_room"})
+    assert caught.value.message_key == "training.error.room_unlock_retired"
+    charge.assert_not_called()
 
 
 def operation_context(*, writable=False):
@@ -270,7 +252,7 @@ def test_relationship_room_preview_checks_all_pairs_but_marks_only_effect_pairs(
         }),
     ):
         result = value.relationship_training_room_preview({
-            "room_id": "video-1",
+            "room_sku": "video_analysis_room",
             "participants": [
                 {"role": "analyst", "kind": "staff", "id": 7, "team_id": 10},
                 {"role": "player", "kind": "player", "id": 1, "team_id": 10},
@@ -313,7 +295,7 @@ def test_relationship_room_preview_returns_actual_attribute_growth_and_eta():
         }),
     ):
         result = value.relationship_training_room_preview({
-            "room_id": "tactical-1", "attributes": ["hidden:职业素养"],
+            "room_sku": "tactical_room", "attributes": ["hidden:职业素养"],
             "participants": [
                 {"role": "coach", "kind": "staff", "id": 7, "team_id": 10},
                 {"role": "player", "kind": "player", "id": 1, "team_id": 10},
@@ -354,7 +336,6 @@ def test_relationship_training_settlement_commits_hidden_progress_atomically():
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
         patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -412,7 +393,6 @@ def test_video_analysis_team_capability_multiplies_attribute_progress():
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
         patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -472,7 +452,6 @@ def test_sports_condition_write_rolls_back_when_account_commit_fails():
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -517,7 +496,6 @@ def test_relationship_training_commit_failure_rolls_back_native_write_and_room()
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -577,7 +555,6 @@ def test_relationship_training_commit_failure_rolls_back_relationship_write():
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
-        patch("fm_odds_web.assert_training_floor_unlocked"),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -604,3 +581,259 @@ def test_relationship_training_commit_failure_rolls_back_relationship_write():
     write.assert_called_once()
     rollback.assert_called_once_with(write_result)
     restore_room.assert_called_once_with("room-1")
+
+
+# ---- 团队训练：不用解锁、每次训练收一次费 ----
+
+@pytest.fixture()
+def team_room_store(monkeypatch):
+    from copy import deepcopy
+    from tools import relationship_training as rooms
+
+    documents = {"relationship_training_rooms": rooms._new_state()}
+
+    def load_document(key, default):
+        return deepcopy(documents.get(key, default))
+
+    def update_document(key, default, mutator):
+        document = deepcopy(documents.get(key, default))
+        result = mutator(document)
+        documents[key] = document
+        return deepcopy(result)
+
+    monkeypatch.setattr(rooms, "load_document", load_document)
+    monkeypatch.setattr(rooms, "update_document", update_document)
+    monkeypatch.setattr(rooms, "load_settings", lambda: {})
+    monkeypatch.setattr(
+        rooms, "local_purchase_price", lambda value, _settings=None: float(value),
+    )
+    return documents
+
+
+def team_training_state():
+    value = relationship_training_state()
+    value.club_profiles[10]["players"].append({
+        "id": 2, "name": "B", "address": "0x2000", "ca": 110, "pa": 150,
+        "age": 20, "attributes": {},
+    })
+    value.club_profiles[10]["staff"].extend([
+        {"id": 20, "name": "助教", "address": "0x2020", "job_type": 20,
+         "coaching_license": {"code": 5}, "current_reputation": 3000},
+        {"id": 21, "name": "无证教练", "address": "0x2021", "job_type": 2,
+         "coaching_license": {"code": 0}},
+        {"id": 60, "name": "分析师", "address": "0x6000", "job_type": 60},
+        {"id": 40, "name": "运动科学", "address": "0x4000", "job_type": 40},
+    ])
+    return value
+
+
+def _enter(value, payload, *, charge=None, refund=None, payment=None):
+    payment = payment or {
+        "bank": 2_500_000.0, "wallet": 0.0, "total": 2_500_000.0,
+        "transaction_id": "session-1",
+    }
+    with (
+        patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
+        patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
+        patch("fm_odds_web.resolve_public_person_address", side_effect=lambda _r, person, _k: int(str(person.get("address") or "0x1"), 0)),
+        patch("fm_odds_web.persons_relation_negative", return_value=False),
+        patch("fm_odds_web.charge_combined_funds", return_value=payment) as charged,
+        patch("fm_odds_web.refund_combined_funds") as refunded,
+        patch("fm_odds_web.public_economy", return_value={"bank_balance": 1.0}),
+    ):
+        try:
+            return value.relationship_training_room_enter(payload)
+        finally:
+            if charge is not None:
+                charge.extend(charged.call_args_list)
+            if refund is not None:
+                refund.extend(refunded.call_args_list)
+
+
+def _mind_payload(submission="req-1", player_id=1):
+    return {
+        "room_sku": "mind_room", "client_submission_id": submission,
+        "attributes": ["精神:意志力"],
+        "participants": [{"kind": "player", "id": player_id, "team_id": 10, "role": "player_a"}],
+    }
+
+
+def test_team_room_enter_needs_no_unlock_and_charges_half_price_once(team_room_store):
+    value = team_training_state()
+    charges = []
+    result = _enter(value, _mind_payload(), charge=charges)
+    assert result["room"]["status"] == "occupied"
+    assert result["replayed"] is False
+    assert result["session_fee_minor"] == 250_000_000
+    assert len(charges) == 1
+    assert charges[0].args == (2_500_000.0, "relationship_training_room_session")
+    assert charges[0].kwargs == {"room_sku": "mind_room"}
+
+    replay_charges = []
+    again = _enter(value, _mind_payload(), charge=replay_charges)
+    assert replay_charges == []
+    assert again["replayed"] is True
+    assert again["room"]["id"] == result["room"]["id"]
+    assert again["payment"] == result["payment"]
+
+
+def test_team_room_enter_requires_request_id_before_charging(team_room_store):
+    value = team_training_state()
+    charges = []
+    with pytest.raises(ValueError, match="刷新页面"):
+        _enter(value, _mind_payload(submission=""), charge=charges)
+    assert charges == []
+
+
+def test_team_room_enter_refunds_when_room_write_fails(team_room_store):
+    value = team_training_state()
+    _enter(value, _mind_payload("first"))
+    charges, refunds = [], []
+    # Same player again under a new request id: rejected after the charge.
+    with pytest.raises(ValueError, match="其他团队训练房间"):
+        _enter(value, _mind_payload("second"), charge=charges, refund=refunds)
+    assert len(charges) == 1 and len(refunds) == 1
+    assert refunds[0].args[1] == "relationship_training_room_session_rollback"
+
+
+def test_team_room_concurrent_double_click_charges_once(team_room_store):
+    value = team_training_state()
+    calls = []
+    barrier = threading.Barrier(2)
+    results = []
+
+    def submit():
+        barrier.wait()
+        results.append(value.relationship_training_room_enter(_mind_payload("dbl")))
+
+    payment = {"bank": 1.0, "wallet": 0.0, "total": 1.0}
+    with (
+        patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()),
+        patch("fm_odds_web.resolve_public_person_address", return_value=0x1000),
+        patch("fm_odds_web.persons_relation_negative", return_value=False),
+        patch("fm_odds_web.charge_combined_funds", side_effect=lambda *a, **k: calls.append(a) or payment),
+        patch("fm_odds_web.refund_combined_funds"),
+        patch("fm_odds_web.public_economy", return_value={}),
+    ):
+        threads = [threading.Thread(target=submit) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    assert len(calls) == 1
+    assert sorted(row["replayed"] for row in results) == [False, True]
+
+
+def _tactical_payload(coach_id, submission):
+    return {
+        "room_sku": "tactical_room", "client_submission_id": submission,
+        "attributes": ["精神:团队合作"],
+        "participants": [
+            {"kind": "staff", "id": coach_id, "team_id": 10, "role": "coach"},
+            {"kind": "player", "id": 1, "team_id": 10, "role": "player"},
+        ],
+    }
+
+
+def test_tactical_room_enter_accepts_licensed_assistant_and_rejects_unlicensed(team_room_store):
+    value = team_training_state()
+    entered = _enter(value, _tactical_payload(20, "tac-ok"))
+    assert entered["room"]["sku"] == "tactical_room"
+    charges = []
+    other = team_training_state()
+    with pytest.raises(ValueError, match="持证"):
+        _enter(other, _tactical_payload(21, "tac-bad"), charge=charges)
+    assert charges == []
+
+
+def test_mentoring_room_rejects_unqualified_mentor_before_charging(team_room_store):
+    value = team_training_state()
+    charges = []
+    with pytest.raises(ValueError, match="传习资格"):
+        _enter(value, {
+            "room_sku": "mentoring_room", "client_submission_id": "mentor-1",
+            "attributes": ["精神:领导力"],
+            "participants": [
+                {"kind": "player", "id": 1, "team_id": 10, "role": "mentor"},
+                {"kind": "player", "id": 2, "team_id": 10, "role": "student"},
+            ],
+        }, charge=charges)
+    assert charges == []
+
+
+def _settle_tactical(value, coach_id):
+    coach = {"kind": "staff", "id": coach_id, "name": "C", "role": "coach", "team_id": 10}
+    player = {"kind": "player", "id": 1, "name": "A", "role": "player", "team_id": 10}
+    session = {
+        "id": "tac-session", "room_sku": "tactical_room",
+        "participants": [coach, player], "attributes": [],
+    }
+    plan = {
+        "elapsed_days": 1, "focus_coefficient": 1.0, "attribute_points": 0.0,
+        "beneficiaries": [player], "attributes": [], "pairs": [],
+    }
+    with (
+        patch("fm_odds_web.FROZEN", False),
+        patch.object(value, "_bind_current_save"),
+        patch.object(value, "_data_scope_id", return_value="account-1"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
+        patch("fm_odds_web.release_relationship_training_room", return_value=session),
+        patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
+        patch("fm_odds_web.relationship_training_progress", return_value={
+            "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
+        }),
+        patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
+        patch("fm_odds_web.resolve_public_person_address", side_effect=[0x2020, 0x1000]),
+        patch("fm_odds_web.read_person_public_profile", side_effect=[
+            {"uid": coach_id}, {"uid": 1},
+        ]),
+        patch("fm_odds_web.read_player_training_attributes", return_value={}),
+        patch("fm_odds_web.commit_relationship_training_settlement",
+              return_value={"completed": {}, "archive": {"created": True}}) as commit,
+        patch("fm_odds_web.restore_relationship_training_room") as restore,
+        patch("fm_odds_web.invalidate_club_profile_cache"),
+    ):
+        try:
+            value.relationship_training_room_settle({"room_id": "room-1"})
+        finally:
+            settle_calls = (commit.call_count, restore.call_count)
+    return settle_calls
+
+
+def test_tactical_room_settle_uses_the_same_coach_rule_as_enter():
+    value = team_training_state()
+    assert _settle_tactical(value, 20)[0] == 1
+    with pytest.raises(ValueError, match="持证"):
+        _settle_tactical(team_training_state(), 21)
+
+
+def test_training_payload_exposes_team_rooms_with_fee_and_eligible_staff(team_room_store):
+    value = team_training_state()
+    with patch("fm_odds_web.public_training_ground", return_value={"catalog": []}):
+        ground = value._public_training_ground("2026-08-20")
+    rooms = {row["sku"]: row for row in ground["team_rooms"]}
+    assert list(rooms) == [
+        "mind_room", "mentoring_room", "tactical_room",
+        "video_analysis_room", "sports_science_room",
+    ]
+    assert rooms["video_analysis_room"]["session_fee_minor"] == 1_250_000_000
+    assert rooms["tactical_room"]["eligible_staff_ids"] == {"coach": [20]}
+    assert rooms["video_analysis_room"]["eligible_staff_ids"] == {"analyst": [60]}
+    assert rooms["sports_science_room"]["eligible_staff_ids"] == {"scientist": [40]}
+    assert rooms["mind_room"]["eligible_staff_ids"] == {}
+    assert rooms["mentoring_room"]["roles"] == [
+        {"key": "mentor", "kind": "player", "min": 1, "max": 1},
+        {"key": "student", "kind": "player", "min": 1, "max": 4},
+    ]
+    assert set(rooms["mind_room"]["scope_attributes"][0]) == {"key", "direction", "kind"}
+
+
+def test_unlock_route_is_still_registered_but_retired():
+    routes = {path for _method, path, _ in fm_odds_web.API_ROUTES.describe()}
+    assert "/api/training/relationship-rooms/enter" in routes

@@ -35,11 +35,42 @@ def _player(identifier: int, role: str) -> dict:
     }
 
 
-def test_catalog_uses_independent_8f_namespace(room_store):
+def test_catalog_is_the_team_training_module_without_floor_or_unlock(room_store):
     catalog = rooms.relationship_training_catalog()
-    assert catalog["scene"] == "relationship_8f"
+    assert catalog["module"] == "team_training"
+    assert "scene" not in catalog and "floor_limit" not in catalog
     assert {row["sku"] for row in catalog["rooms"]} == set(rooms.ROOMS)
     assert "facilities" not in room_store["relationship_training_rooms"]
+    for row in catalog["rooms"]:
+        assert "unlock_cost" not in row and "scene" not in row
+
+
+def test_session_fee_is_half_of_the_old_unlock_price(room_store):
+    fees = {
+        row["sku"]: row["session_fee_minor"]
+        for row in rooms.relationship_training_catalog()["rooms"]
+    }
+    assert fees == {
+        "mind_room": 250_000_000, "mentoring_room": 1_000_000_000,
+        "tactical_room": 750_000_000, "video_analysis_room": 1_250_000_000,
+        "sports_science_room": 1_500_000_000,
+    }
+
+
+def test_old_save_unlock_records_are_ignored_and_reused(room_store):
+    room_store["relationship_training_rooms"] = {
+        "schema_version": 2, "scene": "relationship_8f", "rooms": [{
+            "id": "old-unlocked", "sku": "mind_room", "scene": "relationship_8f",
+            "status": "idle", "unlocked_at": "2026-01-01T00:00:00", "participants": [],
+        }],
+    }
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id="old-1",
+    )
+    assert entered["room"]["id"] == "old-unlocked"
+    stored = room_store["relationship_training_rooms"]
+    assert "scene" not in stored and stored["module"] == "team_training"
 
 
 def test_catalog_uses_professional_room_descriptions():
@@ -64,39 +95,160 @@ def test_new_relationship_categories_follow_each_room_contract():
     } == expected
 
 
-def test_progress_document_rooms_are_available(room_store):
-    for sku in ("video_analysis_room", "sports_science_room"):
-        assert rooms.unlock_relationship_training_room(sku)["sku"] == sku
+def test_rooms_need_no_unlock_to_enter(room_store):
+    assert not hasattr(rooms, "unlock_relationship_training_room")
+    entered = rooms.enter_relationship_training_room(
+        "sports_science_room",
+        [{**_player(1, "player"), "kind": "player"}, {
+            "kind": "staff", "id": 9, "name": "S9", "role": "scientist", "team_id": 10,
+        }],
+        ["身体:体质"], "2026-08-20", client_submission_id="no-unlock",
+    )
+    assert entered["room"]["status"] == "occupied"
+    assert entered["room"]["sku"] == "sports_science_room"
 
 
 def test_room_entry_is_idempotent_and_prevents_cross_room_occupancy(room_store):
-    first = rooms.unlock_relationship_training_room("mind_room")
-    second = rooms.unlock_relationship_training_room("mind_room")
     participant = _player(1, "player_a")
     entered = rooms.enter_relationship_training_room(
-        first["id"], [participant], ["精神:意志力"], "2026-08-20",
+        "mind_room", [participant], ["精神:意志力"], "2026-08-20",
         client_submission_id="submission-1",
     )
     repeated = rooms.enter_relationship_training_room(
-        first["id"], [participant], ["精神:意志力"], "2026-08-20",
+        "mind_room", [participant], ["精神:意志力"], "2026-08-20",
         client_submission_id="submission-1",
     )
-    assert repeated["id"] == entered["id"]
-    with pytest.raises(ValueError, match="其他 8F"):
+    assert repeated["replayed"] is True
+    assert repeated["room"]["id"] == entered["room"]["id"]
+    with pytest.raises(ValueError, match="其他团队训练房间"):
         rooms.enter_relationship_training_room(
-            second["id"], [participant], ["精神:意志力"], "2026-08-20",
+            "mind_room", [participant], ["精神:意志力"], "2026-08-20",
+        )
+    # Two different players can use the same room type at the same time.
+    other = rooms.enter_relationship_training_room(
+        "mind_room", [_player(2, "player_a")], ["精神:意志力"], "2026-08-20",
+    )
+    assert other["room"]["id"] != entered["room"]["id"]
+
+
+def test_session_is_charged_once_and_replay_is_not_charged_again(room_store):
+    charges: list[int] = []
+
+    def charge():
+        charges.append(1)
+        return {"total": 2_500_000.0, "bank": 2_500_000.0, "wallet": 0.0, "transaction_id": "t1"}
+
+    args = ("mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20")
+    first = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
+    )
+    again = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
+    )
+    assert len(charges) == 1
+    assert first["replayed"] is False and again["replayed"] is True
+    assert again["payment"] == first["payment"]
+    assert first["room"]["session_fee_minor"] == 250_000_000
+    # The receipt survives settlement, so a late retry is still not charged.
+    pending = rooms.release_relationship_training_room(first["room"]["id"], "2026-08-25")
+    rooms.finalize_relationship_training_room(first["room"]["id"], pending["id"], {})
+    late = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
+    )
+    assert late["replayed"] is True and len(charges) == 1
+
+
+def test_charged_session_requires_a_submission_id(room_store):
+    with pytest.raises(ValueError, match="刷新页面"):
+        rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+            charge=lambda: {"total": 1.0}, refund=lambda _payment: None,
         )
 
 
-def test_release_creates_relationship_training_focus_then_finalize(room_store):
-    room = rooms.unlock_relationship_training_room("mentoring_room")
+def test_submission_id_reused_for_another_room_is_rejected_without_charge(room_store):
     rooms.enter_relationship_training_room(
-        room["id"], [_player(1, "mentor"), _player(2, "student")],
-        ["精神:领导力"], "2026-08-01", client_submission_id="settle-1",
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id="same",
     )
+    charges = []
+    with pytest.raises(ValueError, match="其他安排"):
+        rooms.enter_relationship_training_room(
+            "mentoring_room", [_player(2, "mentor"), _player(3, "student")],
+            ["精神:领导力"], "2026-08-20", client_submission_id="same",
+            charge=lambda: charges.append(1) or {"total": 1.0},
+            refund=lambda _payment: None,
+        )
+    assert charges == []
+
+
+def test_failed_entry_after_charge_is_refunded(room_store):
+    refunds = []
+    payment = {"total": 2_500_000.0, "bank": 2_500_000.0, "wallet": 0.0}
+    with pytest.raises(ValueError, match="至少选择一项训练属性"):
+        rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["not-in-scope"], "2026-08-20",
+            client_submission_id="refund-1",
+            charge=lambda: dict(payment), refund=refunds.append,
+        )
+    assert refunds == [payment]
+    assert room_store["relationship_training_rooms"]["rooms"] == []
+
+
+def test_concurrent_double_click_charges_once(room_store):
+    import threading
+
+    charges = []
+    start = threading.Barrier(2)
+
+    def charge():
+        charges.append(1)
+        return {"total": 1.0, "bank": 1.0, "wallet": 0.0}
+
+    results = []
+
+    def submit():
+        start.wait()
+        results.append(rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+            client_submission_id="double-click", charge=charge,
+            refund=lambda _payment: None,
+        ))
+
+    threads = [threading.Thread(target=submit) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(charges) == 1
+    assert sorted(row["replayed"] for row in results) == [False, True]
+    assert len({row["room"]["id"] for row in results}) == 1
+
+
+def test_tactical_coach_rule_accepts_licensed_assistant_and_rejects_unlicensed():
+    assistant = {"job_type": 20, "coaching_license": {"code": 5}}
+    unlicensed = {"job_type": 2, "coaching_license": {"code": 0}}
+    job_one = {"job_type": 1, "coaching_license": {"code": 5}}
+    assert rooms.tactical_coach_eligible(assistant)
+    assert not rooms.tactical_coach_eligible(unlicensed)
+    assert not rooms.tactical_coach_eligible(job_one)
+    rooms.validate_relationship_training_staff("tactical_room", "coach", assistant)
+    with pytest.raises(ValueError, match="持证"):
+        rooms.validate_relationship_training_staff("tactical_room", "coach", unlicensed)
+
+
+def test_release_creates_relationship_training_focus_then_finalize(room_store):
+    room = rooms.enter_relationship_training_room(
+        "mentoring_room", [_player(1, "mentor"), _player(2, "student")],
+        ["精神:领导力"], "2026-08-01", client_submission_id="settle-1",
+    )["room"]
     pending = rooms.release_relationship_training_room(room["id"], "2026-08-20")
     assert pending["focus_type"] == "relationship_training"
-    assert pending["scene"] == "relationship_8f"
+    assert pending["module"] == "team_training"
+    assert "scene" not in pending
     assert pending["status"] == "pending_settlement"
     assert pending["facility_name"] == "传习室"
     assert pending["training_content"] == "精神:领导力"
@@ -307,11 +459,10 @@ def test_sports_science_height_formula_limits_and_retry_roll_are_deterministic()
 
 
 def test_atomic_completion_updates_room_and_archive_together(room_store, monkeypatch):
-    room = rooms.unlock_relationship_training_room("mind_room")
-    rooms.enter_relationship_training_room(
-        room["id"], [_player(1, "player_a")], ["精神:意志力"],
+    room = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"],
         "2026-08-01", client_submission_id="atomic-1",
-    )
+    )["room"]
     pending = rooms.release_relationship_training_room(room["id"], "2026-08-20")
     documents = {
         **room_store,

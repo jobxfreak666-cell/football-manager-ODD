@@ -77,18 +77,19 @@ JSON 业务分派只经过上述注册表；HTTP 修改响应来源契约在 [st
 
 ## training
 
-别名：训练场、球员训练、位置训练、职员训练（办公室）、项目目录、训练档案；关系综训是关联子系统，不等同于三模块训练。
+别名：训练场、球员训练、位置训练、职员训练（办公室）、团队训练（原 8F 关系综训五个房间）、项目目录、训练档案；团队训练由 `relationship_training.py` 提供，不进入三模块项目目录。
 
 | 层 | 定位与关系 |
 | --- | --- |
 | 界面与样式 | `#page-training`、`#training-module-tabs`、`#training-roster`、`#training-dock-content`、`#training-settle-button`、`#training-archive-dialog`；[app.css](../src/web/app.css) 的 `.training-*`（名单位置筛选、详情和取消按钮含键盘与 `aria-busy` 状态） |
 | 渲染与事件 | `renderTraining`、`renderTrainingModuleTabs`、`renderTrainingRoster`、`renderTrainingPersonDetail`、`cancelTrainingTask`；位置训练仍用 `startPositionTrainingAssignments`；档案用 `loadTrainingArchive` → `renderTrainingArchive` |
 | 目录与安排 | 项目目录由 [training_catalog.py](../src/tools/training_catalog.py) 的 `build_training_project_catalog` 投影（`sku`、`module`、`task_price_minor`）；`POST /api/training/run` → `LocalOddsState.training_run` 重新校验当前俱乐部一线队/职员资格与目标，按目录价单次扣费并在同一账户事务写入任务与付款凭证；`client_submission_id` 同意图重放返回原凭证且不重扣 |
-| 取消与旧接口 | `POST /api/training/cancel` → `training_cancel` 只取消当前账户对应任务并释放人物，不退款；`purchase` / `floor/purchase` / `place` / `store` / `sell` 路由保留注册但仅返回本地化停用提示，无扣款、加款、库存或返款副作用 |
-| 迁移 | 首次读取或安排前按 `task_rules_version=1` 一次性取消标记之前的 active 任务并记录 `training_task_model_migration`，同时把 8F 旧占用转为惰性记录；保存失败可安全重试，新任务不会被二次取消 |
+| 取消与旧接口 | `POST /api/training/cancel` → `training_cancel` 只取消当前账户对应任务并释放人物，不退款；`purchase` / `floor/purchase` / `place` / `store` / `sell` / `relationship-rooms/unlock` 路由保留注册但仅返回本地化停用提示，无扣款、加款、库存或返款副作用；楼层代码已删除，旧楼层解锁费不退 |
+| 团队训练 | `POST /api/training/relationship-rooms/enter` 按 `room_sku` 安排，房间免解锁，每次按原解锁价×50% 收一次（`session_fee_minor`），必须带 `client_submission_id`，重放/并发双击不重复扣费，失败原路退款；`/preview` 同样接受 `room_sku`；开发版 `/settle` 离开时结算；状态快照 `training_ground.team_rooms` 提供房间、费用、角色、作用属性与合格职员 ID |
+| 迁移 | 首次读取或安排前按 `task_rules_version=1` 一次性取消标记之前的 active 任务并记录 `training_task_model_migration`，同时把旧团队训练房间占用转为惰性记录；保存失败可安全重试，新任务不会被二次取消 |
 | 结算 | 自动入口为 `LocalOddsState._request_training_settlement`、`_training_settlement_worker`；页头手动入口 `POST /api/training/settle` → `training_settle` 使用前台优先内存事务，两者共用 `_sync_training_focuses`。人员回绑看 `training_runtime`，达到目标即结束并释放人物，不自动续训或二次扣费 |
 | 档案与关系 | `GET /api/training/archive/summary`、`POST /api/training/archive/page`；归档由 `training_archive` 负责，旧 SKU 与地点保留为历史证据。综训再看 [relationship_training.py](../src/tools/relationship_training.py)、[person_relationships.py](../src/tools/person_relationships.py)，保留当前开发/冻结门禁 |
-| 数据与副作用 | `app.state.training_ground` 是展示快照：`catalog` 为三模块项目与报价投影，`floors`/`facilities` 仅保留历史兼容；任务、付款与进度按经理账户隔离；多人可同项目，不检查器械容量；到期效果可能写 FM 属性/位置/关系，修改 UI 不授予实机结算权限 |
+| 数据与副作用 | `app.state.training_ground` 是展示快照：`catalog` 为三模块项目与报价投影，`team_rooms` 为团队训练房间投影，`facilities` 仅保留历史兼容（无 `floors`）；任务、付款与进度按经理账户隔离；多人可同项目，不检查器械容量；到期效果可能写 FM 属性/位置/关系，修改 UI 不授予实机结算权限 |
 | 初始测试候选 | [test_training_task_rules.py](../tests/test_training_task_rules.py)、[test_training_task_application.py](../tests/test_training_task_application.py)、[test_training_task_frontend.py](../tests/test_training_task_frontend.py)、[test_training_ground.py](../tests/test_training_ground.py)、[test_training_archive.py](../tests/test_training_archive.py)；只在涉及综训时选 [test_relationship_training.py](../tests/test_relationship_training.py)、[test_relationship_training_frontend.py](../tests/test_relationship_training_frontend.py) |
 
 三模块名单→人物详情、任务进度、原生效果、档案投影分别定位，不把存档数据或后台结算真值放进前端。接口错误统一返回 `message_key`（训练为 `training.error.*`）与 `message_params`，服务端按 `X-FMODD-Locale` 渲染 `message`；中文 legacy `error` 仅作诊断。详细边界见运行时契约“Hook、活动、训练与医疗运行时契约”。

@@ -4790,7 +4790,7 @@ class RefreshOptimizationTests(unittest.TestCase):
         training_document = {
             "schema_version": 12, "task_rules_version": 1,
             "focuses": [], "sessions": [], "facilities": [],
-            "history": [], "unlocked_floors": [],
+            "history": [],
         }
         with (
             patch.object(state, "_bind_current_save"),
@@ -4846,7 +4846,7 @@ class RefreshOptimizationTests(unittest.TestCase):
         training_document = {
             "schema_version": 12, "task_rules_version": 1,
             "focuses": [], "sessions": [], "facilities": [],
-            "history": [], "unlocked_floors": [],
+            "history": [],
         }
         focus = {
             "id": "focus-1", "multiplier": 3, "expires_on": None,
@@ -4919,7 +4919,7 @@ class RefreshOptimizationTests(unittest.TestCase):
         training_document = {
             "schema_version": 12, "task_rules_version": 1,
             "focuses": [], "sessions": [], "facilities": [],
-            "history": [], "unlocked_floors": [],
+            "history": [],
         }
         focus = {
             "id": "focus-1", "focus_type": "attribute", "status": "active",

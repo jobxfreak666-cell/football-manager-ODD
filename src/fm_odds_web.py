@@ -254,7 +254,7 @@ from tools.training_ground import (
     rebind_training_focus_player, rebind_training_focus_staff,
     rollback_training_focus,
     training_target_attribute, training_points_required_for_direction,
-    assert_training_floor_unlocked,
+    COMPREHENSIVE_ROOM_SKUS,
 )
 from tools.training_catalog import training_task_fee_minor
 from tools.training_runtime import TrainingRosterIndex
@@ -321,7 +321,10 @@ from tools.relationship_training import (
     release_relationship_training_room, restore_relationship_training_room,
     sports_science_height_limit, sports_science_height_probability,
     SPORTS_SCIENCE_JOB_TYPES,
-    unlock_relationship_training_room, validate_relationship_training_guidance,
+    MENTOR_NOT_CREDIBLE_MESSAGE, TACTICAL_COACH_MESSAGE,
+    mentor_credible, relationship_training_session_fee_minor,
+    relationship_training_staff_eligible, tactical_coach_eligible,
+    validate_relationship_training_guidance,
     validate_relationship_training_staff,
 )
 from tools.training_archive import (
@@ -3832,6 +3835,9 @@ TRAINING_EQUIPMENT_ROUTE_RETIRED = (
     "训练场已改版，不再支持购买、解锁楼层、摆放、收纳或出售训练器材，"
     "请刷新训练场后使用球员训练、位置训练或职员训练"
 )
+TEAM_TRAINING_ROOM_UNLOCK_RETIRED = (
+    "团队训练房间无需解锁，请刷新训练场后直接安排训练，每次训练单独收费"
+)
 
 
 def _training_error(
@@ -6916,7 +6922,7 @@ class LocalOddsState:
             )
             game_date = str((game_clock or {}).get("date") or self.output.get("game_date") or "")
             training_ground = (
-                public_training_ground(game_date) if account_ready else None
+                self._public_training_ground(game_date) if account_ready else None
             )
             record_step("training_ground")
             club_policies = None
@@ -10876,12 +10882,59 @@ class LocalOddsState:
             raise ValueError("尚未识别当前存档账户")
         if game_date:
             self._ensure_training_task_migration(game_date)
-        ground = public_training_ground(game_date)
-        floor = next((
-            row for row in ground.get("floors") or []
-            if row.get("scene") == "relationship_8f"
-        ), None)
-        return {**relationship_training_catalog(), "floor": floor}
+        return relationship_training_catalog()
+
+    def _team_training_rooms(self) -> list[dict[str, Any]]:
+        """Fourth training-ground module: rooms, per-session fee and eligible staff."""
+        with self.lock:
+            profiles = [
+                deepcopy(row)
+                for row in (getattr(self, "club_profiles", None) or {}).values()
+            ]
+        staff = [row for profile in profiles for row in profile.get("staff") or []]
+        settings = load_settings()
+        rooms: list[dict[str, Any]] = []
+        for sku, definition in RELATIONSHIP_TRAINING_ROOMS.items():
+            staff_roles = [
+                str(role["key"]) for role in definition.get("roles") or []
+                if role.get("kind") == "staff"
+            ]
+            rooms.append({
+                "sku": sku, "name": str(definition.get("name") or sku),
+                "icon": str(definition.get("icon") or ""),
+                "available": bool(definition.get("available", False)),
+                "session_fee_minor": relationship_training_session_fee_minor(
+                    definition, settings,
+                ),
+                "roles": [
+                    {
+                        "key": str(role["key"]), "kind": str(role["kind"]),
+                        "min": int(role.get("min") or 0), "max": int(role.get("max") or 1),
+                    }
+                    for role in definition.get("roles") or []
+                ],
+                "scope_attributes": [
+                    {
+                        "key": str(row["key"]), "direction": str(row["direction"]),
+                        "kind": str(row["kind"]),
+                    }
+                    for row in definition.get("scope_attributes") or []
+                ],
+                "eligible_staff_ids": {
+                    role: sorted({
+                        int(person.get("id") or 0) for person in staff
+                        if int(person.get("id") or 0) > 0
+                        and relationship_training_staff_eligible(sku, role, person)
+                    })
+                    for role in staff_roles
+                },
+            })
+        return rooms
+
+    def _public_training_ground(self, game_date: str) -> dict[str, Any]:
+        training_ground = public_training_ground(game_date)
+        training_ground["team_rooms"] = self._team_training_rooms()
+        return training_ground
 
     @staticmethod
     def _relationship_training_people(
@@ -10955,24 +11008,14 @@ class LocalOddsState:
     def relationship_training_room_preview(
         self, payload: dict[str, Any],
     ) -> dict[str, Any]:
-        room_id = str(payload.get("room_id") or "")
         submitted = payload.get("participants") or []
         selected_attributes = list(dict.fromkeys(
             str(value) for value in (payload.get("attributes") or []) if str(value)
         ))
-        if not room_id or not isinstance(submitted, list):
+        if not isinstance(submitted, list):
             raise ValueError("缺少必要的房间或参与者信息")
-        catalog = relationship_training_catalog()
-        definition = next((
-            definition for definition in catalog.get("rooms") or []
-            if any(
-                str(instance.get("id") or "") == room_id
-                for instance in definition.get("instances") or []
-            )
-        ), None)
-        if not definition:
-            raise ValueError("房间实例不存在")
-        room_sku = str(definition.get("sku") or "")
+        room_sku = self._team_training_room_sku(payload)
+        definition = RELATIONSHIP_TRAINING_ROOMS[room_sku]
         scope = {
             str(row.get("key") or ""): dict(row)
             for row in definition.get("scope_attributes") or []
@@ -11353,87 +11396,36 @@ class LocalOddsState:
             },
         }
 
-    def relationship_training_room_unlock(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if not self._bind_request_scope():
-            raise ValueError("尚未识别当前存档账户")
-        sku = str(payload.get("room_sku") or "")
+    def relationship_training_room_unlock(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        raise _training_error(
+            "training.error.room_unlock_retired",
+            TEAM_TRAINING_ROOM_UNLOCK_RETIRED,
+        )
+
+    @staticmethod
+    def _team_training_room_sku(payload: dict[str, Any]) -> str:
+        """Resolve a request to a room sku; a legacy room_id still maps to its sku."""
+        sku = str(payload.get("room_sku") or "").strip()
+        room_id = str(payload.get("room_id") or "").strip()
+        if not sku and room_id:
+            sku = next((
+                str(row.get("sku") or "")
+                for row in load_relationship_training_rooms().get("rooms") or []
+                if str(row.get("id") or "") == room_id
+            ), "")
+        if not sku:
+            raise ValueError("缺少必要的房间或参与者信息")
         definition = RELATIONSHIP_TRAINING_ROOMS.get(sku)
         if not definition:
             raise ValueError("房间不存在")
-        assert_training_floor_unlocked("relationship_8f")
         if not definition.get("available", False):
             raise ValueError(str(definition.get("unavailable_reason") or "该房间暂未开放"))
-        with self.lock:
-            profiles = [deepcopy(row) for row in self.club_profiles.values()]
-        players = [row for profile in profiles for row in profile.get("players") or []]
-        staff = [row for profile in profiles for row in profile.get("staff") or []]
-        if sku == "mind_room" and not players:
-            raise ValueError("解锁修心室需要队中至少一名球员")
-        if sku == "mentoring_room":
-            scope = list(definition.get("scope_attributes") or [])
-
-            def value_of(person: dict[str, Any], attribute: dict[str, Any]) -> Any:
-                key = str(attribute.get("key") or "")
-                group, _, name = key.partition(":")
-                if group == "hidden":
-                    return (person.get("hidden_attributes") or {}).get(name)
-                if group == "physical":
-                    return person.get("height_cm") or person.get("height")
-                return ((person.get("attributes") or {}).get(group) or {}).get(name)
-
-            pair_available = any(
-                mentor is not student and any(
-                    value_of(mentor, attribute) is not None
-                    and value_of(student, attribute) is not None
-                    and (
-                        value_of(mentor, attribute) < value_of(student, attribute)
-                        if attribute.get("direction") == "dec"
-                        else value_of(mentor, attribute) > value_of(student, attribute)
-                    )
-                    for attribute in scope
-                )
-                for mentor in players for student in players
-            )
-            if not pair_available:
-                raise ValueError("解锁传习室需要至少一对导师与学员，且作用属性中至少一项导师更优")
-        if sku == "tactical_room" and not any(
-            int(row.get("job_type") or 0) in COACHING_JOB_TYPES
-            and int((row.get("coaching_license") or {}).get("code") or 0) != 0
-            for row in staff
-        ):
-            raise ValueError("解锁战术指导室需要队中至少一名持证教练")
-        if sku == "video_analysis_room" and not any(
-            int(row.get("job_type") or 0) in ANALYSIS_JOB_TYPES for row in staff
-        ):
-            raise ValueError("解锁视频分析室需要队中至少一名分析团队职员")
-        if sku == "sports_science_room" and not any(
-            int(row.get("job_type") or 0) in SPORTS_SCIENCE_JOB_TYPES for row in staff
-        ):
-            raise ValueError("解锁运动科学室需要队中至少一名运动科学团队职员")
-        cost = local_purchase_price(float(definition.get("unlock_cost") or 0))
-        payment = charge_combined_funds(
-            cost, "relationship_training_room_unlock", room_sku=sku,
-        )
-        try:
-            room = unlock_relationship_training_room(sku)
-        except Exception:
-            if payment["total"]:
-                refund_combined_funds(
-                    payment, "relationship_training_room_unlock_rollback",
-                    room_sku=sku,
-                )
-            raise
-        return {
-            "room": room, "payment": payment,
-            "rooms": self.relationship_training_rooms_state(),
-            "economy": public_economy(),
-        }
+        return sku
 
     def relationship_training_room_enter(self, payload: dict[str, Any]) -> dict[str, Any]:
-        room_id = str(payload.get("room_id") or "")
         submitted = payload.get("participants") or []
         attributes = payload.get("attributes") or []
-        if not room_id or not isinstance(submitted, list) or not submitted:
+        if not isinstance(submitted, list) or not submitted:
             raise ValueError("缺少必要的房间或参与者信息")
         if not isinstance(attributes, list):
             raise ValueError("训练属性列表无效")
@@ -11444,16 +11436,10 @@ class LocalOddsState:
         if not game_date:
             raise ValueError("尚未读取游戏日期")
         self._ensure_training_task_migration(game_date)
-        assert_training_floor_unlocked("relationship_8f")
-        catalog = relationship_training_catalog()
-        room_sku = next((
-            str(definition.get("sku") or "")
-            for definition in catalog.get("rooms") or []
-            for instance in definition.get("instances") or []
-            if str(instance.get("id") or "") == room_id
-        ), "")
-        if not room_sku:
-            raise ValueError("房间实例不存在")
+        room_sku = self._team_training_room_sku(payload)
+        room_id = ""
+        if not str(payload.get("room_sku") or "").strip():
+            room_id = str(payload.get("room_id") or "").strip()
         staged: list[tuple[str, int, int, str, dict[str, Any], dict[str, Any]]] = []
         for source in submitted:
             if not isinstance(source, dict):
@@ -11476,6 +11462,8 @@ class LocalOddsState:
             role = str(source.get("role") or "")
             if kind == "staff":
                 validate_relationship_training_staff(room_sku, role, person)
+            if room_sku == "mentoring_room" and role == "mentor" and not mentor_credible(person):
+                raise ValueError(MENTOR_NOT_CREDIBLE_MESSAGE)
             staged.append((kind, identifier, team_id, role, profile, person))
 
         validate_relationship_training_guidance(room_sku, [
@@ -11518,19 +11506,45 @@ class LocalOddsState:
                     raise ValueError(
                         f"{left['name']} 与 {right['name']} 存在负面关系，不能配对训练"
                     )
-        room = enter_relationship_training_room(
-            room_id, canonical, attributes, game_date,
-            client_submission_id=str(payload.get("client_submission_id") or ""),
+        fee_minor = relationship_training_session_fee_minor(
+            RELATIONSHIP_TRAINING_ROOMS[room_sku],
         )
-        return {"room": room, "rooms": self.relationship_training_rooms_state()}
+
+        def charge() -> dict[str, Any] | None:
+            if fee_minor <= 0:
+                return None
+            return charge_combined_funds(
+                from_minor(fee_minor), "relationship_training_room_session",
+                room_sku=room_sku,
+            )
+
+        def refund(payment: dict[str, Any]) -> None:
+            if payment.get("total"):
+                refund_combined_funds(
+                    payment, "relationship_training_room_session_rollback",
+                    room_sku=room_sku,
+                )
+
+        result = enter_relationship_training_room(
+            room_sku, canonical, attributes, game_date,
+            client_submission_id=str(payload.get("client_submission_id") or ""),
+            room_id=room_id, session_fee_minor=fee_minor,
+            charge=charge, refund=refund,
+        )
+        return {
+            "room": result["room"], "payment": result.get("payment"),
+            "replayed": bool(result.get("replayed")),
+            "session_fee_minor": fee_minor,
+            "rooms": self.relationship_training_rooms_state(),
+            "economy": public_economy(),
+        }
 
     def relationship_training_room_settle(self, payload: dict[str, Any]) -> dict[str, Any]:
         if FROZEN:
-            raise PermissionError("8F 综训结算只在开发版开放")
+            raise PermissionError("团队训练结算只在开发版开放")
         room_id = str(payload.get("room_id") or "")
         if not room_id:
             raise ValueError("缺少房间实例")
-        assert_training_floor_unlocked("relationship_8f")
         with self.lock:
             self._bind_current_save()
             game_date = str(self.output.get("game_date") or "")
@@ -11625,19 +11639,8 @@ class LocalOddsState:
                     row for row in session["participants"] if row.get("role") == "mentor"
                 )
                 source = live_people[("player", int(mentor["id"]))]["source"]
-                attributes = source.get("attributes") or {}
-                credibility = (
-                    int(source.get("ca") or 0) >= 140
-                    or int(source.get("age") or 0) >= 28
-                    or int((attributes.get("精神") or {}).get("领导力") or 0) >= 15
-                    or max(
-                        int(source.get("home_reputation") or 0),
-                        int(source.get("current_reputation") or 0),
-                        int(source.get("world_reputation") or 0),
-                    ) >= 5000
-                )
-                if not credibility:
-                    raise ValueError("导师的 CA、年龄、领导力或声望尚未达到传习资格")
+                if not mentor_credible(source):
+                    raise ValueError(MENTOR_NOT_CREDIBLE_MESSAGE)
             coach_source: dict[str, Any] | None = None
             coach_multiplier = 1.0
             if session["room_sku"] == "tactical_room":
@@ -11645,9 +11648,9 @@ class LocalOddsState:
                     row for row in session["participants"] if row.get("role") == "coach"
                 )
                 coach_source = live_people[("staff", int(coach["id"]))]["source"]
-                license_code = int((coach_source.get("coaching_license") or {}).get("code") or -1)
-                if int(coach_source.get("job_type") or -1) not in {1, 16, 2, 34, 22, 26} or license_code not in range(1, 8):
-                    raise ValueError("战术指导室需要教练岗位的持证教练")
+                license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
+                if not tactical_coach_eligible(coach_source):
+                    raise ValueError(TACTICAL_COACH_MESSAGE)
                 coach_multiplier = coach_composite_multiplier(
                     license_code, int(coach_source.get("current_reputation") or 0),
                 )
@@ -18642,7 +18645,7 @@ class LocalOddsState:
                 # The cancellation is already durable; report the hook problem
                 # instead of pretending the task was never cancelled.
                 hook_status = {"error": str(error), "retryable": True}
-        training_ground = public_training_ground(game_date)
+        training_ground = self._public_training_ground(game_date)
         training_ground["growth_hook"] = hook_status
         return {
             "training_ground": training_ground,
@@ -18670,7 +18673,7 @@ class LocalOddsState:
                 set_active_save_id(scope_id)
                 settlement = self._sync_training_focuses(game_date)
                 self.training_sync_status = dict(settlement)
-        training_ground = public_training_ground(game_date)
+        training_ground = self._public_training_ground(game_date)
         training_ground["growth_hook"] = dict(settlement)
         return {
             "training_ground": training_ground,
@@ -18805,7 +18808,7 @@ class LocalOddsState:
                 "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
                 f"{error}",
             ) from error
-        training_ground = public_training_ground(game_date)
+        training_ground = self._public_training_ground(game_date)
         training_ground["growth_hook"] = hook_status
         result: dict[str, Any] = {
             "training_ground": training_ground,
@@ -18998,7 +19001,7 @@ class LocalOddsState:
                 if focus_type == "attribute":
                     lab_hidden_training = (
                         attribute_kind == "hidden"
-                        and str(product.get("scene") or "") == "comprehensive_7f"
+                        and project_sku in COMPREHENSIVE_ROOM_SKUS
                     )
                     if lab_hidden_training:
                         try:
@@ -19515,7 +19518,7 @@ class LocalOddsState:
                     "训练任务已建立，但成长 Hook 同步失败，请刷新页面后重试："
                     f"{error}",
                 ) from error
-            training_ground = public_training_ground(game_date)
+            training_ground = self._public_training_ground(game_date)
             training_ground["growth_hook"] = hook_status
             result: dict[str, Any] = {
                 "training_ground": training_ground,
@@ -19921,7 +19924,7 @@ class LocalOddsState:
                 raise RuntimeError(f"授权记录已关闭，但原生效果尚未安全卸载：{error}")
             welfare = welfare_status()
             welfare["club_policies"] = policies
-            training_ground = public_training_ground(game_date)
+            training_ground = self._public_training_ground(game_date)
             training_ground["club_policies"] = policies
             return {
                 "policy": policy,

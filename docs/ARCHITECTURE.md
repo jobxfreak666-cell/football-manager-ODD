@@ -127,7 +127,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 训练项目目录、三模块归属与单次固定费用 | `src/tools/training_catalog.py`；纯规则，只做模块归属与费用投影，不扣费、不读写 FM |
 | 训练任务、一次性旧任务迁移、公共目录投影与旧记录兼容 | `src/tools/training_ground.py` |
 | 训练结算期间的队伍索引和对象回绑 | `src/tools/training_runtime.py` |
-| 关系综训房间规则与专项进度 | `src/tools/relationship_training.py` |
+| 团队训练（原关系综训）房间规则、按次收费幂等与专项进度 | `src/tools/relationship_training.py` |
 | 版本化训练档案、关系摘要索引与关系时间线 | `src/tools/training_archive.py` |
 | 双向人物关系读取、保类别写入与精确回滚 | `src/tools/person_relationships.py`、`src/tools/relationship_network.py` |
 | 青训计划与名单事务 | `src/tools/youth_intake.py` |
@@ -148,7 +148,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 
 训练创建在绑定当前账户后，经 `betting_account.account_transaction` 按钱包进程锁、账户文档进程锁、账户文件跨进程锁的顺序加锁；任务/经济文档读取、重复请求与占用校验、资金分配、任务追加和最终单次账户写入均在锁内完成。提交后释放账户锁，再进行成长 Hook 同步和公共响应投影。
 
-训练场和 8F 房间分别在自己的账户文档记录 `task_rules_version`，迁移独立判断、在同一账户事务保存，不能用训练场标记跳过旧房间占用。读取、安排（含重复请求）及开发版房间直接结算均先处理迁移。训练任务仅裁剪最近记录窗口之外的非 active 记录；裁剪前将任务与付款凭证保存到 `training_ground.submission_receipts`，请求幂等不随 500 条窗口失效，公共投影仍只返回 active 任务和最近记录。
+训练场和团队训练房间分别在自己的账户文档记录 `task_rules_version`，迁移独立判断、在同一账户事务保存，不能用训练场标记跳过旧房间占用。读取、安排（含重复请求）及开发版房间直接结算均先处理迁移。训练任务仅裁剪最近记录窗口之外的非 active 记录；裁剪前将任务与付款凭证保存到 `training_ground.submission_receipts`，请求幂等不随 500 条窗口失效，公共投影仍只返回 active 任务和最近记录。
 
 业务文档、原生对象地址和前端选中状态属于不同层。训练、活动或医疗优化不能通过复用旧地址、吞掉等待状态、缓存伤病真值或绕过写后回读来换取速度。
 

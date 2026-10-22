@@ -42,7 +42,7 @@ def test_archives_survive_task_model_migration(tmp_path, monkeypatch):
     rooms.pop("task_rules_version", None)  # Simulate rooms saved before the task migration.
     rooms["rooms"].append({
         "id": "room-legacy", "sku": next(iter(relationship_training.ROOMS)),
-        "scene": relationship_training.SCENE_KEY, "status": "occupied",
+        "scene": "relationship_8f", "status": "occupied",
         "participants": [
             {"id": 7, "name": "A", "kind": "player"},
             {"id": 8, "name": "B", "kind": "player"},
@@ -84,21 +84,28 @@ def test_archives_survive_task_model_migration(tmp_path, monkeypatch):
     )
 
 
-def test_archive_routing_prioritizes_training_type_then_scene():
+def test_archive_routing_prioritizes_training_type_then_project_sku():
     assert training_archive.training_archive_category({"focus_type":"coaching_license","scene":"relationship_8f"}) == "coaching"
     assert training_archive.training_archive_category({"focus_type":"relationship_training","scene":"indoor"}) == "comprehensive"
-    assert training_archive.training_archive_category({"focus_type":"attribute","scene":"comprehensive_7f"}) == "comprehensive"
+    assert training_archive.training_archive_category({"focus_type":"attribute","facility_sku":"adaptation_pod"}) == "comprehensive"
     assert training_archive.training_archive_category({"focus_type":"attribute","room_sku":"mind_room"}) == "comprehensive"
+    assert training_archive.training_archive_category({"focus_type":"attribute","facility_sku":"leadership_desk"}) == "equipment"
+    assert training_archive.training_archive_category({"focus_type":"position","facility_sku":"position_training_area"}) == "equipment"
+
+
+def test_old_floor_records_still_archive_without_errors():
+    # Records written before floors were removed keep routing correctly.
+    assert training_archive.training_archive_category({"focus_type":"attribute","scene":"comprehensive_7f"}) == "comprehensive"
     assert training_archive.training_archive_category({"focus_type":"attribute","scene":"office_6f"}) == "equipment"
-
-
-def test_unknown_future_scene_requires_explicit_category():
-    try:
-        training_archive.training_archive_category({"scene":"future_9f"})
-    except ValueError as error:
-        assert "archive_category" in str(error)
-    else:
-        raise AssertionError("future scene was silently classified")
+    for scene in ("office_3f", "indoor_4f", "position_training", "future_9f", ""):
+        assert training_archive.training_archive_category({"focus_type":"attribute","scene":scene}) == "equipment"
+    event = training_archive.training_archive_event({
+        "id": "old-7f", "focus_type": "attribute", "scene": "comprehensive_7f",
+        "floor": "7F", "facility_sku": "career_terminal", "player_id": 1,
+        "player_name": "A", "completed_on": "2026-01-01",
+    })
+    assert event["event_type"] == "comprehensive"
+    assert "floor" not in event["details"]
 
 
 def test_archive_is_idempotent_and_keeps_irreversible_totals(monkeypatch):
@@ -229,7 +236,7 @@ def test_comprehensive_page_recovers_room_for_role_rich_legacy_event(monkeypatch
     details = result["events"][0]["details"]
     assert details["facility_sku"] == "mind_room"
     assert details["facility_name"] == "修心室"
-    assert details["floor"] == "8F"
+    assert "floor" not in details
     assert "facility_sku" not in document["events"][0]["details"]
 
 
@@ -328,13 +335,14 @@ def test_archive_event_keeps_training_location_and_content():
         "facility_sku": "treadmill", "facility_name": "专业跑步机",
         "floor": "2F", "training_content": "身体：速度",
         "attribute_key": "身体：速度", "completed_on": "2026-08-22",
-        "player_id": 10, "player_name": "球员 A",
+        "player_id": 10, "player_name": "球员 A", "module": "player_training",
     })
     details = event["details"]
     assert details["facility_id"] == "facility-1"
     assert details["facility_sku"] == "treadmill"
     assert details["facility_name"] == "专业跑步机"
-    assert details["floor"] == "2F"
+    assert details["module"] == "player_training"
+    assert "floor" not in details
     assert details["training_content"] == "身体：速度"
 
 

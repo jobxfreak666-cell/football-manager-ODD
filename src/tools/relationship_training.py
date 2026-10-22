@@ -5,17 +5,19 @@ import uuid
 import hashlib
 from copy import deepcopy
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Callable
 
 from tools.account_store import load_document, update_document, update_documents
 from tools.app_settings import load_settings, local_purchase_price
+from tools.money import to_minor
 from tools.training_archive import (
     _new_archive, append_training_archive_event, training_archive_event,
 )
+from tools.training_catalog import TASK_PRICE_RATIO, TEAM_TRAINING_MODULE
 
 
-SCENE_KEY = "relationship_8f"
-ROOM_LIMIT = 15
+MODULE_KEY = TEAM_TRAINING_MODULE
+SESSION_RECEIPT_LIMIT = 500
 RELATIONSHIP_TRAINING_MIGRATION_REASON = "training_task_model_migration"
 RELATIONSHIP_TRAINING_TASK_RULES_VERSION = 1
 _LOCK = threading.RLock()
@@ -30,16 +32,54 @@ RELATION_REASON_MULTIPLIERS = {
 LICENSE_FM_TO_TIER = {0: 1, 7: 2, 6: 3, 5: 4, 4: 5, 3: 6, 2: 7, 1: 8}
 
 
+def _job_type(person: dict[str, Any]) -> int:
+    return int(person.get("job_type") if person.get("job_type") is not None else -1)
+
+
+def tactical_coach_eligible(person: dict[str, Any]) -> bool:
+    """One rule for arranging and settling the tactical room: licensed coaching staff."""
+    license_code = int((person.get("coaching_license") or {}).get("code") or 0)
+    return _job_type(person) in COACHING_JOB_TYPES and license_code != 0
+
+
+def mentor_credible(person: dict[str, Any]) -> bool:
+    """Mentoring-room mentor qualification, checked when arranging and settling."""
+    attributes = person.get("attributes") or {}
+    return bool(
+        int(person.get("ca") or 0) >= 140
+        or int(person.get("age") or 0) >= 28
+        or int((attributes.get("精神") or {}).get("领导力") or 0) >= 15
+        or max(
+            int(person.get("home_reputation") or 0),
+            int(person.get("current_reputation") or 0),
+            int(person.get("world_reputation") or 0),
+        ) >= 5000
+    )
+
+
+MENTOR_NOT_CREDIBLE_MESSAGE = "导师的 CA、年龄、领导力或声望尚未达到传习资格"
+TACTICAL_COACH_MESSAGE = "战术指导室导师只能选择教练团队的持证职员"
+
+
+def relationship_training_staff_eligible(
+    room_sku: str, role: str, person: dict[str, Any],
+) -> bool:
+    try:
+        validate_relationship_training_staff(room_sku, role, person)
+    except ValueError:
+        return False
+    return True
+
+
 def validate_relationship_training_staff(
     room_sku: str, role: str, person: dict[str, Any],
 ) -> None:
     if role not in {"coach", "analyst", "scientist"}:
         return
-    job_type = int(person.get("job_type") if person.get("job_type") is not None else -1)
+    job_type = _job_type(person)
     if room_sku == "tactical_room":
-        license_code = int((person.get("coaching_license") or {}).get("code") or 0)
-        if job_type not in COACHING_JOB_TYPES or license_code == 0:
-            raise ValueError("战术指导室导师只能选择教练团队的持证职员")
+        if not tactical_coach_eligible(person):
+            raise ValueError(TACTICAL_COACH_MESSAGE)
     elif room_sku == "video_analysis_room" and job_type not in ANALYSIS_JOB_TYPES:
         raise ValueError("视频分析室只能选择分析团队职员")
     elif room_sku == "sports_science_room" and job_type not in SPORTS_SCIENCE_JOB_TYPES:
@@ -102,7 +142,7 @@ def validate_relationship_training_guidance(
 
 ROOMS: dict[str, dict[str, Any]] = {
     "mind_room": {
-        "name": "修心室", "scene": SCENE_KEY, "unlock_cost": 5_000_000.0,
+        "name": "修心室", "session_cost": 5_000_000.0 * TASK_PRICE_RATIO,
         "icon": "heart-handshake", "available": True,
         "description": "通过专注训练与心理调适，系统提升球员的心理素质与职业心态。",
         "participant_label": "单人 / 双人（可选伙伴）",
@@ -122,7 +162,7 @@ ROOMS: dict[str, dict[str, Any]] = {
         ],
     },
     "mentoring_room": {
-        "name": "传习室", "scene": SCENE_KEY, "unlock_cost": 20_000_000.0,
+        "name": "传习室", "session_cost": 20_000_000.0 * TASK_PRICE_RATIO,
         "icon": "users-round", "available": True,
         "description": "由资深球员担任导师，面向同队学员开展能力传承与职业经验指导。",
         "participant_label": "1 导师 + 1~4 学员",
@@ -144,7 +184,7 @@ ROOMS: dict[str, dict[str, Any]] = {
         ],
     },
     "tactical_room": {
-        "name": "战术指导室", "scene": SCENE_KEY, "unlock_cost": 15_000_000.0,
+        "name": "战术指导室", "session_cost": 15_000_000.0 * TASK_PRICE_RATIO,
         "icon": "clipboard-list", "available": True,
         "description": "由教练团队开展专项战术辅导，提升球员的比赛理解、适应能力与稳定表现。",
         "participant_label": "1 教练 + 1~3 球员",
@@ -159,7 +199,7 @@ ROOMS: dict[str, dict[str, Any]] = {
         ] + [{"key": "精神:团队合作", "direction": "inc", "kind": "visible"}],
     },
     "video_analysis_room": {
-        "name": "视频分析室", "scene": SCENE_KEY, "unlock_cost": 25_000_000.0,
+        "name": "视频分析室", "session_cost": 25_000_000.0 * TASK_PRICE_RATIO,
         "icon": "video", "available": True,
         "description": "由分析团队结合比赛录像开展针对性复盘，强化球员的决策、预判与空间理解。",
         "participant_label": "1 分析师 + 1~3 球员",
@@ -179,7 +219,7 @@ ROOMS: dict[str, dict[str, Any]] = {
         ],
     },
     "sports_science_room": {
-        "name": "运动科学室", "scene": SCENE_KEY, "unlock_cost": 30_000_000.0,
+        "name": "运动科学室", "session_cost": 30_000_000.0 * TASK_PRICE_RATIO,
         "icon": "activity", "available": True,
         "description": "由运动科学团队制定个体化体能方案，改善身体素质、负荷管理与伤病风险。",
         "participant_label": "1 运动科学职员 + 1~3 球员",
@@ -204,18 +244,23 @@ def _now() -> str:
 
 def _new_state() -> dict[str, Any]:
     return {
-        "schema_version": 2, "task_rules_version": RELATIONSHIP_TRAINING_TASK_RULES_VERSION,
-        "scene": SCENE_KEY, "rooms": [], "submissions": [],
+        "schema_version": 3, "task_rules_version": RELATIONSHIP_TRAINING_TASK_RULES_VERSION,
+        "module": MODULE_KEY, "rooms": [], "submissions": [], "session_receipts": {},
         "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
     }
 
 
 def _normalize_state(value: Any) -> dict[str, Any]:
     state = value if isinstance(value, dict) else _new_state()
-    state["schema_version"] = 2
-    state["scene"] = SCENE_KEY
+    state["schema_version"] = 3
+    # Rooms no longer live on a floor and need no unlock: old unlock records
+    # stay as reusable room records, their unlock state is simply ignored.
+    state.pop("scene", None)
+    state["module"] = MODULE_KEY
     state.setdefault("rooms", [])
     state.setdefault("submissions", [])
+    receipts = state.get("session_receipts")
+    state["session_receipts"] = dict(receipts) if isinstance(receipts, dict) else {}
     state.setdefault("attribute_progress", {})
     state.setdefault("intimacy_progress", {})
     state.setdefault("height_baselines", {})
@@ -352,48 +397,30 @@ def load_relationship_training_rooms() -> dict[str, Any]:
         return _normalize_state(load_document("relationship_training_rooms", None))
 
 
+def relationship_training_session_fee_minor(
+    definition: dict[str, Any], settings: dict[str, Any] | None = None,
+) -> int:
+    """Per-session fee in local minor units, the same convention as training tasks."""
+    cost = float(definition.get("session_cost") or 0)
+    if cost <= 0:
+        return 0
+    return to_minor(local_purchase_price(cost, settings))
+
+
 def relationship_training_catalog() -> dict[str, Any]:
     state = load_relationship_training_rooms()
     settings = load_settings()
     instances = [dict(row) for row in state["rooms"]]
     rows = []
     for sku, definition in ROOMS.items():
-        owned = [row for row in instances if row.get("sku") == sku]
+        records = [row for row in instances if row.get("sku") == sku]
         rows.append({
-            "sku": sku, **definition,
-            "unlock_cost": local_purchase_price(definition["unlock_cost"], settings),
-            "instances": owned, "unlock_count": len(owned),
-            "idle_count": sum(row.get("status") == "idle" for row in owned),
+            "sku": sku, **definition, "module": MODULE_KEY,
+            "session_fee_minor": relationship_training_session_fee_minor(definition, settings),
+            "instances": records,
+            "active_count": sum(row.get("status") != "idle" for row in records),
         })
-    return {
-        "scene": SCENE_KEY, "floor_limit": ROOM_LIMIT,
-        "unlocked_total": len(instances), "rooms": rows,
-    }
-
-
-def unlock_relationship_training_room(room_sku: str) -> dict[str, Any]:
-    sku = str(room_sku or "")
-    definition = ROOMS.get(sku)
-    if not definition:
-        raise ValueError("房间不存在")
-    if not definition.get("available", False):
-        raise ValueError(str(definition.get("unavailable_reason") or "该房间暂未开放"))
-
-    def mutate(raw: Any) -> dict[str, Any]:
-        state = _normalize_state(raw)
-        if len(state["rooms"]) >= ROOM_LIMIT:
-            raise ValueError(f"关系综训楼 8F 已达到 {ROOM_LIMIT} 间上限")
-        instance = {
-            "id": str(uuid.uuid4()), "sku": sku, "scene": SCENE_KEY,
-            "status": "idle", "unlocked_at": _now(), "participants": [],
-            "attributes": [], "started_on": None, "entered_at": None,
-            "client_submission_id": None,
-        }
-        state["rooms"].append(instance)
-        return dict(instance)
-
-    with _LOCK:
-        return update_document("relationship_training_rooms", _new_state(), mutate)
+    return {"module": MODULE_KEY, "rooms": rows}
 
 
 def _normalized_participants(
@@ -440,55 +467,135 @@ def _normalized_participants(
     return normalized
 
 
-def enter_relationship_training_room(
-    room_id: str, participants: list[dict[str, Any]], attributes: list[str],
-    game_date: str, *, client_submission_id: str = "",
+def _room_for_new_session(
+    state: dict[str, Any], room_sku: str, room_id: str,
 ) -> dict[str, Any]:
-    submission_id = str(client_submission_id or "").strip()
-    if len(submission_id) > 128:
-        raise ValueError("训练请求编号过长")
-
-    def mutate(raw: Any) -> dict[str, Any]:
-        state = _normalize_state(raw)
-        if submission_id:
-            prior = next((
-                row for row in state["rooms"]
-                if row.get("client_submission_id") == submission_id
-            ), None)
-            if prior:
-                return dict(prior)
+    """Reuse an idle record of this room, or open a new one; nothing to unlock."""
+    if room_id:
         room = next((row for row in state["rooms"] if row.get("id") == room_id), None)
-        if not room:
+        if not room or room.get("sku") != room_sku:
             raise ValueError("房间实例不存在")
         if room.get("status") != "idle":
             raise ValueError("该房间正在被使用")
-        definition = ROOMS[str(room["sku"])]
-        if not definition.get("available", False):
-            raise ValueError(str(definition.get("unavailable_reason") or "该房间暂未开放"))
+        return room
+    room = next((
+        row for row in state["rooms"]
+        if row.get("sku") == room_sku and row.get("status") == "idle"
+    ), None)
+    if room:
+        return room
+    room = {
+        "id": str(uuid.uuid4()), "sku": room_sku, "module": MODULE_KEY,
+        "status": "idle", "created_at": _now(), "participants": [],
+        "attributes": [], "started_on": None, "entered_at": None,
+        "client_submission_id": None,
+    }
+    state["rooms"].append(room)
+    return room
+
+
+def _session_receipt(state: dict[str, Any], submission_id: str) -> dict[str, Any] | None:
+    receipt = state["session_receipts"].get(submission_id)
+    if receipt:
+        return receipt
+    # Rooms entered before receipts existed still carry their submission id.
+    prior = next((
+        row for row in state["rooms"]
+        if submission_id and row.get("client_submission_id") == submission_id
+    ), None)
+    return {"room": dict(prior), "room_sku": prior.get("sku"), "payment": None} if prior else None
+
+
+def enter_relationship_training_room(
+    room_sku: str, participants: list[dict[str, Any]], attributes: list[str],
+    game_date: str, *, client_submission_id: str = "", room_id: str = "",
+    session_fee_minor: int = 0,
+    charge: Callable[[], dict[str, Any] | None] | None = None,
+    refund: Callable[[dict[str, Any]], Any] | None = None,
+) -> dict[str, Any]:
+    """Arrange one session and charge its fee exactly once per submission id.
+
+    ``charge`` runs under the module lock after every check passes; a replayed
+    or concurrent duplicate submission returns the first result and is not
+    charged again. Any failure after charging calls ``refund``.
+    """
+    sku = str(room_sku or "")
+    definition = ROOMS.get(sku)
+    if not definition:
+        raise ValueError("房间不存在")
+    if not definition.get("available", False):
+        raise ValueError(str(definition.get("unavailable_reason") or "该房间暂未开放"))
+    submission_id = str(client_submission_id or "").strip()
+    if len(submission_id) > 128:
+        raise ValueError("训练请求编号过长")
+    if charge is not None and not submission_id:
+        raise ValueError("训练场已改版，请刷新页面后重新提交训练安排")
+    resolved_room_id = str(room_id or "").strip()
+
+    def replay(state: dict[str, Any]) -> dict[str, Any] | None:
+        receipt = _session_receipt(state, submission_id) if submission_id else None
+        if not receipt:
+            return None
+        if str(receipt.get("room_sku") or "") != sku:
+            raise ValueError("训练请求编号已用于其他安排，请重新提交")
+        return {
+            "room": dict(receipt.get("room") or {}),
+            "payment": receipt.get("payment"), "replayed": True,
+        }
+
+    def mutate(raw: Any, payment: dict[str, Any] | None) -> dict[str, Any]:
+        state = _normalize_state(raw)
+        prior = replay(state)
+        if prior:
+            return prior
         normalized = _normalized_participants(definition, participants)
         occupied = {
             (str(person.get("kind")), int(person.get("id") or 0))
-            for other in state["rooms"] if other.get("status") == "occupied"
+            for other in state["rooms"] if other.get("status") in {"occupied", "settling"}
             for person in other.get("participants") or []
         }
         if any((row["kind"], row["id"]) in occupied for row in normalized):
-            raise ValueError("参与者已在其他 8F 综训房间中")
+            raise ValueError("参与者已在其他团队训练房间中")
         scope = {str(row["key"]) for row in definition["scope_attributes"]}
         chosen = list(dict.fromkeys(str(key) for key in attributes if str(key) in scope))
         if not chosen:
             raise ValueError("请至少选择一项训练属性")
+        room = _room_for_new_session(state, sku, resolved_room_id)
         room.update({
             "status": "occupied", "participants": normalized,
             "attributes": chosen, "started_on": str(game_date or "") or None,
             "entered_at": _now(), "client_submission_id": submission_id or None,
+            "session_fee_minor": max(0, int(session_fee_minor or 0)),
         })
         if submission_id:
             state["submissions"].append(submission_id)
             state["submissions"] = state["submissions"][-500:]
-        return dict(room)
+            state["session_receipts"][submission_id] = {
+                "room_sku": sku, "room": dict(room), "payment": deepcopy(payment),
+                "at": _now(),
+            }
+            if len(state["session_receipts"]) > SESSION_RECEIPT_LIMIT:
+                state["session_receipts"] = dict(
+                    list(state["session_receipts"].items())[-SESSION_RECEIPT_LIMIT:]
+                )
+        return {"room": dict(room), "payment": deepcopy(payment), "replayed": False}
 
     with _LOCK:
-        return update_document("relationship_training_rooms", _new_state(), mutate)
+        # Duplicate submissions (retry or concurrent double click) are resolved
+        # under the same lock before any money moves.
+        prior = replay(_normalize_state(load_document("relationship_training_rooms", None)))
+        if prior:
+            return prior
+        payment = charge() if charge is not None else None
+        try:
+            return update_document(
+                "relationship_training_rooms", _new_state(),
+                lambda raw: mutate(raw, payment),
+            )
+        except Exception:
+            if payment and refund is not None:
+                refund(payment)
+            raise
 
 
 def release_relationship_training_room(room_id: str, game_date: str) -> dict[str, Any]:
@@ -501,7 +608,7 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
             raise ValueError("该房间当前未被占用")
         session = {
             "id": str(uuid.uuid4()), "focus_type": "relationship_training",
-            "scene": SCENE_KEY, "room_id": str(room["id"]), "room_sku": str(room["sku"]),
+            "module": MODULE_KEY, "room_id": str(room["id"]), "room_sku": str(room["sku"]),
             "facility_name": str(ROOMS[str(room["sku"])]["name"]),
             "participants": [dict(row) for row in room.get("participants") or []],
             "attributes": list(room.get("attributes") or []),
@@ -536,10 +643,10 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
 def migrate_relationship_training_rooms(
     payload: dict[str, Any], *, game_date: str = "",
 ) -> bool:
-    """Stop legacy 8F occupancy once and keep an inert record of each activity.
+    """Stop legacy room occupancy once and keep an inert record of each activity.
 
     Mutates only ``payload``; the caller saves it atomically with the training
-    document. No effect is applied, and the 8F gate/room inventory is untouched.
+    document. No effect is applied, and existing room records are untouched.
     """
     if int(payload.get("task_rules_version") or 0) >= RELATIONSHIP_TRAINING_TASK_RULES_VERSION:
         return False
@@ -556,7 +663,7 @@ def migrate_relationship_training_rooms(
             **deepcopy(pending),
             "id": str(pending.get("id") or uuid.uuid4()),
             "focus_type": "relationship_training",
-            "scene": SCENE_KEY,
+            "module": MODULE_KEY,
             "room_id": str(room.get("id") or ""),
             "room_sku": str(room.get("sku") or ""),
             "facility_name": str(definition.get("name") or ""),
