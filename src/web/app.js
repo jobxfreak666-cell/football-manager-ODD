@@ -12980,6 +12980,34 @@ function renderTrainingModuleTabs() {
     return `<button type="button" role="tab" aria-selected="${active}" class="${active ? "active" : ""}" data-training-module="${module.key}"><i data-lucide="${module.icon}"></i><span>${escapeHtml(uiText(module.labelKey))}</span>${counter}</button>`;
   }).join("");
 }
+function trainingAttributeValueClass(value) {
+  const number = Number(value);
+  return number >= 16 ? "elite" : number >= 12 ? "good" : number <= 7 ? "weak" : "normal";
+}
+
+function trainingPlayerAttributePanel(person) {
+  const groupOrder = ["门将", "技术", "精神", "身体", "定位球", "技术训练"];
+  const rank = (group) => {
+    const index = groupOrder.indexOf(group);
+    return index < 0 ? groupOrder.length : index;
+  };
+  const groups = Object.entries(person?.attributes || {})
+    .filter(([, values]) => values && Object.keys(values).length)
+    .sort(([left], [right]) => rank(left) - rank(right));
+  if (Object.keys(person?.hidden_attributes || {}).length) groups.push(["隐藏", person.hidden_attributes]);
+  if (!groups.length) {
+    return `<div class="training-person-attributes empty">${uiText("world.player_detail.no_reliable_attributes")}</div>`;
+  }
+  const cell = (group, name, value) => {
+    const label = group === "隐藏" && name === "争论" ? "争议性" : name;
+    return `<span class="attribute-value value-${trainingAttributeValueClass(value)}">${escapeHtml(localizedTrainingAttribute(label))}<b>${Number(value)}</b></span>`;
+  };
+  return `<div class="training-person-attributes player-attribute-sections" role="region" aria-label="${escapeHtml(person.name || "")}">${groups.map(([group, values]) =>
+    `<section class="player-attribute-group${group === "隐藏" ? " hidden-group" : ""}"><h4>${escapeHtml(localizedTrainingAttributeGroup(group))}</h4><div class="ability-list">${
+      Object.entries(values).map(([name, value]) => cell(group, name, value)).join("")
+    }</div></section>`).join("")}</div>`;
+}
+
 function renderTrainingRoster() {
   const roster = $("#training-roster");
   if (!roster) return;
@@ -13000,6 +13028,9 @@ function renderTrainingRoster() {
       String(person.training_subject_type || ""), trainingStaffEligible(person),
     ]),
     focusRows,
+    expanded:kind === "player" && app.trainingPersonKind === "player"
+      ? (() => { const person = people.find((row) => Number(row.id) === Number(app.trainingPersonId)); return person ? [person.attributes || null, person.hidden_attributes || null] : null; })()
+      : null,
   });
   if (roster.dataset.signature === signature) return;
   roster.dataset.signature = signature;
@@ -13021,15 +13052,17 @@ function renderTrainingRoster() {
     const status = activeFocus ? trainingFocusUsage(activeFocus)
       : kind === "staff" && !eligible ? uiText("training.not_eligible")
       : uiText("training.idle");
-    return `<article class="training-person-row ${selected ? "selected" : ""} ${activeFocus ? "training" : ""}">
-      <button type="button" class="training-person-open" data-training-person="${kind}:${Number(person.id)}">
+    const expanded = selected && kind === "player";
+    return `<article class="training-person-row ${selected ? "selected" : ""} ${expanded ? "expanded" : ""} ${activeFocus ? "training" : ""}">
+      <button type="button" class="training-person-open" data-training-person="${kind}:${Number(person.id)}"${kind === "player" ? ` aria-expanded="${expanded}"` : ""}>
         <span class="training-person-shirt">${kind === "staff" ? `<i data-lucide="${person.training_subject_type === "player_manager" ? "user-cog" : "briefcase-business"}"></i>` : escapeHtml(String(person.shirt_number || "—"))}</span>
         <span class="training-person-copy"><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(role || "")} · ${escapeHtml(status)}</small></span>
         ${activeFocus
           ? `<span class="training-person-badge">${uiText("training.studying")}</span>`
-          : eligible ? `<i data-lucide="chevron-right"></i>` : `<span class="training-person-badge muted">${uiText("training.not_eligible")}</span>`}
+          : eligible ? `<i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i>` : `<span class="training-person-badge muted">${uiText("training.not_eligible")}</span>`}
       </button>
       ${activeFocus ? `<button type="button" class="training-person-cancel" data-training-cancel-focus="${escapeHtml(activeFocus.id)}" aria-label="${uiText("training.cancel_use")}"><i data-lucide="x"></i></button>` : ""}
+      ${expanded ? trainingPlayerAttributePanel(person) : ""}
     </article>`;
   }).join("");
   roster.innerHTML = head + tools + (rows || `<div class="training-roster-state"><strong>${uiText("training.roster_empty")}</strong></div>`);

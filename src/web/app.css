@@ -5508,6 +5508,18 @@ body { background:#f1f4f2; }
 .training-person-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:stretch; border:1px solid #dbe4df; border-radius:7px; background:#fff; overflow:hidden; }
 .training-person-row.selected { border-color:#176b4d; box-shadow:inset 3px 0 #176b4d; }
 .training-person-row.training { background:#f4faf7; }
+.training-person-row.expanded { grid-template-rows:auto auto; }
+.training-person-attributes { grid-column:1 / -1; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin:0 10px 10px; padding-top:10px; border-top:1px solid #e3eae6; }
+.training-person-attributes .player-attribute-group { padding:9px 10px; }
+.training-person-attributes .player-attribute-group h4 { margin:0 0 7px; font-size:13px; }
+.training-person-attributes .ability-list { gap:3px; }
+.training-person-attributes .ability-list span { min-height:26px; padding:3px 7px; font-size:13px; }
+.training-person-attributes .ability-list b { font-variant-numeric:tabular-nums; }
+.training-person-attributes.empty { display:block; padding:10px 0 2px; color:#6b7a72; font-size:13px; }
+.training-person-attributes .hidden-group { grid-column:1 / -1; border-top-color:#8a8f8c; }
+.training-person-attributes .hidden-group .ability-list { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+@media (max-width:1100px) { .training-person-attributes { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:640px) { .training-person-attributes { grid-template-columns:1fr; } }
 .training-person-open { min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px 10px; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .training-person-open:focus-visible { outline:3px solid #f0c94f; outline-offset:-3px; }
 .training-person-shirt { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:#e8f0ec; color:#176b4d; font-size:13px; font-weight:900; }
@@ -5557,6 +5569,7 @@ body { background:#f1f4f2; }
 :root[data-theme="dark"] .training-person-row { background:#15211c; border-color:#33483f; }
 :root[data-theme="dark"] .training-person-row.training { background:#1a2a22; }
 :root[data-theme="dark"] .training-person-row.selected { border-color:#4c8f70; box-shadow:inset 3px 0 #68c99d; }
+:root[data-theme="dark"] .training-person-attributes { border-top-color:#33483f; }
 :root[data-theme="dark"] .training-person-shirt { background:#20332a; color:#8ed0ad; }
 :root[data-theme="dark"] .training-person-cancel { background:#2a1715; border-color:#4a2a25; color:#ff9a8f; }
 :root[data-theme="dark"] .training-person-badge { background:#214435; color:#8ed0ad; }
