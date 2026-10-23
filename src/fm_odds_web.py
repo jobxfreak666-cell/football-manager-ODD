@@ -3890,6 +3890,657 @@ def _training_mapped_error(error: ValueError) -> ValueError:
     return _training_error("training.error.request_invalid", text)
 
 
+class TeamTrainingSettlement:
+    """Settle one released team-training session against the live game.
+
+    ``LocalOddsState._settle_relationship_training_room`` releases the room
+    (occupied -> settling) and hands the pending session here. ``run`` reads
+    the participants, applies attribute, height, condition and closeness
+    effects to game memory and commits room, progress and archive in one
+    account write. Any failure rolls the game writes back and returns the
+    room to occupied; the first game write is recorded first so crash
+    recovery never re-applies a session.
+    """
+
+    def __init__(
+        self, state: "LocalOddsState", room_id: str, session: dict[str, Any], *,
+        game_date: str, scope_id: str, profiles: list[dict[str, Any]],
+    ) -> None:
+        self.state = state
+        self.room_id = room_id
+        self.session = session
+        self.game_date = game_date
+        self.scope_id = scope_id
+        self.profiles = profiles
+        self.attribute_writes: list[dict[str, Any]] = []
+        self.relationship_writes: list[dict[str, Any]] = []
+        self._writes_marked = False
+
+    def run(self) -> dict[str, Any]:
+        try:
+            committed = self._settle()
+        except Exception as error:
+            try:
+                self._rollback_native()
+            except Exception as rollback_error:
+                raise PlayerEffectRollbackError(error, rollback_error) from error
+            try:
+                restore_relationship_training_room(self.room_id)
+            except Exception as restore_error:
+                raise RuntimeError(f"综训结算失败且房间状态恢复未完成：{restore_error}") from error
+            raise
+
+        invalidate_club_profile_cache()
+        return committed
+
+    def _before_native_write(self) -> None:
+        # Persisted once, before the first game-memory write, so crash
+        # recovery never re-runs a settle that may have applied effects.
+        if not self._writes_marked:
+            mark_relationship_training_native_writes(self.room_id, str(self.session["id"]))
+            self._writes_marked = True
+
+    def _rollback_native(self) -> None:
+        for result in reversed(self.relationship_writes):
+            rollback_bidirectional_intimacy(result)
+        for item in reversed(self.attribute_writes):
+            result = item["result"]
+            if item["kind"] == "condition":
+                restore_player_training_condition(
+                    int(item["player_id"]), item["player_address"],
+                    result["_original"], result["_updated"],
+                )
+            elif item["kind"] == "hidden":
+                restore_player_hidden_attribute(
+                    int(item["player_id"]), item["player_address"],
+                    str(item["attribute_key"]), result["_original_raw"],
+                    result.get("_updated_raw"),
+                )
+            else:
+                restore_player_development(
+                    int(item["player_id"]), item["player_address"],
+                    result["_original_raw"], int(result["_original_ca"]),
+                    int(result["_original_pa"]),
+                    attribute_keys=result.get("_restore_attribute_keys"),
+                    restore_ca=bool(result.get("_restore_ca", True)),
+                    restore_pa=bool(result.get("_restore_pa", True)),
+                )
+
+    def _settle(self) -> dict[str, Any]:
+        room_id, session = self.room_id, self.session
+        game_date, scope_id, profiles = self.game_date, self.scope_id, self.profiles
+        plan = relationship_training_effect_plan(session)
+        stored_progress = relationship_training_progress()
+        captured = dict(session.get("captured_multipliers") or {})
+        early_reasons: list[str] = []
+        negative_pairs: set[tuple[str, int, str, int]] = set()
+        mentor_override: dict[str, float] | None = None
+        skipped: set[tuple[str, int]] = set()
+        skipped_rows: list[dict[str, Any]] = []
+        live_people: dict[tuple[str, int], dict[str, Any]] = {}
+        pair_details: dict[tuple[str, int, str, int], dict[str, Any]] = {}
+        with borrow_game_operation() as operation:
+            for participant in session.get("participants") or []:
+                kind = str(participant.get("kind") or "")
+                identifier = int(participant.get("id") or 0)
+                team_id = int(participant.get("team_id") or 0)
+                profile = next((
+                    row for row in profiles
+                    if int((row.get("team") or {}).get("id") or 0) == team_id
+                ), None)
+                person = next((
+                    row for row in self.state._relationship_training_people(profile, kind)
+                    if int(row.get("id") or 0) == identifier
+                ), None)
+                if not person:
+                    if self.state._team_training_participant_left(participant, profiles):
+                        # Left the team: settle early without this person.
+                        skipped.add((kind, identifier))
+                        skipped_rows.append({
+                            "kind": kind, "id": identifier,
+                            "name": participant.get("name"),
+                            "role": participant.get("role"),
+                        })
+                        continue
+                    raise ValueError("综训参与者已不属于原球队，请刷新后重试")
+                person_address = resolve_public_person_address(
+                    operation.reader, person, kind,
+                )
+                public_profile = read_person_public_profile(
+                    operation.reader, person_address,
+                )
+                if int((public_profile or {}).get("uid") or 0) != identifier:
+                    raise ValueError("综训参与者身份已变化，请刷新后重试")
+                live_people[(kind, identifier)] = {
+                    "source": person, "player_address": person.get("address"),
+                    "person_address": person_address,
+                }
+            for pair in plan["pairs"]:
+                left = pair["person_a"]
+                right = pair["person_b"]
+                left_key = (str(left["kind"]), int(left["id"]))
+                right_key = (str(right["kind"]), int(right["id"]))
+                if left_key in skipped or right_key in skipped:
+                    continue
+                detail = read_relationship_pair(
+                    operation.reader,
+                    int(live_people[left_key]["person_address"]),
+                    int(live_people[right_key]["person_address"]),
+                )
+                if any(
+                    direction and int(direction.get("relation_type", 1)) != 1
+                    for direction in (detail.get("a_to_b"), detail.get("b_to_a"))
+                ):
+                    # Settle early with earned progress; this pair gets no
+                    # intimacy (writing it would deepen the hostility).
+                    negative_pairs.add((*left_key, *right_key))
+                    early_reasons.append(
+                        f"{left.get('name')} 与 {right.get('name')} 已产生负面关系"
+                    )
+                pair_details[(*left_key, *right_key)] = detail
+
+        if skipped:
+            early_reasons.append("participant_left_team：" + "、".join(
+                str(row.get("name") or row.get("id")) for row in skipped_rows
+            ))
+            plan = {
+                **plan,
+                "beneficiaries": [
+                    row for row in plan["beneficiaries"]
+                    if (str(row["kind"]), int(row["id"])) not in skipped
+                ],
+                "pairs": [
+                    row for row in plan["pairs"]
+                    if (str(row["person_a"]["kind"]), int(row["person_a"]["id"])) not in skipped
+                    and (str(row["person_b"]["kind"]), int(row["person_b"]["id"])) not in skipped
+                ],
+            }
+        definition = RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
+        mentor_left = False
+        if session["room_sku"] == "mentoring_room":
+            mentor = next(
+                row for row in session["participants"] if row.get("role") == "mentor"
+            )
+            mentor_left = ("player", int(mentor["id"])) in skipped
+            source = (live_people.get(("player", int(mentor["id"]))) or {}).get("source")
+            if mentor_left:
+                mentor_override = {
+                    str(key): float(value)
+                    for key, value in dict(captured.get("mentor") or {}).items()
+                }
+            elif not mentor_credible(source):
+                early_reasons.append(MENTOR_NOT_CREDIBLE_MESSAGE)
+                mentor_override = {
+                    str(key): float(value)
+                    for key, value in dict(captured.get("mentor") or {}).items()
+                }
+        coach_source: dict[str, Any] | None = None
+        coach_multiplier = 1.0
+        if session["room_sku"] == "tactical_room":
+            coach = next(
+                row for row in session["participants"] if row.get("role") == "coach"
+            )
+            coach_source = (live_people.get(("staff", int(coach["id"]))) or {}).get("source")
+            if coach_source is None:
+                coach_multiplier = float(captured.get("coach") or 1.0)
+                license_code = 0
+            else:
+                license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
+                coach_multiplier = coach_composite_multiplier(
+                    license_code, int(coach_source.get("current_reputation") or 0),
+                )
+            if coach_source is not None and not tactical_coach_eligible(coach_source):
+                early_reasons.append(TACTICAL_COACH_MESSAGE)
+                if captured.get("coach") is not None:
+                    coach_multiplier = float(captured["coach"])
+        staff_team_bonus = 0.0
+        staff_team_multiplier = 1.0
+        if session["room_sku"] in {"video_analysis_room", "sports_science_room"}:
+            staff_role = (
+                "analyst" if session["room_sku"] == "video_analysis_room" else "scientist"
+            )
+            staff_participant = next(
+                row for row in session["participants"] if row.get("role") == staff_role
+            )
+            team_id = int(staff_participant.get("team_id") or 0)
+            staff_profile = next((
+                row for row in profiles
+                if int((row.get("team") or {}).get("id") or 0) == team_id
+            ), None)
+            capabilities = compute_team_capabilities(
+                list((staff_profile or {}).get("staff") or [])
+            )
+            if session["room_sku"] == "video_analysis_room":
+                staff_team_bonus = float(capabilities["analysis"]["bonus"])
+            else:
+                staff_team_bonus = float(capabilities["sports_science"]["bonus"])
+            staff_team_multiplier = 1.0 + staff_team_bonus
+
+        def coach_can_teach(attribute_key: str) -> bool:
+            if coach_source is None:
+                if session["room_sku"] == "tactical_room" and "coach_teachable" in captured:
+                    # The coach left: use what they could teach at enter.
+                    return attribute_key in set(captured.get("coach_teachable") or [])
+                return True
+            name = attribute_key.partition(":")[2]
+            abilities = coach_source.get("abilities") or {}
+            hidden = coach_source.get("hidden_attributes") or {}
+            values = {
+                "适应性": [abilities.get("适应能力"), hidden.get("适应性")],
+                "雄心": [hidden.get("雄心")],
+                "忠诚": [hidden.get("忠诚")],
+                "职业素养": [abilities.get("人员管理"), abilities.get("激励")],
+                "稳定性": [abilities.get("战术知识")],
+                "大赛发挥": [abilities.get("激励"), abilities.get("意志力")],
+                "多面性": [abilities.get("战术训练")],
+            }.get(name, [])
+            valid = [int(value) for value in values if value is not None]
+            return bool(valid) and sum(valid) / len(valid) >= 15
+
+        read_targets: list[dict[str, Any]] = []
+        for participant in session.get("participants") or []:
+            if participant.get("kind") != "player":
+                continue
+            if ("player", int(participant["id"])) in skipped:
+                continue
+            live = live_people[("player", int(participant["id"]))]
+            for attribute in plan["attributes"]:
+                if str(attribute.get("kind")) == "height":
+                    continue
+                key = str(attribute["key"])
+                read_targets.append({
+                    "id": f"{int(participant['id'])}:{key}",
+                    "player_id": int(participant["id"]),
+                    "player_address": live["player_address"],
+                    "attribute_key": key,
+                    "attribute_id": int(VISIBLE_ATTRIBUTE_IDS.get(key) or -1),
+                    "attribute_kind": str(attribute.get("kind") or "visible"),
+                })
+        current_values = read_player_training_attributes(read_targets)
+        required_keys = {
+            str(target["id"]) for target in read_targets
+            if any(
+                int(row.get("id") or 0) == int(target["player_id"])
+                for row in plan["beneficiaries"]
+            )
+        }
+        if set(current_values) < required_keys:
+            raise ValueError("无法完整回读综训属性，请刷新后重试")
+
+        mentor_id = next((
+            int(row["id"]) for row in session.get("participants") or []
+            if row.get("role") == "mentor"
+        ), 0)
+        mentor_source = (
+            (live_people.get(("player", mentor_id)) or {}).get("source")
+            if mentor_id else None
+        )
+        captured_mentor_values = {
+            str(key): int(value)
+            for key, value in dict(captured.get("mentor_values") or {}).items()
+        }
+        attribute_changes: list[dict[str, Any]] = []
+        attribute_progress_updates: dict[str, float] = {}
+
+        def partner_bonus(beneficiary: dict[str, Any]) -> float:
+            identity = (str(beneficiary["kind"]), int(beneficiary["id"]))
+            total = 0.0
+            for pair in plan["pairs"]:
+                left = pair["person_a"]
+                right = pair["person_b"]
+                left_key = (str(left["kind"]), int(left["id"]))
+                right_key = (str(right["kind"]), int(right["id"]))
+                detail = pair_details.get((*left_key, *right_key), {})
+                if identity == left_key:
+                    total += relationship_intimacy_bonus(detail.get("a_to_b"))
+                elif identity == right_key:
+                    total += relationship_intimacy_bonus(detail.get("b_to_a"))
+            return total
+
+        def mentor_multiplier(student_id: int) -> float:
+            if mentor_override and str(int(student_id)) in mentor_override:
+                return mentor_override[str(int(student_id))]
+            if mentor_source is None:
+                return 1.0
+            student = live_people[("player", int(student_id))]["source"]
+            return 1.0 + abs(
+                estimate_player_status_tier(mentor_source)
+                - estimate_player_status_tier(student)
+            ) * 0.5
+
+        def room_multiplier(beneficiary: dict[str, Any], attribute_key: str) -> float:
+            if session["room_sku"] == "mentoring_room" and mentor_id:
+                return mentor_multiplier(int(beneficiary["id"]))
+            if session["room_sku"] == "video_analysis_room":
+                return staff_team_multiplier
+            if session["room_sku"] == "sports_science_room":
+                source = live_people[("player", int(beneficiary["id"]))]["source"]
+                sharpness = float(source.get("sharpness") or 0)
+                sharpness_raw = sharpness * 100 if sharpness <= 100 else sharpness
+                fatigue = float(source.get("fatigue") or 0)
+                if attribute_key == "精神:勇敢":
+                    return 1.5 if sharpness_raw < 5000 else 1.0
+                if attribute_key == "身体:体质":
+                    return (0.5 if fatigue > 5000 else 1.0) * staff_team_multiplier
+                if attribute_key == "hidden:受伤倾向":
+                    return max(0.0, 1.0 + (
+                        float(current_values.get(
+                            f"{int(beneficiary['id'])}:hidden:受伤倾向", 10
+                        )) - 10.0
+                    ) * 0.1) * (1.0 - staff_team_bonus)
+                return staff_team_multiplier
+            return coach_multiplier
+
+        # Rates captured at enter; a session that lost a participant or
+        # a pair recomputes so the gone person's bonus is not paid out.
+        captured_daily_points = {
+            str(key): float(value)
+            for key, value in dict(captured.get("daily_points") or {}).items()
+        } if not skipped and not negative_pairs else {}
+        raw_target = session.get("target")
+        session_target = (
+            normalize_team_training_target(raw_target) if raw_target else None
+        )
+        if int(plan["elapsed_days"]) > 0:
+            for beneficiary in plan["beneficiaries"]:
+                player_id = int(beneficiary["id"])
+                live = live_people[("player", player_id)]
+                for attribute in plan["attributes"]:
+                    key = str(attribute["key"])
+                    direction = -1 if attribute.get("direction") == "dec" else 1
+                    before = int(current_values[f"{player_id}:{key}"])
+                    if mentor_id:
+                        mentor_value = current_values.get(f"{mentor_id}:{key}")
+                        if mentor_value is None and mentor_source is None:
+                            # The mentor left: use their value from enter.
+                            mentor_value = captured_mentor_values.get(key)
+                        threshold_ok = (
+                            mentor_value is not None and (
+                                direction > 0 and int(mentor_value) >= 15
+                                or direction < 0 and int(mentor_value) <= 10
+                            )
+                        )
+                        if not threshold_ok or (
+                            direction > 0 and int(mentor_value) <= before
+                        ) or (direction < 0 and int(mentor_value) >= before):
+                            continue
+                    if not coach_can_teach(key):
+                        continue
+                    progress_key = attribute_progress_key(
+                        str(session["room_sku"]), beneficiary, key,
+                    )
+                    captured_daily = captured_daily_points.get(f"{player_id}:{key}")
+                    earned = (
+                        # Rate fixed at enter: the estimate the settle
+                        # date came from is what each elapsed day earns.
+                        float(captured_daily) * int(plan["elapsed_days"])
+                        if captured_daily is not None else
+                        float(plan["attribute_points"])
+                        * (1.0 + partner_bonus(beneficiary))
+                        * room_multiplier(beneficiary, key)
+                    )
+                    points = (
+                        float(stored_progress["attribute_progress"].get(progress_key, 0.0))
+                        + earned
+                    )
+                    # Session target, like equipment: raise effects stop
+                    # at the chosen value (+1 for until_increase), lower
+                    # effects drop one point; overflow past the goal is
+                    # dropped as equipment caps progress at the target.
+                    # Sessions without a target keep the old open run.
+                    goal = (
+                        team_training_goal(session_target, before, direction)
+                        if session_target is not None else None
+                    )
+                    if session_target is not None and goal is None:
+                        continue
+                    after = before
+                    while 1 <= after + direction <= 20:
+                        if goal is not None and after == goal:
+                            break
+                        if mentor_id and (
+                            direction > 0 and after + direction > int(mentor_value)
+                            or direction < 0 and after + direction < int(mentor_value)
+                        ):
+                            break
+                        required = training_points_required_for_direction(after, direction)
+                        if points < required:
+                            break
+                        points -= required
+                        after += direction
+                    if goal is not None and after == goal:
+                        points = 0.0
+                    attribute_progress_updates[progress_key] = points
+                    amount = after - before
+                    if not amount:
+                        continue
+                    if str(attribute.get("kind")) == "hidden":
+                        current = before
+                        for _ in range(abs(amount)):
+                            self._before_native_write()
+                            result = develop_player_hidden_attribute(
+                                player_id, live["player_address"], key, current, direction,
+                            )
+                            self.attribute_writes.append({
+                                "kind": "hidden", "player_id": player_id,
+                                "player_address": live["player_address"],
+                                "attribute_key": key, "result": result,
+                            })
+                            current += direction
+                    else:
+                        self._before_native_write()
+                        result = develop_player(
+                            player_id, live["player_address"], key, before,
+                            "training", amount,
+                        )
+                        self.attribute_writes.append({
+                            "kind": "visible", "player_id": player_id,
+                            "player_address": live["player_address"],
+                            "attribute_key": key, "result": result,
+                        })
+                    attribute_changes.append({
+                        "participant_id": player_id,
+                        "participant_name": str(beneficiary.get("name") or player_id),
+                        "attribute": key, "before": before, "after": after,
+                        "change": amount,
+                    })
+
+        height_baseline_updates: dict[str, int] = {}
+        if (
+            session["room_sku"] == "sports_science_room"
+            and "physical:height" in {str(row["key"]) for row in plan["attributes"]}
+            and int(plan["elapsed_days"]) > 0
+        ):
+            for beneficiary in plan["beneficiaries"]:
+                player_id = int(beneficiary["id"])
+                live = live_people[("player", player_id)]
+                source = live["source"]
+                height = int(source.get("height_cm") or 0)
+                age = int(source.get("age") or 0)
+                if not 100 <= height <= 250 or age <= 0:
+                    raise ValueError("无法读取运动科学室球员的年龄或身高")
+                baseline_key = str(player_id)
+                baseline = int(
+                    stored_progress.get("height_baselines", {}).get(baseline_key, height)
+                )
+                height_baseline_updates[baseline_key] = baseline
+                probability = sports_science_height_probability(
+                    age, height, staff_team_bonus, partner_bonus(beneficiary),
+                )
+                if (
+                    height >= sports_science_height_limit(baseline)
+                    or deterministic_settlement_roll(
+                        str(session["id"]), player_id, "height"
+                    ) >= probability
+                ):
+                    continue
+                self._before_native_write()
+                result = develop_player_hidden_attribute(
+                    player_id, live["player_address"], "physical:height", height, 1,
+                )
+                self.attribute_writes.append({
+                    "kind": "hidden", "player_id": player_id,
+                    "player_address": live["player_address"],
+                    "attribute_key": "physical:height", "result": result,
+                })
+                attribute_changes.append({
+                    "participant_id": player_id,
+                    "participant_name": str(beneficiary.get("name") or player_id),
+                    "attribute": "physical:height", "before": height,
+                    "after": height + 1, "change": 1,
+                    "probability": round(probability, 6),
+                })
+
+        condition_changes: list[dict[str, Any]] = []
+        if session["room_sku"] == "sports_science_room":
+            for beneficiary in plan["beneficiaries"]:
+                player_id = int(beneficiary["id"])
+                live = live_people[("player", player_id)]
+                self._before_native_write()
+                result = adjust_player_training_condition(
+                    player_id, live["player_address"], staff_team_multiplier,
+                )
+                self.attribute_writes.append({
+                    "kind": "condition", "player_id": player_id,
+                    "player_address": live["player_address"], "result": result,
+                })
+                condition_changes.append({
+                    "participant_id": player_id,
+                    "participant_name": str(beneficiary.get("name") or player_id),
+                    "before": result["before"], "after": result["after"],
+                })
+
+        relationship_changes: list[dict[str, Any]] = []
+        intimacy_progress_updates: dict[str, float] = {}
+        active_pairs: list[dict[str, Any]] = []
+        for pair in plan["pairs"]:
+            left = pair["person_a"]
+            right = pair["person_b"]
+            left_key = (str(left["kind"]), int(left["id"]))
+            right_key = (str(right["kind"]), int(right["id"]))
+            if (*left_key, *right_key) in negative_pairs:
+                continue
+            detail = pair_details.get((*left_key, *right_key), {})
+            pair_room_multiplier = (
+                staff_team_multiplier
+                if session["room_sku"] in {"video_analysis_room", "sports_science_room"}
+                else coach_multiplier
+            )
+            if mentor_source is not None:
+                student = right if right.get("role") == "student" else left
+                pair_room_multiplier = mentor_multiplier(int(student["id"]))
+            a_key = directed_progress_key(left, right)
+            b_key = directed_progress_key(right, left)
+            a_accumulated = (
+                float(stored_progress["intimacy_progress"].get(a_key, 0.0))
+                + float(pair["base_increment"])
+                * (1.0 + relationship_intimacy_bonus(detail.get("a_to_b")))
+                * pair_room_multiplier
+            )
+            b_accumulated = (
+                float(stored_progress["intimacy_progress"].get(b_key, 0.0))
+                + float(pair["base_increment"])
+                * (1.0 + relationship_intimacy_bonus(detail.get("b_to_a")))
+                * pair_room_multiplier
+            )
+            points_a2b = int(a_accumulated)
+            points_b2a = int(b_accumulated)
+            intimacy_progress_updates[a_key] = a_accumulated - points_a2b
+            intimacy_progress_updates[b_key] = b_accumulated - points_b2a
+            if points_a2b or points_b2a:
+                active_pairs.append({
+                    **pair, "points_a2b": points_a2b, "points_b2a": points_b2a,
+                    "detail": detail,
+                })
+        if active_pairs:
+            self._before_native_write()
+            with borrow_game_operation(write_memory=True) as operation:
+                try:
+                    for pair in active_pairs:
+                        left = pair["person_a"]; right = pair["person_b"]
+                        left_live = live_people[(str(left["kind"]), int(left["id"]))]
+                        right_live = live_people[(str(right["kind"]), int(right["id"]))]
+                        result = write_bidirectional_intimacy(
+                            int(left_live["person_address"]),
+                            int(right_live["person_address"]),
+                            reason_a2b=int(pair["reason_a2b"]),
+                            reason_b2a=int(pair["reason_b2a"]),
+                            points_a2b=int(pair["points_a2b"]),
+                            points_b2a=int(pair["points_b2a"]), operation=operation,
+                        )
+                        self.relationship_writes.append(result)
+                        before_a2b = pair["detail"].get("a_to_b") or {}
+                        before_b2a = pair["detail"].get("b_to_a") or {}
+
+                        def archive_direction(
+                            before: dict[str, Any], after: dict[str, Any],
+                        ) -> dict[str, Any]:
+                            relation_type = int(before.get("relation_type", 1))
+                            before_level = int(before.get("level") or 0)
+                            after_level = int(after.get("after") or 0)
+                            sign = 1 if relation_type == 1 else -1
+                            return {
+                                "before": before_level, "after": after_level,
+                                "signed_before": sign * before_level,
+                                "signed_after": sign * after_level,
+                                "points": int(after.get("applied") or 0),
+                                "reason": int(after.get("reason") or 0),
+                                "relation_type": relation_type,
+                                "permanence": int(before.get("permanence") or 0),
+                                "new_record": bool(after.get("new_record")),
+                            }
+
+                        relationship_changes.append({
+                            "person_a": {
+                                "id": int(left["id"]), "name": left.get("name"),
+                                "kind": left.get("kind"), "role": left.get("role"),
+                            },
+                            "person_b": {
+                                "id": int(right["id"]), "name": right.get("name"),
+                                "kind": right.get("kind"), "role": right.get("role"),
+                            },
+                            "a_to_b": archive_direction(before_a2b, result["a_to_b"]),
+                            "b_to_a": archive_direction(before_b2a, result["b_to_a"]),
+                            "reason_a2b": int(result["a_to_b"].get("reason") or 0),
+                            "reason_b2a": int(result["b_to_a"].get("reason") or 0),
+                        })
+                except Exception:
+                    for result in reversed(self.relationship_writes):
+                        rollback_bidirectional_intimacy(result, operation=operation)
+                    self.relationship_writes.clear()
+                    raise
+
+        settlement = {
+            "elapsed_days": int(plan["elapsed_days"]),
+            "focus_coefficient": float(plan["focus_coefficient"]),
+            "attribute_changes": attribute_changes,
+            "condition_changes": condition_changes,
+            "relationship_changes": relationship_changes,
+        }
+        if early_reasons:
+            # A participant stopped qualifying: settled early on the day it
+            # was detected with the progress earned so far, no refund.
+            settlement["early_settlement"] = {
+                "reason": (
+                    TEAM_TRAINING_LEFT_REASON
+                    if skipped and len(set(early_reasons)) == 1
+                    else TEAM_TRAINING_EARLY_REASON
+                ),
+                "details": list(dict.fromkeys(early_reasons)),
+                "skipped_participant_ids": [int(row["id"]) for row in skipped_rows],
+                "skipped_participants": skipped_rows,
+                "detected_on": game_date,
+                "estimated_settle_on": session.get("estimated_settle_on"),
+            }
+        committed = commit_relationship_training_settlement(
+            room_id, str(session["id"]), settlement, scope_id=scope_id,
+            attribute_progress=attribute_progress_updates,
+            intimacy_progress=intimacy_progress_updates,
+            height_baselines=height_baseline_updates,
+        )
+        return committed
+
+
 class LocalOddsState:
     club_deferred_refresh_reasons = frozenset(CLUB_DEFERRED_REFRESH_REASONS)
     temporary_bank_cheat = TEMPORARY_BANK_CHEAT
@@ -11915,626 +12566,10 @@ class LocalOddsState:
         self, room_id: str, session: dict[str, Any], *, game_date: str,
         scope_id: str, profiles: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        attribute_writes: list[dict[str, Any]] = []
-        relationship_writes: list[dict[str, Any]] = []
-        writes_marked: list[bool] = []
-
-        def before_native_write() -> None:
-            # Persisted once, before the first game-memory write, so crash
-            # recovery never re-runs a settle that may have applied effects.
-            if not writes_marked:
-                mark_relationship_training_native_writes(room_id, str(session["id"]))
-                writes_marked.append(True)
-
-        def rollback_native() -> None:
-            for result in reversed(relationship_writes):
-                rollback_bidirectional_intimacy(result)
-            for item in reversed(attribute_writes):
-                result = item["result"]
-                if item["kind"] == "condition":
-                    restore_player_training_condition(
-                        int(item["player_id"]), item["player_address"],
-                        result["_original"], result["_updated"],
-                    )
-                elif item["kind"] == "hidden":
-                    restore_player_hidden_attribute(
-                        int(item["player_id"]), item["player_address"],
-                        str(item["attribute_key"]), result["_original_raw"],
-                        result.get("_updated_raw"),
-                    )
-                else:
-                    restore_player_development(
-                        int(item["player_id"]), item["player_address"],
-                        result["_original_raw"], int(result["_original_ca"]),
-                        int(result["_original_pa"]),
-                        attribute_keys=result.get("_restore_attribute_keys"),
-                        restore_ca=bool(result.get("_restore_ca", True)),
-                        restore_pa=bool(result.get("_restore_pa", True)),
-                    )
-
-        try:
-            plan = relationship_training_effect_plan(session)
-            stored_progress = relationship_training_progress()
-            captured = dict(session.get("captured_multipliers") or {})
-            early_reasons: list[str] = []
-            negative_pairs: set[tuple[str, int, str, int]] = set()
-            mentor_override: dict[str, float] | None = None
-            skipped: set[tuple[str, int]] = set()
-            skipped_rows: list[dict[str, Any]] = []
-            live_people: dict[tuple[str, int], dict[str, Any]] = {}
-            pair_details: dict[tuple[str, int, str, int], dict[str, Any]] = {}
-            with borrow_game_operation() as operation:
-                for participant in session.get("participants") or []:
-                    kind = str(participant.get("kind") or "")
-                    identifier = int(participant.get("id") or 0)
-                    team_id = int(participant.get("team_id") or 0)
-                    profile = next((
-                        row for row in profiles
-                        if int((row.get("team") or {}).get("id") or 0) == team_id
-                    ), None)
-                    person = next((
-                        row for row in self._relationship_training_people(profile, kind)
-                        if int(row.get("id") or 0) == identifier
-                    ), None)
-                    if not person:
-                        if self._team_training_participant_left(participant, profiles):
-                            # Left the team: settle early without this person.
-                            skipped.add((kind, identifier))
-                            skipped_rows.append({
-                                "kind": kind, "id": identifier,
-                                "name": participant.get("name"),
-                                "role": participant.get("role"),
-                            })
-                            continue
-                        raise ValueError("综训参与者已不属于原球队，请刷新后重试")
-                    person_address = resolve_public_person_address(
-                        operation.reader, person, kind,
-                    )
-                    public_profile = read_person_public_profile(
-                        operation.reader, person_address,
-                    )
-                    if int((public_profile or {}).get("uid") or 0) != identifier:
-                        raise ValueError("综训参与者身份已变化，请刷新后重试")
-                    live_people[(kind, identifier)] = {
-                        "source": person, "player_address": person.get("address"),
-                        "person_address": person_address,
-                    }
-                for pair in plan["pairs"]:
-                    left = pair["person_a"]
-                    right = pair["person_b"]
-                    left_key = (str(left["kind"]), int(left["id"]))
-                    right_key = (str(right["kind"]), int(right["id"]))
-                    if left_key in skipped or right_key in skipped:
-                        continue
-                    detail = read_relationship_pair(
-                        operation.reader,
-                        int(live_people[left_key]["person_address"]),
-                        int(live_people[right_key]["person_address"]),
-                    )
-                    if any(
-                        direction and int(direction.get("relation_type", 1)) != 1
-                        for direction in (detail.get("a_to_b"), detail.get("b_to_a"))
-                    ):
-                        # Settle early with earned progress; this pair gets no
-                        # intimacy (writing it would deepen the hostility).
-                        negative_pairs.add((*left_key, *right_key))
-                        early_reasons.append(
-                            f"{left.get('name')} 与 {right.get('name')} 已产生负面关系"
-                        )
-                    pair_details[(*left_key, *right_key)] = detail
-
-            if skipped:
-                early_reasons.append("participant_left_team：" + "、".join(
-                    str(row.get("name") or row.get("id")) for row in skipped_rows
-                ))
-                plan = {
-                    **plan,
-                    "beneficiaries": [
-                        row for row in plan["beneficiaries"]
-                        if (str(row["kind"]), int(row["id"])) not in skipped
-                    ],
-                    "pairs": [
-                        row for row in plan["pairs"]
-                        if (str(row["person_a"]["kind"]), int(row["person_a"]["id"])) not in skipped
-                        and (str(row["person_b"]["kind"]), int(row["person_b"]["id"])) not in skipped
-                    ],
-                }
-            definition = RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
-            mentor_left = False
-            if session["room_sku"] == "mentoring_room":
-                mentor = next(
-                    row for row in session["participants"] if row.get("role") == "mentor"
-                )
-                mentor_left = ("player", int(mentor["id"])) in skipped
-                source = (live_people.get(("player", int(mentor["id"]))) or {}).get("source")
-                if mentor_left:
-                    mentor_override = {
-                        str(key): float(value)
-                        for key, value in dict(captured.get("mentor") or {}).items()
-                    }
-                elif not mentor_credible(source):
-                    early_reasons.append(MENTOR_NOT_CREDIBLE_MESSAGE)
-                    mentor_override = {
-                        str(key): float(value)
-                        for key, value in dict(captured.get("mentor") or {}).items()
-                    }
-            coach_source: dict[str, Any] | None = None
-            coach_multiplier = 1.0
-            if session["room_sku"] == "tactical_room":
-                coach = next(
-                    row for row in session["participants"] if row.get("role") == "coach"
-                )
-                coach_source = (live_people.get(("staff", int(coach["id"]))) or {}).get("source")
-                if coach_source is None:
-                    coach_multiplier = float(captured.get("coach") or 1.0)
-                    license_code = 0
-                else:
-                    license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
-                    coach_multiplier = coach_composite_multiplier(
-                        license_code, int(coach_source.get("current_reputation") or 0),
-                    )
-                if coach_source is not None and not tactical_coach_eligible(coach_source):
-                    early_reasons.append(TACTICAL_COACH_MESSAGE)
-                    if captured.get("coach") is not None:
-                        coach_multiplier = float(captured["coach"])
-            staff_team_bonus = 0.0
-            staff_team_multiplier = 1.0
-            if session["room_sku"] in {"video_analysis_room", "sports_science_room"}:
-                staff_role = (
-                    "analyst" if session["room_sku"] == "video_analysis_room" else "scientist"
-                )
-                staff_participant = next(
-                    row for row in session["participants"] if row.get("role") == staff_role
-                )
-                team_id = int(staff_participant.get("team_id") or 0)
-                staff_profile = next((
-                    row for row in profiles
-                    if int((row.get("team") or {}).get("id") or 0) == team_id
-                ), None)
-                capabilities = compute_team_capabilities(
-                    list((staff_profile or {}).get("staff") or [])
-                )
-                if session["room_sku"] == "video_analysis_room":
-                    staff_team_bonus = float(capabilities["analysis"]["bonus"])
-                else:
-                    staff_team_bonus = float(capabilities["sports_science"]["bonus"])
-                staff_team_multiplier = 1.0 + staff_team_bonus
-
-            def coach_can_teach(attribute_key: str) -> bool:
-                if coach_source is None:
-                    if session["room_sku"] == "tactical_room" and "coach_teachable" in captured:
-                        # The coach left: use what they could teach at enter.
-                        return attribute_key in set(captured.get("coach_teachable") or [])
-                    return True
-                name = attribute_key.partition(":")[2]
-                abilities = coach_source.get("abilities") or {}
-                hidden = coach_source.get("hidden_attributes") or {}
-                values = {
-                    "适应性": [abilities.get("适应能力"), hidden.get("适应性")],
-                    "雄心": [hidden.get("雄心")],
-                    "忠诚": [hidden.get("忠诚")],
-                    "职业素养": [abilities.get("人员管理"), abilities.get("激励")],
-                    "稳定性": [abilities.get("战术知识")],
-                    "大赛发挥": [abilities.get("激励"), abilities.get("意志力")],
-                    "多面性": [abilities.get("战术训练")],
-                }.get(name, [])
-                valid = [int(value) for value in values if value is not None]
-                return bool(valid) and sum(valid) / len(valid) >= 15
-
-            read_targets: list[dict[str, Any]] = []
-            for participant in session.get("participants") or []:
-                if participant.get("kind") != "player":
-                    continue
-                if ("player", int(participant["id"])) in skipped:
-                    continue
-                live = live_people[("player", int(participant["id"]))]
-                for attribute in plan["attributes"]:
-                    if str(attribute.get("kind")) == "height":
-                        continue
-                    key = str(attribute["key"])
-                    read_targets.append({
-                        "id": f"{int(participant['id'])}:{key}",
-                        "player_id": int(participant["id"]),
-                        "player_address": live["player_address"],
-                        "attribute_key": key,
-                        "attribute_id": int(VISIBLE_ATTRIBUTE_IDS.get(key) or -1),
-                        "attribute_kind": str(attribute.get("kind") or "visible"),
-                    })
-            current_values = read_player_training_attributes(read_targets)
-            required_keys = {
-                str(target["id"]) for target in read_targets
-                if any(
-                    int(row.get("id") or 0) == int(target["player_id"])
-                    for row in plan["beneficiaries"]
-                )
-            }
-            if set(current_values) < required_keys:
-                raise ValueError("无法完整回读综训属性，请刷新后重试")
-
-            mentor_id = next((
-                int(row["id"]) for row in session.get("participants") or []
-                if row.get("role") == "mentor"
-            ), 0)
-            mentor_source = (
-                (live_people.get(("player", mentor_id)) or {}).get("source")
-                if mentor_id else None
-            )
-            captured_mentor_values = {
-                str(key): int(value)
-                for key, value in dict(captured.get("mentor_values") or {}).items()
-            }
-            attribute_changes: list[dict[str, Any]] = []
-            attribute_progress_updates: dict[str, float] = {}
-
-            def partner_bonus(beneficiary: dict[str, Any]) -> float:
-                identity = (str(beneficiary["kind"]), int(beneficiary["id"]))
-                total = 0.0
-                for pair in plan["pairs"]:
-                    left = pair["person_a"]
-                    right = pair["person_b"]
-                    left_key = (str(left["kind"]), int(left["id"]))
-                    right_key = (str(right["kind"]), int(right["id"]))
-                    detail = pair_details.get((*left_key, *right_key), {})
-                    if identity == left_key:
-                        total += relationship_intimacy_bonus(detail.get("a_to_b"))
-                    elif identity == right_key:
-                        total += relationship_intimacy_bonus(detail.get("b_to_a"))
-                return total
-
-            def mentor_multiplier(student_id: int) -> float:
-                if mentor_override and str(int(student_id)) in mentor_override:
-                    return mentor_override[str(int(student_id))]
-                if mentor_source is None:
-                    return 1.0
-                student = live_people[("player", int(student_id))]["source"]
-                return 1.0 + abs(
-                    estimate_player_status_tier(mentor_source)
-                    - estimate_player_status_tier(student)
-                ) * 0.5
-
-            def room_multiplier(beneficiary: dict[str, Any], attribute_key: str) -> float:
-                if session["room_sku"] == "mentoring_room" and mentor_id:
-                    return mentor_multiplier(int(beneficiary["id"]))
-                if session["room_sku"] == "video_analysis_room":
-                    return staff_team_multiplier
-                if session["room_sku"] == "sports_science_room":
-                    source = live_people[("player", int(beneficiary["id"]))]["source"]
-                    sharpness = float(source.get("sharpness") or 0)
-                    sharpness_raw = sharpness * 100 if sharpness <= 100 else sharpness
-                    fatigue = float(source.get("fatigue") or 0)
-                    if attribute_key == "精神:勇敢":
-                        return 1.5 if sharpness_raw < 5000 else 1.0
-                    if attribute_key == "身体:体质":
-                        return (0.5 if fatigue > 5000 else 1.0) * staff_team_multiplier
-                    if attribute_key == "hidden:受伤倾向":
-                        return max(0.0, 1.0 + (
-                            float(current_values.get(
-                                f"{int(beneficiary['id'])}:hidden:受伤倾向", 10
-                            )) - 10.0
-                        ) * 0.1) * (1.0 - staff_team_bonus)
-                    return staff_team_multiplier
-                return coach_multiplier
-
-            # Rates captured at enter; a session that lost a participant or
-            # a pair recomputes so the gone person's bonus is not paid out.
-            captured_daily_points = {
-                str(key): float(value)
-                for key, value in dict(captured.get("daily_points") or {}).items()
-            } if not skipped and not negative_pairs else {}
-            raw_target = session.get("target")
-            session_target = (
-                normalize_team_training_target(raw_target) if raw_target else None
-            )
-            if int(plan["elapsed_days"]) > 0:
-                for beneficiary in plan["beneficiaries"]:
-                    player_id = int(beneficiary["id"])
-                    live = live_people[("player", player_id)]
-                    for attribute in plan["attributes"]:
-                        key = str(attribute["key"])
-                        direction = -1 if attribute.get("direction") == "dec" else 1
-                        before = int(current_values[f"{player_id}:{key}"])
-                        if mentor_id:
-                            mentor_value = current_values.get(f"{mentor_id}:{key}")
-                            if mentor_value is None and mentor_source is None:
-                                # The mentor left: use their value from enter.
-                                mentor_value = captured_mentor_values.get(key)
-                            threshold_ok = (
-                                mentor_value is not None and (
-                                    direction > 0 and int(mentor_value) >= 15
-                                    or direction < 0 and int(mentor_value) <= 10
-                                )
-                            )
-                            if not threshold_ok or (
-                                direction > 0 and int(mentor_value) <= before
-                            ) or (direction < 0 and int(mentor_value) >= before):
-                                continue
-                        if not coach_can_teach(key):
-                            continue
-                        progress_key = attribute_progress_key(
-                            str(session["room_sku"]), beneficiary, key,
-                        )
-                        captured_daily = captured_daily_points.get(f"{player_id}:{key}")
-                        earned = (
-                            # Rate fixed at enter: the estimate the settle
-                            # date came from is what each elapsed day earns.
-                            float(captured_daily) * int(plan["elapsed_days"])
-                            if captured_daily is not None else
-                            float(plan["attribute_points"])
-                            * (1.0 + partner_bonus(beneficiary))
-                            * room_multiplier(beneficiary, key)
-                        )
-                        points = (
-                            float(stored_progress["attribute_progress"].get(progress_key, 0.0))
-                            + earned
-                        )
-                        # Session target, like equipment: raise effects stop
-                        # at the chosen value (+1 for until_increase), lower
-                        # effects drop one point; overflow past the goal is
-                        # dropped as equipment caps progress at the target.
-                        # Sessions without a target keep the old open run.
-                        goal = (
-                            team_training_goal(session_target, before, direction)
-                            if session_target is not None else None
-                        )
-                        if session_target is not None and goal is None:
-                            continue
-                        after = before
-                        while 1 <= after + direction <= 20:
-                            if goal is not None and after == goal:
-                                break
-                            if mentor_id and (
-                                direction > 0 and after + direction > int(mentor_value)
-                                or direction < 0 and after + direction < int(mentor_value)
-                            ):
-                                break
-                            required = training_points_required_for_direction(after, direction)
-                            if points < required:
-                                break
-                            points -= required
-                            after += direction
-                        if goal is not None and after == goal:
-                            points = 0.0
-                        attribute_progress_updates[progress_key] = points
-                        amount = after - before
-                        if not amount:
-                            continue
-                        if str(attribute.get("kind")) == "hidden":
-                            current = before
-                            for _ in range(abs(amount)):
-                                before_native_write()
-                                result = develop_player_hidden_attribute(
-                                    player_id, live["player_address"], key, current, direction,
-                                )
-                                attribute_writes.append({
-                                    "kind": "hidden", "player_id": player_id,
-                                    "player_address": live["player_address"],
-                                    "attribute_key": key, "result": result,
-                                })
-                                current += direction
-                        else:
-                            before_native_write()
-                            result = develop_player(
-                                player_id, live["player_address"], key, before,
-                                "training", amount,
-                            )
-                            attribute_writes.append({
-                                "kind": "visible", "player_id": player_id,
-                                "player_address": live["player_address"],
-                                "attribute_key": key, "result": result,
-                            })
-                        attribute_changes.append({
-                            "participant_id": player_id,
-                            "participant_name": str(beneficiary.get("name") or player_id),
-                            "attribute": key, "before": before, "after": after,
-                            "change": amount,
-                        })
-
-            height_baseline_updates: dict[str, int] = {}
-            if (
-                session["room_sku"] == "sports_science_room"
-                and "physical:height" in {str(row["key"]) for row in plan["attributes"]}
-                and int(plan["elapsed_days"]) > 0
-            ):
-                for beneficiary in plan["beneficiaries"]:
-                    player_id = int(beneficiary["id"])
-                    live = live_people[("player", player_id)]
-                    source = live["source"]
-                    height = int(source.get("height_cm") or 0)
-                    age = int(source.get("age") or 0)
-                    if not 100 <= height <= 250 or age <= 0:
-                        raise ValueError("无法读取运动科学室球员的年龄或身高")
-                    baseline_key = str(player_id)
-                    baseline = int(
-                        stored_progress.get("height_baselines", {}).get(baseline_key, height)
-                    )
-                    height_baseline_updates[baseline_key] = baseline
-                    probability = sports_science_height_probability(
-                        age, height, staff_team_bonus, partner_bonus(beneficiary),
-                    )
-                    if (
-                        height >= sports_science_height_limit(baseline)
-                        or deterministic_settlement_roll(
-                            str(session["id"]), player_id, "height"
-                        ) >= probability
-                    ):
-                        continue
-                    before_native_write()
-                    result = develop_player_hidden_attribute(
-                        player_id, live["player_address"], "physical:height", height, 1,
-                    )
-                    attribute_writes.append({
-                        "kind": "hidden", "player_id": player_id,
-                        "player_address": live["player_address"],
-                        "attribute_key": "physical:height", "result": result,
-                    })
-                    attribute_changes.append({
-                        "participant_id": player_id,
-                        "participant_name": str(beneficiary.get("name") or player_id),
-                        "attribute": "physical:height", "before": height,
-                        "after": height + 1, "change": 1,
-                        "probability": round(probability, 6),
-                    })
-
-            condition_changes: list[dict[str, Any]] = []
-            if session["room_sku"] == "sports_science_room":
-                for beneficiary in plan["beneficiaries"]:
-                    player_id = int(beneficiary["id"])
-                    live = live_people[("player", player_id)]
-                    before_native_write()
-                    result = adjust_player_training_condition(
-                        player_id, live["player_address"], staff_team_multiplier,
-                    )
-                    attribute_writes.append({
-                        "kind": "condition", "player_id": player_id,
-                        "player_address": live["player_address"], "result": result,
-                    })
-                    condition_changes.append({
-                        "participant_id": player_id,
-                        "participant_name": str(beneficiary.get("name") or player_id),
-                        "before": result["before"], "after": result["after"],
-                    })
-
-            relationship_changes: list[dict[str, Any]] = []
-            intimacy_progress_updates: dict[str, float] = {}
-            active_pairs: list[dict[str, Any]] = []
-            for pair in plan["pairs"]:
-                left = pair["person_a"]
-                right = pair["person_b"]
-                left_key = (str(left["kind"]), int(left["id"]))
-                right_key = (str(right["kind"]), int(right["id"]))
-                if (*left_key, *right_key) in negative_pairs:
-                    continue
-                detail = pair_details.get((*left_key, *right_key), {})
-                pair_room_multiplier = (
-                    staff_team_multiplier
-                    if session["room_sku"] in {"video_analysis_room", "sports_science_room"}
-                    else coach_multiplier
-                )
-                if mentor_source is not None:
-                    student = right if right.get("role") == "student" else left
-                    pair_room_multiplier = mentor_multiplier(int(student["id"]))
-                a_key = directed_progress_key(left, right)
-                b_key = directed_progress_key(right, left)
-                a_accumulated = (
-                    float(stored_progress["intimacy_progress"].get(a_key, 0.0))
-                    + float(pair["base_increment"])
-                    * (1.0 + relationship_intimacy_bonus(detail.get("a_to_b")))
-                    * pair_room_multiplier
-                )
-                b_accumulated = (
-                    float(stored_progress["intimacy_progress"].get(b_key, 0.0))
-                    + float(pair["base_increment"])
-                    * (1.0 + relationship_intimacy_bonus(detail.get("b_to_a")))
-                    * pair_room_multiplier
-                )
-                points_a2b = int(a_accumulated)
-                points_b2a = int(b_accumulated)
-                intimacy_progress_updates[a_key] = a_accumulated - points_a2b
-                intimacy_progress_updates[b_key] = b_accumulated - points_b2a
-                if points_a2b or points_b2a:
-                    active_pairs.append({
-                        **pair, "points_a2b": points_a2b, "points_b2a": points_b2a,
-                        "detail": detail,
-                    })
-            if active_pairs:
-                before_native_write()
-                with borrow_game_operation(write_memory=True) as operation:
-                    try:
-                        for pair in active_pairs:
-                            left = pair["person_a"]; right = pair["person_b"]
-                            left_live = live_people[(str(left["kind"]), int(left["id"]))]
-                            right_live = live_people[(str(right["kind"]), int(right["id"]))]
-                            result = write_bidirectional_intimacy(
-                                int(left_live["person_address"]),
-                                int(right_live["person_address"]),
-                                reason_a2b=int(pair["reason_a2b"]),
-                                reason_b2a=int(pair["reason_b2a"]),
-                                points_a2b=int(pair["points_a2b"]),
-                                points_b2a=int(pair["points_b2a"]), operation=operation,
-                            )
-                            relationship_writes.append(result)
-                            before_a2b = pair["detail"].get("a_to_b") or {}
-                            before_b2a = pair["detail"].get("b_to_a") or {}
-
-                            def archive_direction(
-                                before: dict[str, Any], after: dict[str, Any],
-                            ) -> dict[str, Any]:
-                                relation_type = int(before.get("relation_type", 1))
-                                before_level = int(before.get("level") or 0)
-                                after_level = int(after.get("after") or 0)
-                                sign = 1 if relation_type == 1 else -1
-                                return {
-                                    "before": before_level, "after": after_level,
-                                    "signed_before": sign * before_level,
-                                    "signed_after": sign * after_level,
-                                    "points": int(after.get("applied") or 0),
-                                    "reason": int(after.get("reason") or 0),
-                                    "relation_type": relation_type,
-                                    "permanence": int(before.get("permanence") or 0),
-                                    "new_record": bool(after.get("new_record")),
-                                }
-
-                            relationship_changes.append({
-                                "person_a": {
-                                    "id": int(left["id"]), "name": left.get("name"),
-                                    "kind": left.get("kind"), "role": left.get("role"),
-                                },
-                                "person_b": {
-                                    "id": int(right["id"]), "name": right.get("name"),
-                                    "kind": right.get("kind"), "role": right.get("role"),
-                                },
-                                "a_to_b": archive_direction(before_a2b, result["a_to_b"]),
-                                "b_to_a": archive_direction(before_b2a, result["b_to_a"]),
-                                "reason_a2b": int(result["a_to_b"].get("reason") or 0),
-                                "reason_b2a": int(result["b_to_a"].get("reason") or 0),
-                            })
-                    except Exception:
-                        for result in reversed(relationship_writes):
-                            rollback_bidirectional_intimacy(result, operation=operation)
-                        relationship_writes.clear()
-                        raise
-
-            settlement = {
-                "elapsed_days": int(plan["elapsed_days"]),
-                "focus_coefficient": float(plan["focus_coefficient"]),
-                "attribute_changes": attribute_changes,
-                "condition_changes": condition_changes,
-                "relationship_changes": relationship_changes,
-            }
-            if early_reasons:
-                # A participant stopped qualifying: settled early on the day it
-                # was detected with the progress earned so far, no refund.
-                settlement["early_settlement"] = {
-                    "reason": (
-                        TEAM_TRAINING_LEFT_REASON
-                        if skipped and len(set(early_reasons)) == 1
-                        else TEAM_TRAINING_EARLY_REASON
-                    ),
-                    "details": list(dict.fromkeys(early_reasons)),
-                    "skipped_participant_ids": [int(row["id"]) for row in skipped_rows],
-                    "skipped_participants": skipped_rows,
-                    "detected_on": game_date,
-                    "estimated_settle_on": session.get("estimated_settle_on"),
-                }
-            committed = commit_relationship_training_settlement(
-                room_id, str(session["id"]), settlement, scope_id=scope_id,
-                attribute_progress=attribute_progress_updates,
-                intimacy_progress=intimacy_progress_updates,
-                height_baselines=height_baseline_updates,
-            )
-        except Exception as error:
-            try:
-                rollback_native()
-            except Exception as rollback_error:
-                raise PlayerEffectRollbackError(error, rollback_error) from error
-            try:
-                restore_relationship_training_room(room_id)
-            except Exception as restore_error:
-                raise RuntimeError(f"综训结算失败且房间状态恢复未完成：{restore_error}") from error
-            raise
-
-        invalidate_club_profile_cache()
-        return committed
+        return TeamTrainingSettlement(
+            self, room_id, session, game_date=game_date, scope_id=scope_id,
+            profiles=profiles,
+        ).run()
 
     def public_club_legacy(self, team_id: int = 0) -> dict[str, Any]:
         with self.lock:
