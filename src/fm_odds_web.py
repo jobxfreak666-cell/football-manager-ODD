@@ -11460,6 +11460,16 @@ class LocalOddsState:
                 ) * 0.5, 6)
                 for row in beneficiaries
             }
+        # The daily rate each effect was estimated with, for the settle: what
+        # the player saw at enter (and the settle date was set from) is what
+        # each elapsed day earns, even if bonuses change mid-session.
+        captured_multipliers["daily_points"] = {
+            f"{int(row['participant']['id'])}:{row['attribute_key']}": round(
+                float(row["daily_points_raw"]), 6,
+            )
+            for row in effects
+            if row.get("eligible") and row.get("attribute_kind") != "height"
+        }
         for row in effects:
             row.pop("daily_points_raw", None)
         return {
@@ -12173,6 +12183,12 @@ class LocalOddsState:
                     return staff_team_multiplier
                 return coach_multiplier
 
+            # Rates captured at enter; a session that lost a participant or
+            # a pair recomputes so the gone person's bonus is not paid out.
+            captured_daily_points = {
+                str(key): float(value)
+                for key, value in dict(captured.get("daily_points") or {}).items()
+            } if not skipped and not negative_pairs else {}
             raw_target = session.get("target")
             session_target = (
                 normalize_team_training_target(raw_target) if raw_target else None
@@ -12205,11 +12221,19 @@ class LocalOddsState:
                         progress_key = attribute_progress_key(
                             str(session["room_sku"]), beneficiary, key,
                         )
-                        points = (
-                            float(stored_progress["attribute_progress"].get(progress_key, 0.0))
-                            + float(plan["attribute_points"])
+                        captured_daily = captured_daily_points.get(f"{player_id}:{key}")
+                        earned = (
+                            # Rate fixed at enter: the estimate the settle
+                            # date came from is what each elapsed day earns.
+                            float(captured_daily) * int(plan["elapsed_days"])
+                            if captured_daily is not None else
+                            float(plan["attribute_points"])
                             * (1.0 + partner_bonus(beneficiary))
                             * room_multiplier(beneficiary, key)
+                        )
+                        points = (
+                            float(stored_progress["attribute_progress"].get(progress_key, 0.0))
+                            + earned
                         )
                         # Session target, like equipment: raise effects stop
                         # at the chosen value (+1 for until_increase), lower

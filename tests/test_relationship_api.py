@@ -335,6 +335,13 @@ def test_relationship_room_preview_returns_actual_attribute_growth_and_eta():
     assert result["target"] == "until_increase"
 
 
+def test_preview_captures_each_effects_daily_rate_for_the_settle():
+    result = _tactical_preview(12, "16")
+    effect = result["effects"][0]
+    captured = result["captured_multipliers"]["daily_points"]
+    assert captured == {"1:hidden:职业素养": pytest.approx(effect["daily_points"], abs=1e-4)}
+
+
 def _tactical_preview(current, target):
     value = relationship_training_state()
     value.club_profiles[10]["staff"].append({
@@ -991,6 +998,61 @@ def _settle_with_attribute(value, session, plan, values, *, relation=None, requi
         result = value.relationship_training_room_settle({"room_id": "room-1"})
     assert restore.call_count == 0 and result["ok"] is True
     return commit.call_args, intimacy
+
+
+def _mind_session_with_rate(rate):
+    player = {"kind": "player", "id": 1, "name": "A", "role": "player_a", "team_id": 10}
+    partner = {"kind": "player", "id": 2, "name": "B", "role": "player_b", "team_id": 10}
+    session = {
+        "id": "rate", "room_sku": "mind_room", "target": "20",
+        "participants": [player, partner], "attributes": ["精神:意志力"],
+        "captured_multipliers": {"daily_points": {"1:精神:意志力": rate}},
+    }
+    plan = {
+        "elapsed_days": 3, "focus_coefficient": 1.0, "attribute_points": 9.0,
+        "beneficiaries": [player], "guiders": [],
+        "attributes": [{"key": "精神:意志力", "kind": "visible"}],
+        "pairs": [{"person_a": player, "person_b": partner, "base_increment": 0.0,
+                   "reason_a2b": 5, "reason_b2a": 5}],
+    }
+    return session, plan
+
+
+def test_settle_earns_the_daily_rate_fixed_at_enter():
+    # At enter a close partner made the rate 4.5/day; by settle the bonus is
+    # gone (live it would be 9 points in 3 days). The estimate stands: 13.5.
+    session, plan = _mind_session_with_rate(4.5)
+    call, _intimacy = _settle_with_attribute(
+        team_training_state(), session, plan, {"1:精神:意志力": 10},
+        relation={"a_to_b": None, "b_to_a": None},
+    )
+    assert call.kwargs["attribute_progress"] == {
+        "mind_room:player:1:精神:意志力": pytest.approx(13.5),
+    }
+
+
+def test_settle_without_a_captured_rate_keeps_the_live_formula():
+    session, plan = _mind_session_with_rate(4.5)
+    session["captured_multipliers"] = {}
+    call, _intimacy = _settle_with_attribute(
+        team_training_state(), session, plan, {"1:精神:意志力": 10},
+        relation={"a_to_b": None, "b_to_a": None},
+    )
+    assert call.kwargs["attribute_progress"] == {
+        "mind_room:player:1:精神:意志力": pytest.approx(9.0),
+    }
+
+
+def test_settle_that_lost_the_partner_does_not_pay_the_partners_bonus():
+    value = team_training_state()
+    _without(value, "player", 2)
+    session, plan = _mind_session_with_rate(4.5)
+    call, _intimacy = _settle_with_attribute(
+        value, session, plan, {"1:精神:意志力": 10},
+    )
+    assert call.kwargs["attribute_progress"] == {
+        "mind_room:player:1:精神:意志力": pytest.approx(9.0),
+    }
 
 
 def test_unlicensed_coach_settles_early_with_the_coach_multiplier_from_enter():
