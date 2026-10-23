@@ -5640,3 +5640,8 @@ body { background:#f1f4f2; }
 :root[data-theme="dark"] .team-role-field .training-room-candidate strong { color:#e2eee7; }
 :root[data-theme="dark"] .team-role-field .training-room-candidate small { color:#99aaa1; }
 :root[data-theme="dark"] #team-training-form > label { color:#b7c9c0; }
+button.team-session-row { width:100%; font:inherit; text-align:left; cursor:pointer; color:inherit; }
+.team-session-row.selected { border-color:#9cc9b2; background:#f3faf6; box-shadow:inset 3px 0 0 #1f6b4f; }
+:root[data-theme="dark"] .team-session-row.selected { background:#1a3328; border-color:#4c8f70; box-shadow:inset 3px 0 0 #4c8f70; }
+.team-summary dd.team-paid-legacy { color:#71847a; font-weight:600; }
+:root[data-theme="dark"] .team-summary dd.team-paid-legacy { color:#99aaa1; }

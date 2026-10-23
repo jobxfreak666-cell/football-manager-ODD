@@ -12206,6 +12206,7 @@ function resetTrainingWorkspaceState() {
   app._lastDetailSignature = null;
   app.teamTrainingSelectionRoom = null;
   app.teamTrainingSelectionScope = null;
+  app.teamTrainingSessionId = null;
   app.teamTrainingSelections = {};
   app.teamTrainingEstimates = null;
   app.teamTrainingPreview = null;
@@ -12541,6 +12542,16 @@ function teamTrainingRoom() {
   const rooms = teamTrainingRooms();
   return rooms.find((room) => room.sku === app.teamTrainingRoomSku) || rooms[0] || null;
 }
+// room.active: list of sessions (sorted by settle_on); a single legacy object counts as one session.
+function teamTrainingSessions(room) {
+  const active = room?.active;
+  const list = Array.isArray(active) ? active : active ? [active] : [];
+  return [...list].sort((a, b) => String(a.settle_on || "").localeCompare(String(b.settle_on || "")));
+}
+function teamTrainingSelectedSession(room) {
+  const sessions = teamTrainingSessions(room);
+  return sessions.find((row) => String(row.room_id) === String(app.teamTrainingSessionId)) || sessions[0] || null;
+}
 function teamTrainingRoomName(room) {
   return uiText(`training.archive.facility.${room.sku}`);
 }
@@ -12658,14 +12669,18 @@ function renderTeamTrainingRoster() {
   if (!roster) return;
   const rooms = teamTrainingRooms();
   const current = teamTrainingRoom();
-  const signature = `team:${JSON.stringify([activeUiLocale(), current?.sku, rooms.map((room) => [room.sku, room.session_fee_minor, room.active?.settle_on || null, Boolean(room.active)])])}`;
+  const signature = `team:${JSON.stringify([activeUiLocale(), current?.sku, rooms.map((room) => [room.sku, room.session_fee_minor, teamTrainingSessions(room).map((row) => row.settle_on)])])}`;
   if (roster.dataset.signature === signature) return;
   roster.dataset.signature = signature;
   const head = `<div class="training-roster-head"><strong>${uiText("training.team.rooms_title")}</strong><span>${uiPlural("training.team.rooms_count", rooms.length)}</span></div>`;
   const rows = rooms.map((room) => {
     const selected = room.sku === current?.sku;
-    const badge = room.active
-      ? `<span class="training-person-badge team-room-active">${escapeHtml(uiText("training.team.row_active", {date:teamShortDate(room.active.settle_on) || "—"}))}</span>`
+    const sessions = teamTrainingSessions(room);
+    const next = teamShortDate(sessions[0]?.settle_on) || "—";
+    const badge = sessions.length > 1
+      ? `<span class="training-person-badge team-room-active">${escapeHtml(uiText("training.team.row_active_many", {count:sessions.length, date:next}))}</span>`
+      : sessions.length
+      ? `<span class="training-person-badge team-room-active">${escapeHtml(uiText("training.team.row_active", {date:next}))}</span>`
       : `<span class="training-person-badge team-room-price">${escapeHtml(uiText("training.team.per_session", {amount:trainingFeeLabel(room.session_fee_minor)}))}</span>`;
     return `<article class="training-person-row team-room-row ${selected ? "selected" : ""}">
       <button type="button" class="training-person-open" data-team-room="${escapeHtml(room.sku)}" aria-pressed="${selected}">
@@ -12727,7 +12742,8 @@ function teamSettleCell(estimate) {
   return `<div class="team-settle-cell"><dt>${uiText("training.team.settle_on")}</dt><dd>${escapeHtml(value)}</dd></div>`;
 }
 function renderTeamTrainingActive(room, content) {
-  const active = room.active;
+  const sessions = teamTrainingSessions(room);
+  const active = teamTrainingSelectedSession(room);
   const participants = Array.isArray(active.participants) ? active.participants : [];
   const latest = Math.max(0, ...participants.map((person) => Number(person.estimated_days || 0)));
   const members = participants.map((person) => {
@@ -12742,17 +12758,31 @@ function renderTeamTrainingActive(room, content) {
     const attr = (room.scope_attributes || []).find((row) => row.key === key) || {key};
     return `<span class="room-attr-chip ${attr.direction === "dec" ? "dec" : "inc"}">${attr.direction === "dec" ? "↓" : "↑"} ${escapeHtml(teamTrainingAttrLabel(attr))}</span>`;
   }).join("");
+  // Several sessions of the same room type: list them on top; clicking one shows its details.
+  const sessionList = sessions.length > 1 ? `<section class="team-effects team-sessions"><header><strong>${uiText("training.team.sessions_title")}</strong><span>${escapeHtml(uiText("training.team.sessions_count", {count:sessions.length}))}</span></header>
+    <div class="team-active-members">${sessions.map((row) => {
+      const on = row === active;
+      const people = Array.isArray(row.participants) ? row.participants.length : 0;
+      return `<button type="button" class="team-active-member team-session-row ${on ? "selected" : ""}" data-team-session="${escapeHtml(row.room_id)}" aria-pressed="${on}"><span><strong>${escapeHtml(uiText("training.team.row_active", {date:teamShortDate(row.settle_on) || "—"}))}</strong><small>${escapeHtml(uiText("training.team.session_meta", {start:teamShortDate(row.started_on) || "—", people, target:teamTargetLabel(String(row.target || "until_increase"))}))}</small></span></button>`;
+    }).join("")}</div></section>` : "";
+  // Rooms entered before the fee upgrade have no fee_minor: say so instead of guessing today's price.
+  const paid = active.fee_minor == null
+    ? `<dd class="team-paid-legacy">${uiText("training.team.paid_legacy")}</dd>`
+    : `<dd>${escapeHtml(trainingFeeLabel(active.fee_minor))}</dd>`;
+  const endEarly = `<section class="training-active-task team-end-early"><header><strong>${uiText("training.team.end_early_head")}</strong><button type="button" class="danger" data-team-end-early="${escapeHtml(active.room_id)}" ${app.trainingActionBusy ? "disabled" : ""}>${uiText("training.team.end_early")}</button></header><p>${uiText("training.team.end_early_note")}</p></section>`;
   content.innerHTML = `<section class="training-detail-panel">
     <header class="training-detail-head"><div><strong>${escapeHtml(teamTrainingRoomName(room))}</strong><small>${escapeHtml(uiText("training.team.started_on", {date:active.started_on || "—"}))}</small></div><span class="training-detail-ability team-active-tag">${uiText("training.team.in_progress")}</span></header>
     <div class="training-inline-form">
+      ${sessionList}
       <section class="team-settle-card"><small>${uiText("training.team.settle_on")}</small><strong>${escapeHtml(active.settle_on || "—")}</strong><p>${uiText("training.team.settle_rule")}</p></section>
       <section class="team-effects"><header><strong>${uiText("training.team.effects")}</strong><span>${uiText("training.team.effects_count", {selected:(active.attributes || []).length, total:(room.scope_attributes || []).length})}</span></header><div class="room-attr-chips">${chips}</div></section>
       <section class="team-active-members">${members}</section>
       <dl class="training-task-summary team-summary">
         <div><dt>${uiText("training.team.active_target")}</dt><dd>${escapeHtml(teamTargetLabel(String(active.target || "until_increase")))}</dd></div>
-        <div><dt>${uiText("training.team.paid")}</dt><dd>${escapeHtml(trainingFeeLabel(active.fee_minor ?? room.session_fee_minor))}</dd></div>
+        <div><dt>${uiText("training.team.paid")}</dt>${paid}</div>
         <div><dt>${uiText("training.team.participants")}</dt><dd>${uiText("training.team.people", {count:participants.length})}</dd></div>
       </dl>
+      ${endEarly}
     </div>
   </section>`;
 }
@@ -12765,8 +12795,8 @@ function renderTeamTrainingDetail() {
     content.innerHTML = `<div class="training-detail-empty"><i data-lucide="users-round"></i><strong>${uiText("training.roster_empty")}</strong></div>`;
     return;
   }
-  if (room.active) {
-    const signature = `team:${JSON.stringify([activeUiLocale(), room.sku, room.active, room.session_fee_minor])}`;
+  if (teamTrainingSessions(room).length) {
+    const signature = `team:${JSON.stringify([activeUiLocale(), room.sku, room.active, room.session_fee_minor, teamTrainingSelectedSession(room)?.room_id, app.trainingActionBusy])}`;
     if (content.dataset.signature === signature) return;
     content.dataset.signature = signature;
     renderTeamTrainingActive(room, content);
@@ -12829,7 +12859,7 @@ function applyTeamTrainingRooms(teamRooms) {
 async function submitTeamTraining() {
   if (app.trainingActionBusy) return;
   const room = teamTrainingRoom();
-  if (!room || room.active) return;
+  if (!room || teamTrainingSessions(room).length) return;
   const selection = teamTrainingSelection(room);
   const reason = teamTrainingReason(room, selection);
   if (reason) { toast(reason); return; }
@@ -12873,26 +12903,25 @@ async function submitTeamTraining() {
     }
   }
 }
-async function settleTeamTrainingRoom(room) {
-  const roomId = String(room?.active?.room_id || "");
+async function endTeamTrainingEarly(room, roomId) {
+  roomId = String(roomId || "");
+  if (!teamTrainingSessions(room).some((row) => String(row.room_id) === roomId)) return;
   if (app.trainingActionBusy || !roomId) return;
   const scopeAtStart = trainingScopeKey();
   const seqAtStart = app.trainingRequestSeq;
   const confirmed = await fmoddConfirm(
-    uiText("relationship.room.settle_confirm"),
-    uiText("relationship.room.settle_confirm_action"), uiText("relationship.room.settle_title"),
+    uiText("training.team.end_early_confirm", {room:teamTrainingRoomName(room)}),
+    uiText("training.team.end_early_action"), uiText("training.team.end_early_title"),
   );
   if (
     !confirmed || app.trainingActionBusy
     || scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq
   ) return;
-  const button = $("#training-settle-button");
   const actionRequest = {};
   app.trainingActionRequest = actionRequest;
   const requestStillCurrent = () => scopeAtStart === trainingScopeKey()
     && app.trainingActionRequest === actionRequest;
   app.trainingActionBusy = true;
-  button?.setAttribute("aria-busy", "true");
   renderTraining();
   try {
     if (!requestStillCurrent()) return;
@@ -12910,7 +12939,6 @@ async function settleTeamTrainingRoom(room) {
     if (app.trainingActionRequest === actionRequest) {
       app.trainingActionRequest = null;
       app.trainingActionBusy = false;
-      button?.removeAttribute("aria-busy");
       if (scopeAtStart === trainingScopeKey()) renderTraining();
     }
   }
@@ -12920,9 +12948,22 @@ function bindTeamTrainingEvents() {
     const button = event.target.closest("[data-team-room]");
     if (!button || app.trainingModule !== "team_training") return;
     app.teamTrainingRoomSku = button.dataset.teamRoom;
+    app.teamTrainingSessionId = null;
     rerenderTeamTraining();
   });
   $("#training-dock-content").addEventListener("click", (event) => {
+    if (app.trainingModule !== "team_training") return;
+    const session = event.target.closest("[data-team-session]");
+    if (session) {
+      app.teamTrainingSessionId = session.dataset.teamSession;
+      rerenderTeamTraining();
+      return;
+    }
+    const endEarly = event.target.closest("[data-team-end-early]");
+    if (endEarly) {
+      endTeamTrainingEarly(teamTrainingRoom(), endEarly.dataset.teamEndEarly);
+      return;
+    }
     const chip = event.target.closest("[data-team-attr]");
     if (!chip || app.trainingModule !== "team_training" || app.trainingActionBusy) return;
     const key = chip.dataset.teamAttr;
@@ -28897,8 +28938,6 @@ function bindEvents() {
   });
   bindTeamTrainingEvents();
   $("#training-settle-button").addEventListener("click",()=>{
-    const teamRoom = app.trainingModule === "team_training" ? teamTrainingRoom() : null;
-    if (teamRoom?.active) { settleTeamTrainingRoom(teamRoom); return; }
     settleTrainingProgress({forceRoster:true,notify:true}).catch((error)=>{
        toast(error.message || uiText("training.settlement_failed", {error:uiText("request.failed")}));
     });

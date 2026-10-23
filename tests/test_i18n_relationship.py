@@ -93,7 +93,7 @@ def test_relationship_scripts_and_renderers_use_semantic_messages() -> None:
         'relationshipTrainingRoleLabel(role)',
         'uiText("training.team.settle_pending")',
         'uiText("training.team.target")',
-        'uiText("relationship.room.settle_title")',
+        'uiText("training.team.end_early_title")',
         "relationshipTimelineSourceLabel(row.source)",
         "relationshipEventRoleLabel(from)",
         "window.FMODDRelationshipEventOutcomeKeys",

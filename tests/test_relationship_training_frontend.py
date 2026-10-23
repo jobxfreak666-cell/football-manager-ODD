@@ -208,12 +208,12 @@ assert.doesNotMatch(html, /<form|<select|type="checkbox"/);
 ''', rooms)
 
 
-def test_manual_settle_uses_the_active_room_id() -> None:
+def test_end_early_uses_the_active_room_id() -> None:
     rooms = json.loads(json.dumps(ROOMS))
     rooms[1]["active"] = ACTIVE
     run(r'''
 respond = () => ({settlement:{attribute_changes:[1], relationship_changes:[], early_settlement:{reason:"participant_left_team", skipped_participants:[{id:1,name:"Alexis"}]}}, team_rooms:app.state.training_ground.team_rooms.map((room) => ({...room, active:null}))});
-await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 assert.equal(requests[0].path, "/api/training/relationship-rooms/settle");
 assert.deepEqual(requests[0].body, {room_id:"room-7"});
 assert.equal(app.state.training_ground.team_rooms[1].active, null);
@@ -221,8 +221,9 @@ assert.equal(toasts.at(-1), "relationship.room.settle_done");
 ''', rooms)
 
 
-def test_header_settle_button_routes_active_team_rooms_and_sync_errors_surface() -> None:
-    assert "if (teamRoom?.active) { settleTeamTrainingRoom(teamRoom); return; }" in APP_JS
+def test_header_settle_button_no_longer_ends_team_training_and_sync_errors_surface() -> None:
+    handler = APP_JS.split('$("#training-settle-button").addEventListener("click"', 1)[1].split("});", 1)[0]
+    assert "teamTraining" not in handler and "relationship-rooms" not in handler
     assert "...(settlement.team_training?.errors || [])," in APP_JS
     assert "voided_room_ids" not in APP_JS
 
@@ -365,7 +366,7 @@ def test_old_state_poll_returning_after_settle_does_not_restore_the_room() -> No
 const oldPoll = {training_ground:JSON.parse(JSON.stringify(app.state.training_ground)), game_clock:{date:"2026-10-22"}};
 const revisionAtPollStart = app.trainingMutationRevision;
 respond = () => ({settlement:{attribute_changes:[], relationship_changes:[]}, team_rooms:app.state.training_ground.team_rooms.map((room) => ({...room, active:null}))});
-await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 assert.ok(app.trainingMutationRevision > revisionAtPollStart);
 applyPolledState(oldPoll, revisionAtPollStart);
 assert.equal(app.state.training_ground.team_rooms[1].active, null);
@@ -393,7 +394,7 @@ def test_settle_stops_when_account_changes_during_confirm() -> None:
     rooms[1]["active"] = ACTIVE
     run(r'''
 confirmHook = async () => { SCOPE = "other-save"; return true; };
-await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 assert.equal(requests.length, 0);
 assert.equal(app.state.training_ground.team_rooms[1].active.room_id, "room-7");
 ''', rooms)
@@ -410,7 +411,7 @@ confirmHook = async () => {
   resetTrainingWorkspaceState();
   return true;
 };
-await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 assert.equal(requests.length, 0, "a reset invalidates the old confirmation even if the account returns");
 assert.equal(app.trainingActionBusy, false);
 ''', rooms)
@@ -422,7 +423,7 @@ def test_settle_confirmation_does_not_replace_a_pending_operation() -> None:
     run(r'''
 let finishConfirm;
 confirmHook = () => new Promise((resolve) => { finishConfirm = resolve; });
-const old = settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+const old = endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 let finishEnter;
 respond = () => new Promise((resolve) => { finishEnter = resolve; });
 app.teamTrainingRoomSku = "mind_room";
@@ -447,7 +448,7 @@ def test_settle_response_from_previous_account_is_not_applied() -> None:
     run(r'''
 respond = () => { SCOPE = "other-save"; return {settlement:{attribute_changes:[1], relationship_changes:[]}, team_rooms:[]}; };
 const revision = app.trainingMutationRevision;
-await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 assert.equal(requests.length, 1);
 assert.equal(app.state.training_ground.team_rooms.length, 2);
 assert.equal(app.state.training_ground.team_rooms[1].active.room_id, "room-7");
@@ -484,7 +485,7 @@ renderTeamTrainingDetail();
 app.teamTrainingSelections.player_a = [1];
 const old = OLD_OPERATION === "enter"
   ? submitTeamTraining()
-  : settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+  : endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-7");
 await new Promise((resolve) => setImmediate(resolve));
 assert.equal(deferred.length, 1);
 
@@ -530,3 +531,82 @@ assert.equal(app.teamTrainingSubmission, null);
        .replace("OLD_OUTCOME", json.dumps(old_outcome))
        .replace("RETURN_TO_ORIGINAL_SCOPE", json.dumps(return_to_original_scope))
        .replace("CURRENT_ROOMS", json.dumps(ROOMS, ensure_ascii=False)), rooms)
+
+
+SECOND = {
+    "room_id": "room-9", "started_on": "2026-10-21", "settle_on": "2026-11-04", "fee_minor": None,
+    "attributes": ["精神:团队合作"], "target": "until_increase",
+    "participants": [{"id": 101, "kind": "staff", "role": "coach", "name": "Arne Slot", "estimated_days": 14, "remaining_days": 13}],
+}
+
+
+def test_single_session_shows_end_early_with_no_refund_note_and_no_session_list() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = [ACTIVE]
+    run(r'''
+app.teamTrainingRoomSku = "tactical_room";
+renderTeamTrainingDetail();
+const html = nodes["#training-dock-content"].innerHTML;
+assert.match(html, /data-team-end-early="room-7"/);
+assert.match(html, /training.team.end_early_note/);
+assert.match(html, /<dd>£7500000<\/dd>/);
+assert.doesNotMatch(html, /data-team-session/);
+renderTeamTrainingRoster();
+assert.match(nodes["#training-roster"].innerHTML, /10-30 结算/);
+''', rooms)
+
+
+def test_several_sessions_are_listed_earliest_first_and_clicking_one_shows_it() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = [SECOND, ACTIVE]
+    run(r'''
+app.teamTrainingRoomSku = "tactical_room";
+renderTeamTrainingRoster();
+assert.match(nodes["#training-roster"].innerHTML, /training.team.row_active_many/);
+renderTeamTrainingDetail();
+let html = nodes["#training-dock-content"].innerHTML;
+assert.ok(html.indexOf('data-team-session="room-7"') < html.indexOf('data-team-session="room-9"'), "earliest settlement first");
+assert.match(html, /data-team-session="room-7" aria-pressed="true"/);
+assert.match(html, /<strong>2026-10-30<\/strong>/);
+assert.match(html, /data-team-end-early="room-7"/);
+app.teamTrainingSessionId = "room-9";
+renderTeamTrainingDetail();
+html = nodes["#training-dock-content"].innerHTML;
+assert.match(html, /data-team-session="room-9" aria-pressed="true"/);
+assert.match(html, /<strong>2026-11-04<\/strong>/);
+assert.match(html, /data-team-end-early="room-9"/);
+assert.match(html, /<dd class="team-paid-legacy">training.team.paid_legacy<\/dd>/, "old room without fee_minor");
+assert.doesNotMatch(html, /£7500000/, "do not fall back to today's room price");
+respond = () => ({settlement:{attribute_changes:[], relationship_changes:[]}, team_rooms:app.state.training_ground.team_rooms});
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-9");
+assert.deepEqual(requests[0].body, {room_id:"room-9"}, "only the chosen session ends");
+''', rooms)
+
+
+def test_end_early_ignores_a_session_that_is_not_in_the_room() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = [ACTIVE]
+    run(r'''
+let asked = 0; confirmHook = async () => { asked += 1; return true; };
+await endTeamTrainingEarly(app.state.training_ground.team_rooms[1], "room-404");
+assert.equal(asked, 0);
+assert.equal(requests.length, 0);
+''', rooms)
+
+
+def test_empty_session_list_shows_the_entry_form() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = []
+    run(r'''
+app.teamTrainingRoomSku = "tactical_room";
+renderTeamTrainingDetail();
+assert.match(nodes["#training-dock-content"].innerHTML, /id="team-training-form"/);
+''', rooms)
+
+
+def test_switching_save_forgets_the_chosen_session() -> None:
+    run(r'''
+app.teamTrainingSessionId = "room-9";
+resetTrainingWorkspaceState();
+assert.equal(app.teamTrainingSessionId, null);
+''')
