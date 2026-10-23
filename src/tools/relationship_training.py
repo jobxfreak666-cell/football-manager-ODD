@@ -32,6 +32,14 @@ TEAM_TRAINING_TARGETS = ("until_increase", "14", "16", "18", "20")
 RELATIONSHIP_TRAINING_MIGRATION_REASON = "training_task_model_migration"
 RELATIONSHIP_TRAINING_TASK_RULES_VERSION = 1
 _LOCK = threading.RLock()
+# Settles running in this process. A room left in ``settling`` that is not
+# here was abandoned (crash, kill, failed restore) and is recovered on sync.
+_SETTLING_IN_PROCESS: set[str] = set()
+_PROCESS_TOKEN = uuid.uuid4().hex
+# A settling room owned by another process is only treated as abandoned after
+# this long, so a second live process is never interrupted mid-settle.
+TEAM_TRAINING_SETTLE_STALE_SECONDS = 300
+TEAM_TRAINING_INTERRUPTED_REASON = "settlement_interrupted"
 
 # (document key, default, mutator(document, charge)) -> mutator result
 TeamTrainingCommit = Callable[
@@ -822,6 +830,9 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
             "estimated_settle_on": room.get("estimated_settle_on"),
             "target": room.get("target"),
             "captured_multipliers": deepcopy(room.get("captured_multipliers") or {}),
+            # Crash recovery: who runs this settle, and whether it has
+            # started writing game memory (then it must never re-apply).
+            "settle_owner": _PROCESS_TOKEN, "native_writes_started": False,
             "relationship_rules": [
                 {
                     "from_role": str(ROOMS[str(room["sku"])]["roles"][0]["key"]),
@@ -842,6 +853,116 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
         return session
 
     with _LOCK:
+        session = update_document("relationship_training_rooms", _new_state(), mutate)
+        _SETTLING_IN_PROCESS.add(str(room_id))
+        return session
+
+
+def end_relationship_training_settlement(room_id: str) -> None:
+    """The in-process settle of ``room_id`` finished, failed or gave up."""
+    with _LOCK:
+        _SETTLING_IN_PROCESS.discard(str(room_id))
+
+
+def mark_relationship_training_native_writes(room_id: str, session_id: str) -> None:
+    """Persist, before the first game-memory write, that writes have begun.
+
+    Crash recovery reads this flag: a settle that never wrote can safely be
+    put back to occupied and run again; one that may have written cannot.
+    """
+    def mutate(raw: Any) -> None:
+        state = _normalize_state(raw)
+        room = next((row for row in state["rooms"] if row.get("id") == room_id), None)
+        pending = (room or {}).get("pending_session") or {}
+        if not room or room.get("status") != "settling" or pending.get("id") != session_id:
+            raise ValueError("综训结算状态已失效")
+        pending["native_writes_started"] = True
+
+    with _LOCK:
+        update_document("relationship_training_rooms", _new_state(), mutate)
+
+
+def _settle_age_seconds(room: dict[str, Any], now: datetime) -> float | None:
+    try:
+        started = datetime.fromisoformat(str(room.get("settlement_started_at") or ""))
+    except ValueError:
+        return None
+    return (now - started).total_seconds()
+
+
+def interrupted_team_training_rooms(now: datetime | None = None) -> list[dict[str, Any]]:
+    """Rooms stuck in ``settling`` with no settle running for them.
+
+    Not running in this process, and either started by an earlier process
+    (or by one that no longer records an owner) and older than
+    ``TEAM_TRAINING_SETTLE_STALE_SECONDS``, or started by this process and
+    abandoned. Read-only; ``recover_interrupted_team_training_room`` acts.
+    """
+    moment = now or datetime.now()
+    with _LOCK:
+        state = _normalize_state(load_document("relationship_training_rooms", _new_state()))
+        stuck: list[dict[str, Any]] = []
+        for room in state["rooms"]:
+            room_id = str(room.get("id") or "")
+            if room.get("status") != "settling" or room_id in _SETTLING_IN_PROCESS:
+                continue
+            pending = room.get("pending_session") or {}
+            if pending.get("settle_owner") != _PROCESS_TOKEN:
+                age = _settle_age_seconds(room, moment)
+                if age is not None and age < TEAM_TRAINING_SETTLE_STALE_SECONDS:
+                    continue
+            stuck.append({
+                "room_id": room_id, "room_sku": str(room.get("sku") or ""),
+                "session": deepcopy(pending),
+            })
+        return stuck
+
+
+def interrupted_settlement_record(session: dict[str, Any], detected_on: str) -> dict[str, Any]:
+    """Settlement for a session whose settle died after writing game memory.
+
+    Nothing is re-applied (that could double the effect) and stored progress
+    is left as it was; the session completes with the elapsed days and a
+    marker so the archive shows it was recovered.
+    """
+    started = _parse_date(session.get("started_on"))
+    completed = _parse_date(session.get("completed_on"))
+    return {
+        "elapsed_days": max(0, (completed - started).days) if started and completed else 0,
+        "attribute_changes": [], "condition_changes": [], "relationship_changes": [],
+        "interrupted_settlement": {
+            "reason": TEAM_TRAINING_INTERRUPTED_REASON,
+            "native_writes_unverified": True,
+            "detected_on": str(detected_on or ""),
+        },
+    }
+
+
+def recover_interrupted_team_training_room(room_id: str, session_id: str) -> dict[str, Any]:
+    """Undo a settle that never wrote game memory; report one that may have.
+
+    Returns ``{"action": "restored"}`` after putting the room back to
+    occupied (the next sync settles it from scratch, nothing was applied), or
+    ``{"action": "complete", "session": ...}`` when writes had begun and the
+    caller must complete it with ``interrupted_settlement_record``. Stale or
+    repeated calls raise ``ValueError`` and change nothing.
+    """
+    def mutate(raw: Any) -> dict[str, Any]:
+        state = _normalize_state(raw)
+        room = next((row for row in state["rooms"] if row.get("id") == room_id), None)
+        pending = (room or {}).get("pending_session") or {}
+        if not room or room.get("status") != "settling" or pending.get("id") != session_id:
+            raise ValueError("综训结算状态已失效")
+        if pending.get("native_writes_started"):
+            return {"action": "complete", "session": deepcopy(pending)}
+        room["status"] = "occupied"
+        room.pop("pending_session", None)
+        room.pop("settlement_started_at", None)
+        return {"action": "restored", "room": dict(room)}
+
+    with _LOCK:
+        if str(room_id) in _SETTLING_IN_PROCESS:
+            raise ValueError("综训正在结算中")
         return update_document("relationship_training_rooms", _new_state(), mutate)
 
 
@@ -984,7 +1105,9 @@ def finalize_relationship_training_room(
         return completed
 
     with _LOCK:
-        return update_document("relationship_training_rooms", _new_state(), mutate)
+        completed = update_document("relationship_training_rooms", _new_state(), mutate)
+        _SETTLING_IN_PROCESS.discard(str(room_id))
+        return completed
 
 
 def commit_relationship_training_settlement(
@@ -1028,10 +1151,12 @@ def commit_relationship_training_settlement(
         return {"completed": completed, "archive": archived}
 
     with _LOCK:
-        return update_documents({
+        committed = update_documents({
             "relationship_training_rooms": _new_state(),
             "training_archive": _new_archive(),
         }, mutate, scope_id)
+        _SETTLING_IN_PROCESS.discard(str(room_id))
+        return committed
 
 
 def restore_relationship_training_room(room_id: str) -> dict[str, Any]:
@@ -1046,7 +1171,9 @@ def restore_relationship_training_room(room_id: str) -> dict[str, Any]:
         return dict(room)
 
     with _LOCK:
-        return update_document("relationship_training_rooms", _new_state(), mutate)
+        restored = update_document("relationship_training_rooms", _new_state(), mutate)
+        _SETTLING_IN_PROCESS.discard(str(room_id))
+        return restored
 
 
 def team_training_sweep_due(last_sweep_on: Any, game_date: str) -> bool:

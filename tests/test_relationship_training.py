@@ -724,3 +724,71 @@ def test_rejected_entry_on_disk_moves_no_money(disk_account):
     assert bank == bank_before - 250_000_000
     assert len(charges) == 1 and len(occupied) == 1
     assert "second" not in rooms_doc["session_receipts"]
+
+
+# ---- 结算中途崩溃：房间不能永远卡在 settling ----
+
+def _crash_process(monkeypatch):
+    """What a fresh process sees: no settle running and another owner token."""
+    monkeypatch.setattr(rooms, "_SETTLING_IN_PROCESS", set())
+    monkeypatch.setattr(rooms, "_PROCESS_TOKEN", "restarted-process")
+
+
+def _settling_room(room_store, submission):
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id=submission, estimated_days=4,
+    )
+    room_id = entered["room"]["id"]
+    session = rooms.release_relationship_training_room(room_id, "2026-08-24")
+    return room_id, session
+
+
+def test_running_settle_is_never_reported_as_interrupted(room_store):
+    room_id, _session = _settling_room(room_store, "live")
+    assert rooms.interrupted_team_training_rooms() == []
+    rooms.end_relationship_training_settlement(room_id)
+    # Same process, no settle running: abandoned (e.g. restore failed).
+    assert [row["room_id"] for row in rooms.interrupted_team_training_rooms()] == [room_id]
+
+
+def test_settle_killed_before_writing_goes_back_to_occupied_once(room_store, monkeypatch):
+    from datetime import datetime, timedelta
+
+    room_id, session = _settling_room(room_store, "crash-read")
+    _crash_process(monkeypatch)
+    # Another process may still be settling it: wait until it is stale.
+    assert rooms.interrupted_team_training_rooms() == []
+    later = datetime.now() + timedelta(seconds=rooms.TEAM_TRAINING_SETTLE_STALE_SECONDS + 1)
+    stuck = rooms.interrupted_team_training_rooms(later)
+    assert [row["room_id"] for row in stuck] == [room_id]
+    assert stuck[0]["session"]["native_writes_started"] is False
+    outcome = rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    assert outcome["action"] == "restored"
+    room = room_store["relationship_training_rooms"]["rooms"][0]
+    assert room["status"] == "occupied" and "pending_session" not in room
+    with pytest.raises(ValueError, match="已失效"):
+        rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    # The due check can settle it again from scratch.
+    assert rooms.claim_due_team_training_rooms("2026-08-24")["rooms"][0]["room_id"] == room_id
+
+
+def test_settle_killed_after_writing_completes_without_reapplying(room_store, monkeypatch):
+    from datetime import datetime, timedelta
+
+    room_id, session = _settling_room(room_store, "crash-write")
+    rooms.mark_relationship_training_native_writes(room_id, session["id"])
+    _crash_process(monkeypatch)
+    later = datetime.now() + timedelta(seconds=rooms.TEAM_TRAINING_SETTLE_STALE_SECONDS + 1)
+    assert [row["room_id"] for row in rooms.interrupted_team_training_rooms(later)] == [room_id]
+    outcome = rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    assert outcome["action"] == "complete"
+    record = rooms.interrupted_settlement_record(outcome["session"], "2026-08-25")
+    assert record["elapsed_days"] == 4 and record["attribute_changes"] == []
+    assert record["interrupted_settlement"]["native_writes_unverified"] is True
+    rooms.finalize_relationship_training_room(room_id, session["id"], record)
+    room = room_store["relationship_training_rooms"]["rooms"][0]
+    assert room["status"] == "idle"
+    assert room["last_session"]["effects"]["interrupted_settlement"]["reason"] == "settlement_interrupted"
+    assert room_store["relationship_training_rooms"]["attribute_progress"] == {}
+    assert rooms.interrupted_team_training_rooms(later) == []

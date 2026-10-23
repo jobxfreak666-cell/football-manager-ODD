@@ -330,6 +330,9 @@ from tools.relationship_training import (
     claim_due_team_training_rooms,
     public_team_training_session, normalize_team_training_target,
     team_training_goal, team_training_target_options,
+    end_relationship_training_settlement, interrupted_settlement_record,
+    interrupted_team_training_rooms, mark_relationship_training_native_writes,
+    recover_interrupted_team_training_room,
 )
 from tools.training_archive import (
     archive_relationship_change_event,
@@ -11636,6 +11639,8 @@ class LocalOddsState:
         room_id = str(payload.get("room_id") or "")
         if not room_id:
             raise ValueError("缺少房间实例")
+        # A room stuck in settling by an earlier crash is recovered first.
+        self._recover_interrupted_team_training()
         committed = self._settle_relationship_training_room(room_id)
         with self.lock:
             game_date = str(self.output.get("game_date") or "")
@@ -11774,6 +11779,9 @@ class LocalOddsState:
         }
         if not game_date:
             return result
+        recovered = self._recover_interrupted_team_training()
+        result["recovered_room_ids"] = recovered["restored_room_ids"] + recovered["completed_room_ids"]
+        result["errors"].extend(recovered["errors"])
         early = self._team_training_early_reasons(game_date)
         claim = claim_due_team_training_rooms(game_date, early)
         result["sweep"] = bool(claim.get("sweep"))
@@ -11793,9 +11801,54 @@ class LocalOddsState:
                 result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
         return result
 
+    def _recover_interrupted_team_training(self) -> dict[str, Any]:
+        """Free rooms left in ``settling`` by a settle that died (crash, kill).
+
+        A settle that never wrote game memory goes back to occupied, so the
+        due check settles it again from scratch with nothing applied twice.
+        One that may have written is completed from its pending session
+        without re-applying anything (``interrupted_settlement``). Each step
+        re-checks the room under the module lock, so repeated or concurrent
+        recovery changes a room once.
+        """
+        result: dict[str, Any] = {
+            "restored_room_ids": [], "completed_room_ids": [], "errors": [],
+        }
+        stuck = interrupted_team_training_rooms()
+        if not stuck:
+            return result
+        with self.lock:
+            game_date = str(self.output.get("game_date") or "")
+            scope_id = self._data_scope_id(self.output)
+        for row in stuck:
+            room_id = str(row["room_id"])
+            session = dict(row.get("session") or {})
+            try:
+                outcome = recover_interrupted_team_training_room(
+                    room_id, str(session.get("id") or ""),
+                )
+                if outcome["action"] == "restored":
+                    result["restored_room_ids"].append(room_id)
+                    continue
+                if not scope_id:
+                    raise ValueError("尚未识别当前存档账户")
+                commit_relationship_training_settlement(
+                    room_id, str(session.get("id") or ""),
+                    interrupted_settlement_record(outcome["session"], game_date),
+                    scope_id=scope_id,
+                )
+                result["completed_room_ids"].append(room_id)
+            except ValueError as error:
+                if "已失效" not in str(error) and "正在结算中" not in str(error):
+                    result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
+            except Exception as error:
+                result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
+        return result
+
     def _settle_relationship_training_room(
         self, room_id: str, *, completed_on: str | None = None,
     ) -> dict[str, Any]:
+        """Settle one room; see ``_settle_released_team_training_room``."""
         with self.lock:
             self._bind_current_save()
             game_date = str(self.output.get("game_date") or "")
@@ -11808,8 +11861,28 @@ class LocalOddsState:
         session = release_relationship_training_room(
             room_id, min(game_date, completed_on) if completed_on else game_date,
         )
+        try:
+            return self._settle_released_team_training_room(
+                room_id, session, game_date=game_date, scope_id=scope_id,
+                profiles=profiles,
+            )
+        finally:
+            end_relationship_training_settlement(room_id)
+
+    def _settle_released_team_training_room(
+        self, room_id: str, session: dict[str, Any], *, game_date: str,
+        scope_id: str, profiles: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         attribute_writes: list[dict[str, Any]] = []
         relationship_writes: list[dict[str, Any]] = []
+        writes_marked: list[bool] = []
+
+        def before_native_write() -> None:
+            # Persisted once, before the first game-memory write, so crash
+            # recovery never re-runs a settle that may have applied effects.
+            if not writes_marked:
+                mark_relationship_training_native_writes(room_id, str(session["id"]))
+                writes_marked.append(True)
 
         def rollback_native() -> None:
             for result in reversed(relationship_writes):
@@ -12172,6 +12245,7 @@ class LocalOddsState:
                         if str(attribute.get("kind")) == "hidden":
                             current = before
                             for _ in range(abs(amount)):
+                                before_native_write()
                                 result = develop_player_hidden_attribute(
                                     player_id, live["player_address"], key, current, direction,
                                 )
@@ -12182,6 +12256,7 @@ class LocalOddsState:
                                 })
                                 current += direction
                         else:
+                            before_native_write()
                             result = develop_player(
                                 player_id, live["player_address"], key, before,
                                 "training", amount,
@@ -12227,6 +12302,7 @@ class LocalOddsState:
                         ) >= probability
                     ):
                         continue
+                    before_native_write()
                     result = develop_player_hidden_attribute(
                         player_id, live["player_address"], "physical:height", height, 1,
                     )
@@ -12248,6 +12324,7 @@ class LocalOddsState:
                 for beneficiary in plan["beneficiaries"]:
                     player_id = int(beneficiary["id"])
                     live = live_people[("player", player_id)]
+                    before_native_write()
                     result = adjust_player_training_condition(
                         player_id, live["player_address"], staff_team_multiplier,
                     )
@@ -12304,6 +12381,7 @@ class LocalOddsState:
                         "detail": detail,
                     })
             if active_pairs:
+                before_native_write()
                 with borrow_game_operation(write_memory=True) as operation:
                     try:
                         for pair in active_pairs:

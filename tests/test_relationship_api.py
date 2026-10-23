@@ -8,6 +8,19 @@ import fm_odds_web
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def native_write_marker():
+    """Settle tests stub release; crash recovery is stubbed with it.
+
+    Recovery tests put the real ``interrupted_team_training_rooms`` back.
+    """
+    with (
+        patch("fm_odds_web.mark_relationship_training_native_writes") as marker,
+        patch("fm_odds_web.interrupted_team_training_rooms", return_value=[]),
+    ):
+        yield marker
+
+
 def state():
     value = fm_odds_web.LocalOddsState.__new__(fm_odds_web.LocalOddsState)
     value.lock = threading.RLock()
@@ -384,7 +397,9 @@ def test_relationship_training_settlement_commits_hidden_progress_atomically():
     }
     with (
         patch("fm_odds_web.FROZEN", False),
+        patch.object(value, "_team_training_rooms", return_value=[]),
         patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
@@ -441,7 +456,9 @@ def test_video_analysis_team_capability_multiplies_attribute_progress():
     committed = {"completed": {}, "archive": {}}
     with (
         patch("fm_odds_web.FROZEN", False),
+        patch.object(value, "_team_training_rooms", return_value=[]),
         patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
@@ -502,6 +519,7 @@ def test_sports_condition_write_rolls_back_when_account_commit_fails():
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -546,6 +564,7 @@ def test_relationship_training_commit_failure_rolls_back_native_write_and_room()
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -605,6 +624,7 @@ def test_relationship_training_commit_failure_rolls_back_relationship_write():
     with (
         patch("fm_odds_web.FROZEN", False),
         patch.object(value, "_bind_current_save"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch("fm_odds_web.release_relationship_training_room", return_value=session),
         patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
         patch("fm_odds_web.relationship_training_progress", return_value={
@@ -1306,6 +1326,84 @@ def test_old_save_without_sweep_date_still_settles_sessions_already_due(team_roo
     assert settled == [(due_id, "2026-08-22")]
 
 
+def _crashed_mid_settle(value, store, monkeypatch, submission, *, wrote):
+    from tools import relationship_training as rooms
+
+    room_id = _enter(value, _mind_payload(submission), estimate=4)["room"]["id"]
+    store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
+    session = rooms.release_relationship_training_room(room_id, "2026-08-24")
+    if wrote:
+        rooms.mark_relationship_training_native_writes(room_id, session["id"])
+    # The process dies here; the next process starts with no settle running.
+    monkeypatch.setattr(rooms, "_SETTLING_IN_PROCESS", set())
+    monkeypatch.setattr(rooms, "_PROCESS_TOKEN", "next-process")
+    _team_room(store, room_id)["settlement_started_at"] = "2026-01-01T00:00:00"
+    return room_id
+
+
+def _recovering(store):
+    from tools import relationship_training as rooms
+
+    def commit(room_id, session_id, settlement, *, scope_id, **_progress):
+        completed = rooms.finalize_relationship_training_room(room_id, session_id, settlement)
+        return {"completed": completed, "archive": {"scope_id": scope_id}}
+
+    return (
+        patch("fm_odds_web.interrupted_team_training_rooms", rooms.interrupted_team_training_rooms),
+        patch("fm_odds_web.commit_relationship_training_settlement", side_effect=commit),
+    )
+
+
+def test_room_stuck_settling_before_any_write_is_settled_again_on_sync(team_room_store, monkeypatch):
+    value = team_training_state()
+    room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "stuck-read", wrote=False)
+    settled = []
+    listing, commit = _recovering(team_room_store)
+    with listing, commit:
+        result = _advance(value, "2026-08-24", settled)
+        assert result["recovered_room_ids"] == [room_id]
+        assert result["settled_room_ids"] == [room_id]
+        assert settled == [(room_id, "2026-08-24")]
+        assert _advance(value, "2026-08-25", settled)["recovered_room_ids"] == []
+    assert settled == [(room_id, "2026-08-24")]
+    assert _team_room(team_room_store, room_id)["status"] == "idle"
+
+
+def test_room_stuck_settling_after_writing_completes_without_reapplying(team_room_store, monkeypatch):
+    value = team_training_state()
+    room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "stuck-write", wrote=True)
+    settled = []
+    listing, commit = _recovering(team_room_store)
+    with listing, commit as committed:
+        result = _advance(value, "2026-08-25", settled)
+        assert result["recovered_room_ids"] == [room_id] and result["errors"] == []
+        # Not settled again: a second settle could double the applied effects.
+        assert settled == [] and result["settled_room_ids"] == []
+        assert _advance(value, "2026-08-26", settled)["recovered_room_ids"] == []
+    committed.assert_called_once()
+    room = _team_room(team_room_store, room_id)
+    assert room["status"] == "idle"
+    marker = room["last_session"]["effects"]["interrupted_settlement"]
+    assert marker["native_writes_unverified"] is True and marker["detected_on"] == "2026-08-25"
+    assert team_room_store["relationship_training_rooms"]["attribute_progress"] == {}
+
+
+def test_manual_settle_frees_a_room_stuck_settling_first(team_room_store, monkeypatch):
+    value = team_training_state()
+    room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "stuck-manual", wrote=False)
+    settled = []
+    value.output["game_date"] = "2026-08-24"
+    listing, commit = _recovering(team_room_store)
+    with (
+        listing, commit,
+        patch.object(value, "_settle_relationship_training_room",
+                     side_effect=_fake_settle(value, settled)),
+        patch.object(value, "relationship_training_rooms_state", return_value={}),
+    ):
+        assert value.relationship_training_room_settle({"room_id": room_id})["ok"]
+    assert settled == [(room_id, "2026-08-24")]
+
+
 def test_sweep_does_not_resettle_or_settle_early(team_room_store):
     value = team_training_state()
     from tools import relationship_training as rooms
@@ -1457,6 +1555,14 @@ def test_settle_lower_effect_drops_one_point_per_session():
 
 def test_settle_skips_effect_already_at_target():
     assert _settle_mind("14", before=15) == (0, None)
+
+
+def test_settle_records_once_that_game_writes_began(native_write_marker):
+    assert _settle_mind("14")[0] == 4
+    native_write_marker.assert_called_once_with("room-1", "focus-t")
+    native_write_marker.reset_mock()
+    assert _settle_mind("14", before=15)[0] == 0
+    native_write_marker.assert_not_called()
 
 
 # ---- 团队训练：参与者离队 → 当天提前结算，跳过此人 ----
