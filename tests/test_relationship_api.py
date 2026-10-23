@@ -1281,6 +1281,31 @@ def test_sweep_settles_a_session_without_estimate(team_room_store):
     assert swept["sweep"] is True and swept["settled_room_ids"] == [room_id]
 
 
+def test_old_save_without_sweep_date_waits_one_interval_before_sweeping(team_room_store):
+    value = team_training_state()
+    legacy_id = _enter(value, _mind_payload("old-8f"), estimate=4)["room"]["id"]
+    _team_room(team_room_store, legacy_id)["estimated_settle_on"] = None
+    team_room_store["relationship_training_rooms"].pop("last_sweep_on", None)
+    settled = []
+    first = _advance(value, "2026-08-21", settled)
+    assert first["sweep"] is False and first["settled_room_ids"] == []
+    assert team_room_store["relationship_training_rooms"]["last_sweep_on"] == "2026-08-21"
+    assert _team_room(team_room_store, legacy_id)["status"] == "occupied"
+    assert _advance(value, "2026-09-03", settled)["settled_room_ids"] == []
+    swept = _advance(value, "2026-09-04", settled)
+    assert swept["sweep"] is True and swept["settled_room_ids"] == [legacy_id]
+
+
+def test_old_save_without_sweep_date_still_settles_sessions_already_due(team_room_store):
+    value = team_training_state()
+    due_id = _enter(value, _mind_payload("old-due"), estimate=2)["room"]["id"]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = None
+    settled = []
+    result = _advance(value, "2026-08-25", settled)
+    assert result["sweep"] is False and result["settled_room_ids"] == [due_id]
+    assert settled == [(due_id, "2026-08-22")]
+
+
 def test_sweep_does_not_resettle_or_settle_early(team_room_store):
     value = team_training_state()
     from tools import relationship_training as rooms
@@ -1306,7 +1331,7 @@ def test_sweep_does_not_resettle_or_settle_early(team_room_store):
 
 def test_sweep_cadence_follows_game_date():
     from tools.relationship_training import team_training_sweep_due
-    assert team_training_sweep_due(None, "2026-08-20") is True
+    assert team_training_sweep_due(None, "2026-08-20") is False
     assert team_training_sweep_due("2026-08-20", "2026-09-02") is False
     assert team_training_sweep_due("2026-08-20", "2026-09-03") is True
     assert team_training_sweep_due("2026-08-20", "2028-01-01") is True

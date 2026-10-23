@@ -1051,12 +1051,19 @@ def restore_relationship_training_room(room_id: str) -> dict[str, Any]:
 
 def team_training_sweep_due(last_sweep_on: Any, game_date: str) -> bool:
     """The 14-day cadence, by game date. A date that moved backwards (another
-    save or a reload) restarts the cadence instead of waiting for it."""
+    save or a reload) restarts the cadence instead of waiting for it.
+
+    A save that has never swept (``last_sweep_on`` missing, e.g. saved before
+    the sweep existed) is not due: its first sync only starts the cadence, so
+    old sessions without an estimate are not all settled on that first sync
+    but one full interval later."""
     today = _parse_date(game_date)
     if today is None:
         return False
     last = _parse_date(last_sweep_on)
-    if last is None or today < last:
+    if last is None:
+        return False
+    if today < last:
         return True
     return (today - last).days >= TEAM_TRAINING_SWEEP_INTERVAL_DAYS
 
@@ -1087,6 +1094,9 @@ def claim_due_team_training_rooms(
     def mutate(raw: Any) -> dict[str, Any]:
         state = _normalize_state(raw)
         sweep = team_training_sweep_due(state.get("last_sweep_on"), game_date)
+        if _parse_date(state.get("last_sweep_on")) is None:
+            # First sync of this save: start the 14-day cadence today.
+            state["last_sweep_on"] = game_date
         claimed: list[dict[str, Any]] = []
         for room in state["rooms"]:
             if room.get("status") != "occupied":
