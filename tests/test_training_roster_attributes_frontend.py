@@ -19,6 +19,7 @@ def extract(start: str, end: str) -> str:
 
 LOCALIZE = extract("function localizedTrainingAttribute(attributeKey) {", "function creditDefaultEffects(")
 ROSTER = extract("function trainingAttributeValueClass(value) {", "function renderTrainingPersonDetail()")
+LICENCE = extract("const COACHING_LICENSE_NAMES = {", "const COACHING_STAFF_JOB_TYPES")
 
 PLAYERS = [
     {"id": 1, "name": "Outfield", "shirt_number": 11,
@@ -45,6 +46,7 @@ const uiLegacy = (text) => text;
 const uiPlural = (key, n) => `${{n}}`;
 const escapeHtml = (v) => String(v).replace(/[&<>"]/g, (c) => ({{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}})[c]);
 {LOCALIZE}
+{LICENCE}
 const PLAYERS = {json.dumps(PLAYERS, ensure_ascii=False)};
 const app = {{ trainingModule: "player_training", trainingPersonKind: null, trainingPersonId: null, trainingPlayerSearch: "" }};
 const roster = {{ dataset: {{}}, innerHTML: "" }};
@@ -80,6 +82,7 @@ STAFF = [
     {"id": 101, "name": "Coach B", "coaching_license": {"name": "National B", "next_name": "National A", "maximum": False}},
     {"id": 102, "name": "Coach Pro", "coaching_license": {"name": "Continental Pro", "next_name": None, "maximum": True}},
     {"id": 103, "name": "Coach Unread"},
+    {"id": 104, "name": "Coach Coded", "coaching_license": {"code": 6, "name": "国家 B 级", "next_code": 5, "next_name": "国家 A 级", "maximum": False}},
 ]
 
 
@@ -162,3 +165,9 @@ class TrainingRosterAttributesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_staff_licence_name_follows_ui_language_by_code(self):
+        row = staff_rows_after_clicking(104)[3]
+        self.assertIn("<b>training.licence.national_b</b>", row)
+        self.assertIn("training.next_license</span><b>training.licence.national_a</b>", row)
+        self.assertNotIn("国家", row)

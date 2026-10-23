@@ -51,8 +51,8 @@ ACTIVE = {
     "room_id": "room-7", "status": "occupied", "started_on": "2026-10-20", "settle_on": "2026-10-30",
     "days_used": 2, "remaining_days": 8, "fee_minor": 750000000, "attributes": ["hidden:雄心"], "target": "16",
     "participants": [
-        {"id": 101, "kind": "staff", "role": "coach", "name": "Arne Slot", "estimated_days": 10, "settle_on": "2026-10-30"},
-        {"id": 1, "kind": "player", "role": "player", "name": "Alexis", "estimated_days": 8, "settle_on": "2026-10-28"},
+        {"id": 101, "kind": "staff", "role": "coach", "name": "Arne Slot", "estimated_days": 10, "remaining_days": 8, "settle_on": "2026-10-30"},
+        {"id": 1, "kind": "player", "role": "player", "name": "Alexis", "estimated_days": 8, "remaining_days": 6, "settle_on": "2026-10-28"},
     ],
 }
 
@@ -163,7 +163,7 @@ let fail = true;
 respond = (path) => {
   if (path.endsWith("/enter")) {
     if (fail) { fail = false; const error = new Error("timeout"); error.code = "REQUEST_TIMEOUT"; throw error; }
-    return {replayed:true, rooms:{rooms:[{sku:"mind_room", instances:[{status:"occupied", active:{room_id:"r1", settle_on:"2026-11-02", participants:[]}}]}]}};
+    return {replayed:true, team_rooms:[{...app.state.training_ground.team_rooms[0], active:{room_id:"r1", settle_on:"2026-11-02", participants:[]}}, ...app.state.training_ground.team_rooms.slice(1)]};
   }
   return {};
 };
@@ -199,7 +199,7 @@ def test_manual_settle_uses_the_active_room_id() -> None:
     rooms = json.loads(json.dumps(ROOMS))
     rooms[1]["active"] = ACTIVE
     run(r'''
-respond = () => ({settlement:{attribute_changes:[1], relationship_changes:[], early_settlement:{reason:"participant_left_team", skipped_participants:[{id:1,name:"Alexis"}]}}, rooms:{rooms:[{sku:"tactical_room", instances:[]}]}});
+respond = () => ({settlement:{attribute_changes:[1], relationship_changes:[], early_settlement:{reason:"participant_left_team", skipped_participants:[{id:1,name:"Alexis"}]}}, team_rooms:app.state.training_ground.team_rooms.map((room) => ({...room, active:null}))});
 await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
 assert.equal(requests[0].path, "/api/training/relationship-rooms/settle");
 assert.deepEqual(requests[0].body, {room_id:"room-7"});

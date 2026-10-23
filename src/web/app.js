@@ -3974,6 +3974,10 @@ const COACHING_LICENSE_NAMES = {
   0:"training.licence.none", 7:"training.licence.national_c", 6:"training.licence.national_b", 5:"training.licence.national_a",
   4:"training.licence.continental_c", 3:"training.licence.continental_b", 2:"training.licence.continental_a", 1:"training.licence.continental_pro",
 };
+function coachingLicenceLabel(code, fallback) {
+  const key = COACHING_LICENSE_NAMES[Number(code)];
+  return code != null && key ? uiText(key) : uiLegacy(fallback || "");
+}
 const COACHING_STAFF_JOB_TYPES = new Set([2,20,22,26,34,64]);
 function trainingManagedStaff() {
   const rows = new Map();
@@ -12329,10 +12333,10 @@ function trainingPlayerAttributePanel(person) {
 
 function trainingStaffLicensePanel(person) {
   const license = person?.coaching_license;
-  const current = license ? uiLegacy(license.name) : uiText("training.licence_unread");
+  const current = license ? coachingLicenceLabel(license.code, license.name) : uiText("training.licence_unread");
   const next = !license ? "" : license.maximum || !license.next_name
     ? `<span class="licence-max">${uiText("training.no_next_licence")}</span>`
-    : `<i data-lucide="arrow-right"></i><span>${uiText("training.next_license")}</span><b>${escapeHtml(uiLegacy(license.next_name))}</b>`;
+    : `<i data-lucide="arrow-right"></i><span>${uiText("training.next_license")}</span><b>${escapeHtml(coachingLicenceLabel(license.next_code, license.next_name))}</b>`;
   return `<div class="training-person-attributes training-staff-licence" role="region" aria-label="${escapeHtml(person?.name || "")}"><section class="player-attribute-group training-licence-strip"><h4>${uiText("training.current_licence")}</h4><div class="training-licence-line"><b>${escapeHtml(current)}</b>${next}</div></section></div>`;
 }
 
@@ -12430,7 +12434,7 @@ function renderTrainingPersonDetail() {
       : [...verified].filter(([bit]) => !currentBits.has(bit)).map(([bit, name]) => ({value:String(bit), label:name}));
   } else if (project && kind === "staff") {
     const license = person.coaching_license || {};
-    targetOptions = [{value:String(license.next_code || 0), label:String(license.next_name || uiText("training.no_next_licence"))}];
+    targetOptions = [{value:String(license.next_code || 0), label:coachingLicenceLabel(license.next_code, license.next_name) || uiText("training.no_next_licence")}];
   } else if (project) {
     targetOptions = trainingProjectTargets(project, kind, person).map((key) => ({value:key, label:localizedTrainingAttribute(key)}));
   }
@@ -12482,7 +12486,7 @@ function renderTrainingPersonDetail() {
   const summary = project && estimate ? `<dl class="training-task-summary">
     <div><dt>${uiText("training.fee_label")}</dt><dd>${escapeHtml(trainingFeeLabel(estimate.feeMinor))}</dd></div>
     <div><dt>${uiText("training.estimated_time")}</dt><dd>${project.sku === "habit_lab" ? uiText("training.game_days", {days:7}) : estimate.days > 0 ? uiText("training.game_days", {days:estimate.days}) : uiText("training.pending_read")}</dd></div>
-    <div><dt>${uiText("training.current_target_label")}</dt><dd>${project.sku === "habit_lab" ? escapeHtml(app.trainingOperation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn")) : kind === "staff" ? escapeHtml(`${person.coaching_license?.name || uiText("training.licence_unread")} → ${person.coaching_license?.next_name || ""}`) : escapeHtml(`${Number(estimate.current || 0)} → ${Number(estimate.targetValue || 0)}`)}</dd></div>
+    <div><dt>${uiText("training.current_target_label")}</dt><dd>${project.sku === "habit_lab" ? escapeHtml(app.trainingOperation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn")) : kind === "staff" ? escapeHtml(`${person.coaching_license ? coachingLicenceLabel(person.coaching_license.code, person.coaching_license.name) : uiText("training.licence_unread")} → ${coachingLicenceLabel(person.coaching_license?.next_code, person.coaching_license?.next_name)}`) : escapeHtml(`${Number(estimate.current || 0)} → ${Number(estimate.targetValue || 0)}`)}</dd></div>
   </dl>` : "";
   const activeBlock = activeFocus
     ? `<section class="training-active-task"><header><strong>${uiText("training.active_task")}</strong><button type="button" class="danger" data-training-cancel-focus="${escapeHtml(activeFocus.id)}">${uiText("training.cancel_task")}</button></header><p>${escapeHtml(trainingFocusUsage(activeFocus))}</p></section>`
@@ -12699,13 +12703,13 @@ function teamSettleCell(estimate) {
 function renderTeamTrainingActive(room, content) {
   const active = room.active;
   const participants = Array.isArray(active.participants) ? active.participants : [];
-  const used = Math.max(0, Number(active.days_used || 0));
   const latest = Math.max(0, ...participants.map((person) => Number(person.estimated_days || 0)));
   const members = participants.map((person) => {
     const role = teamTrainingRoleLabel((room.roles || []).find((row) => row.key === person.role) || {key:person.role});
     const days = person.estimated_days == null ? null : Number(person.estimated_days);
     const isLatest = days !== null && days === latest && latest > 0;
-    const left = days === null ? "—" : uiText("training.team.person_days", {days:Math.max(0, days - used), date:teamShortDate(person.settle_on || active.settle_on)});
+    const remaining = person.remaining_days == null ? null : Math.max(0, Number(person.remaining_days));
+    const left = remaining === null ? "—" : uiText("training.team.person_days", {days:remaining, date:teamShortDate(person.settle_on || active.settle_on)});
     return `<div class="team-active-member ${isLatest ? "latest" : ""}"><span><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(role)}</small></span><em>${escapeHtml(left)}${isLatest ? `<b>${uiText("training.team.latest_mark")}</b>` : ""}</em></div>`;
   }).join("");
   const chips = (active.attributes || []).map((key) => {
@@ -12790,19 +12794,9 @@ function rerenderTeamTraining() {
   renderTeamTrainingDetail();
   renderIcons();
 }
-function applyTeamTrainingRooms(catalog) {
-  const rows = Array.isArray(catalog?.rooms) ? catalog.rooms : null;
-  if (!rows || !app.state?.training_ground || !Array.isArray(app.state.training_ground.team_rooms)) return;
-  const bySku = new Map(rows.map((row) => [String(row.sku || ""), row]));
-  app.state.training_ground = {
-    ...app.state.training_ground,
-    team_rooms:app.state.training_ground.team_rooms.map((room) => {
-      const definition = bySku.get(String(room.sku || ""));
-      if (!definition) return room;
-      const instance = (definition.instances || []).find((row) => ["occupied", "settling"].includes(String(row.status || "")) && row.active);
-      return {...room, active:instance ? instance.active : null};
-    }),
-  };
+function applyTeamTrainingRooms(teamRooms) {
+  if (!Array.isArray(teamRooms) || !app.state?.training_ground) return;
+  app.state.training_ground = {...app.state.training_ground, team_rooms:teamRooms};
 }
 async function submitTeamTraining() {
   if (app.trainingActionBusy) return;
@@ -12824,7 +12818,7 @@ async function submitTeamTraining() {
     });
     if (scopeAtStart !== trainingScopeKey()) return;
     app.teamTrainingSubmission = null;
-    applyTeamTrainingRooms(response.rooms);
+    applyTeamTrainingRooms(response.team_rooms);
     applyEconomySnapshot(response.economy);
     app.teamTrainingSelectionRoom = null;
     const paid = Number(response.payment?.total || 0);
@@ -12860,7 +12854,7 @@ async function settleTeamTrainingRoom(room) {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({room_id:roomId}),
     });
-    applyTeamTrainingRooms(response.rooms);
+    applyTeamTrainingRooms(response.team_rooms);
     const attributes = response.settlement?.attribute_changes?.length || 0;
     const relationships = response.settlement?.relationship_changes?.length || 0;
     toast(uiText("relationship.room.settle_done", {attributes, relationships}));
