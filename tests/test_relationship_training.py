@@ -35,11 +35,42 @@ def _player(identifier: int, role: str) -> dict:
     }
 
 
-def test_catalog_uses_independent_8f_namespace(room_store):
+def test_catalog_is_the_team_training_module_without_floor_or_unlock(room_store):
     catalog = rooms.relationship_training_catalog()
-    assert catalog["scene"] == "relationship_8f"
+    assert catalog["module"] == "team_training"
+    assert "scene" not in catalog and "floor_limit" not in catalog
     assert {row["sku"] for row in catalog["rooms"]} == set(rooms.ROOMS)
     assert "facilities" not in room_store["relationship_training_rooms"]
+    for row in catalog["rooms"]:
+        assert "unlock_cost" not in row and "scene" not in row
+
+
+def test_session_fee_is_half_of_the_old_unlock_price(room_store):
+    fees = {
+        row["sku"]: row["session_fee_minor"]
+        for row in rooms.relationship_training_catalog()["rooms"]
+    }
+    assert fees == {
+        "mind_room": 250_000_000, "mentoring_room": 1_000_000_000,
+        "tactical_room": 750_000_000, "video_analysis_room": 1_250_000_000,
+        "sports_science_room": 1_500_000_000,
+    }
+
+
+def test_old_save_unlock_records_are_ignored_and_reused(room_store):
+    room_store["relationship_training_rooms"] = {
+        "schema_version": 2, "scene": "relationship_8f", "rooms": [{
+            "id": "old-unlocked", "sku": "mind_room", "scene": "relationship_8f",
+            "status": "idle", "unlocked_at": "2026-01-01T00:00:00", "participants": [],
+        }],
+    }
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id="old-1",
+    )
+    assert entered["room"]["id"] == "old-unlocked"
+    stored = room_store["relationship_training_rooms"]
+    assert "scene" not in stored and stored["module"] == "team_training"
 
 
 def test_catalog_uses_professional_room_descriptions():
@@ -64,39 +95,160 @@ def test_new_relationship_categories_follow_each_room_contract():
     } == expected
 
 
-def test_progress_document_rooms_are_available(room_store):
-    for sku in ("video_analysis_room", "sports_science_room"):
-        assert rooms.unlock_relationship_training_room(sku)["sku"] == sku
+def test_rooms_need_no_unlock_to_enter(room_store):
+    assert not hasattr(rooms, "unlock_relationship_training_room")
+    entered = rooms.enter_relationship_training_room(
+        "sports_science_room",
+        [{**_player(1, "player"), "kind": "player"}, {
+            "kind": "staff", "id": 9, "name": "S9", "role": "scientist", "team_id": 10,
+        }],
+        ["身体:体质"], "2026-08-20", client_submission_id="no-unlock",
+    )
+    assert entered["room"]["status"] == "occupied"
+    assert entered["room"]["sku"] == "sports_science_room"
 
 
 def test_room_entry_is_idempotent_and_prevents_cross_room_occupancy(room_store):
-    first = rooms.unlock_relationship_training_room("mind_room")
-    second = rooms.unlock_relationship_training_room("mind_room")
     participant = _player(1, "player_a")
     entered = rooms.enter_relationship_training_room(
-        first["id"], [participant], ["精神:意志力"], "2026-08-20",
+        "mind_room", [participant], ["精神:意志力"], "2026-08-20",
         client_submission_id="submission-1",
     )
     repeated = rooms.enter_relationship_training_room(
-        first["id"], [participant], ["精神:意志力"], "2026-08-20",
+        "mind_room", [participant], ["精神:意志力"], "2026-08-20",
         client_submission_id="submission-1",
     )
-    assert repeated["id"] == entered["id"]
-    with pytest.raises(ValueError, match="其他 8F"):
+    assert repeated["replayed"] is True
+    assert repeated["room"]["id"] == entered["room"]["id"]
+    with pytest.raises(ValueError, match="其他团队训练房间"):
         rooms.enter_relationship_training_room(
-            second["id"], [participant], ["精神:意志力"], "2026-08-20",
+            "mind_room", [participant], ["精神:意志力"], "2026-08-20",
+        )
+    # One session per room at a time (the room shows as 训练中 until settled).
+    with pytest.raises(ValueError, match="正在训练中"):
+        rooms.enter_relationship_training_room(
+            "mind_room", [_player(2, "player_a")], ["精神:意志力"], "2026-08-20",
         )
 
 
-def test_release_creates_relationship_training_focus_then_finalize(room_store):
-    room = rooms.unlock_relationship_training_room("mentoring_room")
-    rooms.enter_relationship_training_room(
-        room["id"], [_player(1, "mentor"), _player(2, "student")],
-        ["精神:领导力"], "2026-08-01", client_submission_id="settle-1",
+def test_session_is_charged_once_and_replay_is_not_charged_again(room_store):
+    charges: list[int] = []
+
+    def charge():
+        charges.append(1)
+        return {"total": 2_500_000.0, "bank": 2_500_000.0, "wallet": 0.0, "transaction_id": "t1"}
+
+    args = ("mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20")
+    first = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
     )
+    again = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
+    )
+    assert len(charges) == 1
+    assert first["replayed"] is False and again["replayed"] is True
+    assert again["payment"] == first["payment"]
+    assert first["room"]["session_fee_minor"] == 250_000_000
+    # The receipt survives settlement, so a late retry is still not charged.
+    pending = rooms.release_relationship_training_room(first["room"]["id"], "2026-08-25")
+    rooms.finalize_relationship_training_room(first["room"]["id"], pending["id"], {})
+    late = rooms.enter_relationship_training_room(
+        *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
+        charge=charge, refund=lambda _payment: None,
+    )
+    assert late["replayed"] is True and len(charges) == 1
+
+
+def test_charged_session_requires_a_submission_id(room_store):
+    with pytest.raises(ValueError, match="刷新页面"):
+        rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+            charge=lambda: {"total": 1.0}, refund=lambda _payment: None,
+        )
+
+
+def test_submission_id_reused_for_another_room_is_rejected_without_charge(room_store):
+    rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id="same",
+    )
+    charges = []
+    with pytest.raises(ValueError, match="其他安排"):
+        rooms.enter_relationship_training_room(
+            "mentoring_room", [_player(2, "mentor"), _player(3, "student")],
+            ["精神:领导力"], "2026-08-20", client_submission_id="same",
+            charge=lambda: charges.append(1) or {"total": 1.0},
+            refund=lambda _payment: None,
+        )
+    assert charges == []
+
+
+def test_failed_entry_after_charge_is_refunded(room_store):
+    refunds = []
+    payment = {"total": 2_500_000.0, "bank": 2_500_000.0, "wallet": 0.0}
+    with pytest.raises(ValueError, match="至少选择一项训练属性"):
+        rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["not-in-scope"], "2026-08-20",
+            client_submission_id="refund-1",
+            charge=lambda: dict(payment), refund=refunds.append,
+        )
+    assert refunds == [payment]
+    assert room_store["relationship_training_rooms"]["rooms"] == []
+
+
+def test_concurrent_double_click_charges_once(room_store):
+    import threading
+
+    charges = []
+    start = threading.Barrier(2)
+
+    def charge():
+        charges.append(1)
+        return {"total": 1.0, "bank": 1.0, "wallet": 0.0}
+
+    results = []
+
+    def submit():
+        start.wait()
+        results.append(rooms.enter_relationship_training_room(
+            "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+            client_submission_id="double-click", charge=charge,
+            refund=lambda _payment: None,
+        ))
+
+    threads = [threading.Thread(target=submit) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(charges) == 1
+    assert sorted(row["replayed"] for row in results) == [False, True]
+    assert len({row["room"]["id"] for row in results}) == 1
+
+
+def test_tactical_coach_rule_accepts_licensed_assistant_and_rejects_unlicensed():
+    assistant = {"job_type": 20, "coaching_license": {"code": 5}}
+    unlicensed = {"job_type": 2, "coaching_license": {"code": 0}}
+    job_one = {"job_type": 1, "coaching_license": {"code": 5}}
+    assert rooms.tactical_coach_eligible(assistant)
+    assert not rooms.tactical_coach_eligible(unlicensed)
+    assert not rooms.tactical_coach_eligible(job_one)
+    rooms.validate_relationship_training_staff("tactical_room", "coach", assistant)
+    with pytest.raises(ValueError, match="持证"):
+        rooms.validate_relationship_training_staff("tactical_room", "coach", unlicensed)
+
+
+def test_release_creates_relationship_training_focus_then_finalize(room_store):
+    room = rooms.enter_relationship_training_room(
+        "mentoring_room", [_player(1, "mentor"), _player(2, "student")],
+        ["精神:领导力"], "2026-08-01", client_submission_id="settle-1",
+    )["room"]
     pending = rooms.release_relationship_training_room(room["id"], "2026-08-20")
     assert pending["focus_type"] == "relationship_training"
-    assert pending["scene"] == "relationship_8f"
+    assert pending["module"] == "team_training"
+    assert "scene" not in pending
     assert pending["status"] == "pending_settlement"
     assert pending["facility_name"] == "传习室"
     assert pending["training_content"] == "精神:领导力"
@@ -307,11 +459,10 @@ def test_sports_science_height_formula_limits_and_retry_roll_are_deterministic()
 
 
 def test_atomic_completion_updates_room_and_archive_together(room_store, monkeypatch):
-    room = rooms.unlock_relationship_training_room("mind_room")
-    rooms.enter_relationship_training_room(
-        room["id"], [_player(1, "player_a")], ["精神:意志力"],
+    room = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"],
         "2026-08-01", client_submission_id="atomic-1",
-    )
+    )["room"]
     pending = rooms.release_relationship_training_room(room["id"], "2026-08-20")
     documents = {
         **room_store,
@@ -333,3 +484,114 @@ def test_atomic_completion_updates_room_and_archive_together(room_store, monkeyp
     assert documents["relationship_training_rooms"]["rooms"][0]["status"] == "idle"
     assert documents["training_archive"]["totals"]["comprehensive"] == 1
     assert documents["relationship_training_rooms"]["height_baselines"] == {"1": 178}
+
+
+def test_enter_stores_estimate_and_catalog_shows_remaining_days(room_store):
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-07-19",
+        client_submission_id="eta", estimated_days=6, target="until_16",
+        participant_estimates={("player", 1): 6},
+    )
+    room = entered["room"]
+    assert (room["estimated_total_days"], room["estimated_settle_on"]) == (6, "2026-07-25")
+    instance = rooms.relationship_training_catalog("2026-07-21")["rooms"][0]["instances"][0]
+    assert (instance["days_used"], instance["remaining_days"]) == (2, 4)
+    assert instance["active"]["target"] == "16"
+    assert instance["active"]["participants"][0]["settle_on"] == "2026-07-25"
+    session = rooms.release_relationship_training_room(room["id"], "2026-07-25")
+    assert (session["estimated_settle_on"], session["target"]) == ("2026-07-25", "16")
+
+
+def _effect(person_id, current, *, direction=1, daily=3.0, stored=0.0, mentor=None):
+    return {
+        "participant": {"id": person_id, "kind": "player"}, "attribute_kind": "visible",
+        "base_eligible": True, "direction": direction, "current": current,
+        "daily_points": daily, "stored_points": stored, "mentor_value": mentor,
+    }
+
+
+def test_target_goal_matches_equipment_semantics():
+    assert rooms.normalize_team_training_target(None) == "until_increase"
+    assert rooms.normalize_team_training_target("until_16") == "16"
+    assert rooms.normalize_team_training_target(18) == "18"
+    with pytest.raises(ValueError):
+        rooms.normalize_team_training_target("until_10")
+    assert rooms.team_training_goal("until_increase", 12, 1) == 13
+    assert rooms.team_training_goal("16", 12, 1) == 16
+    assert rooms.team_training_goal("14", 14, 1) is None  # at target: excluded
+    assert rooms.team_training_goal("14", 15, 1) is None  # above target: excluded
+    assert rooms.team_training_goal("18", 12, 1, mentor_value=15) == 15
+    assert rooms.team_training_goal("20", 9, -1) == 8  # lower: always one point
+    assert rooms.team_training_goal("20", 1, -1) is None
+
+
+def test_target_options_use_equipment_formula_for_the_slowest_participant():
+    from tools.training_ground import training_points_required_for_direction as need
+    effects = [_effect(1, 12), _effect(2, 10), _effect(2, 9, direction=-1)]
+    people = [{"id": 1, "kind": "player", "role": "a", "name": "A"},
+              {"id": 2, "kind": "player", "role": "b", "name": "B"},
+              {"id": 7, "kind": "staff", "role": "coach", "name": "C"}]
+    options = rooms.team_training_target_options(effects, people, [], "2026-07-19")
+    import math
+    a_days = math.ceil(need(12, 1) / 3)
+    b_days = max(math.ceil(need(10, 1) / 3), math.ceil(need(9, -1) / 3))
+    increase = options["until_increase"]
+    assert increase["days"] == max(a_days, b_days)
+    person_days = {row["id"]: row["estimated_days"] for row in increase["participants"]}
+    assert person_days == {1: a_days, 2: b_days, 7: increase["days"]}
+    to16 = options["16"]
+    expected_a = math.ceil(sum(need(v, 1) for v in range(12, 16)) / 3)
+    expected_b = math.ceil(sum(need(v, 1) for v in range(10, 16)) / 3)
+    assert to16["days"] == max(expected_a, expected_b)
+    assert to16["settle_on"] == (
+        __import__("datetime").date(2026, 7, 19)
+        + __import__("datetime").timedelta(days=to16["days"])
+    ).isoformat()
+    # Everyone already at/above 14 on raise effects, no lower effect: invalid.
+    high = rooms.team_training_target_options([_effect(1, 15)], people[:1], [], "2026-07-19")
+    assert high["14"] is None and high["16"]["days"] >= 1
+
+
+def test_target_options_fall_back_to_intimacy_for_height_only():
+    options = rooms.team_training_target_options(
+        [{"participant": {"id": 1, "kind": "player"}, "attribute_kind": "height"}],
+        [{"id": 1, "kind": "player"}],
+        [{"effect_pair": True, "a_to_b_effect": {"estimated_days_to_next": 3},
+          "b_to_a_effect": {"estimated_days_to_next": 5}}],
+        "2026-07-19",
+    )
+    assert options["20"]["days"] == 5
+
+
+def test_claim_marks_each_due_room_once_per_game_date(room_store):
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-07-19",
+        client_submission_id="claim", estimated_days=2,
+    )
+    room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-07-19"
+    assert rooms.claim_due_team_training_rooms("2026-07-20")["rooms"] == []
+    claim = rooms.claim_due_team_training_rooms("2026-07-25")
+    assert claim["rooms"] == [{
+        "room_id": entered["room"]["id"], "room_sku": "mind_room",
+        "completed_on": "2026-07-21", "early_reason": "",
+    }]
+    assert rooms.claim_due_team_training_rooms("2026-07-25")["rooms"] == []
+
+
+def test_claim_settles_an_early_room_today_once(room_store):
+    entered = rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-07-19",
+        client_submission_id="early", estimated_days=20,
+        captured_multipliers={"coach": 1.5},
+    )
+    room_id = entered["room"]["id"]
+    assert room_store["relationship_training_rooms"]["rooms"][0]["captured_multipliers"] == {"coach": 1.5}
+    room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-07-19"
+    claim = rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})
+    assert claim["rooms"] == [{
+        "room_id": room_id, "room_sku": "mind_room",
+        "completed_on": "2026-07-22", "early_reason": "x",
+    }]
+    assert rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})["rooms"] == []
+    session = rooms.release_relationship_training_room(room_id, "2026-07-22")
+    assert session["captured_multipliers"] == {"coach": 1.5}

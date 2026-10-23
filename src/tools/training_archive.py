@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from tools.account_store import load_document, update_document
+from tools.training_catalog import LAB_PROJECT_SKUS
 
 DOCUMENT_KEY = "training_archive"
 SCHEMA_VERSION = 4
@@ -15,11 +16,13 @@ DETAIL_LIMIT = 2000
 PAGE_SIZE_DEFAULT = 24
 PAGE_SIZE_MAX = 50
 EVENT_TYPES = frozenset({"equipment", "coaching", "comprehensive"})
-COMPREHENSIVE_SCENES = frozenset({"comprehensive_7f", "relationship_8f"})
-COMPREHENSIVE_SKUS = frozenset({
+TEAM_TRAINING_ROOM_SKUS = frozenset({
     "mind_room", "mentoring_room", "tactical_room",
     "video_analysis_room", "sports_science_room",
 })
+COMPREHENSIVE_SKUS = TEAM_TRAINING_ROOM_SKUS | LAB_PROJECT_SKUS
+# Read-only fallback for historical records written before scenes were retired.
+_LEGACY_COMPREHENSIVE_SCENES = frozenset({"comprehensive_7f", "relationship_8f"})
 
 EVENT_ROLE_LABELS = {
     "mentor": "指导者", "coach": "指导教练", "analyst": "视频分析师",
@@ -298,8 +301,8 @@ def _ensure_relationship_index(
 
 
 def training_archive_category(focus: dict[str, Any]) -> str:
+    """Route by focus type and project sku; unknown equipment never errors."""
     focus_type = str(focus.get("focus_type") or "")
-    scene = str(focus.get("scene") or "")
     sku = str(focus.get("facility_sku") or focus.get("sku") or focus.get("room_sku") or "")
     explicit = str(focus.get("archive_category") or "")
     if focus_type == "coaching_license":
@@ -310,15 +313,11 @@ def training_archive_category(focus: dict[str, Any]) -> str:
         if explicit not in EVENT_TYPES:
             raise ValueError("训练设施声明了无效的档案类别")
         return explicit
-    if scene in COMPREHENSIVE_SCENES or sku in COMPREHENSIVE_SKUS:
+    if sku in COMPREHENSIVE_SKUS:
         return "comprehensive"
-    known_scenes = {
-        "outdoor", "indoor", "indoor_2f", "indoor_3f", "indoor_4f",
-        "indoor_5f", "office_6f", "",
-    }
-    if scene in known_scenes:
-        return "equipment"
-    raise ValueError("新训练场景必须声明 archive_category")
+    if str(focus.get("scene") or "") in _LEGACY_COMPREHENSIVE_SCENES:
+        return "comprehensive"
+    return "equipment"
 
 
 def training_archive_event(focus: dict[str, Any], *, scope_id: str = "") -> dict[str, Any]:
@@ -365,7 +364,7 @@ def training_archive_event(focus: dict[str, Any], *, scope_id: str = "") -> dict
         "participants": participants, "attribute_changes": changes,
         "relationship_changes": list(focus.get("relationship_changes") or []),
         "details": {
-            "scene": focus.get("scene"), "floor": focus.get("floor"),
+            "scene": focus.get("scene"), "module": focus.get("module"),
             "facility_sku": focus.get("facility_sku") or focus.get("sku") or focus.get("room_sku"),
             "facility_id": focus.get("facility_id") or focus.get("room_id"),
             "facility_name": focus.get("facility_name"),
@@ -711,11 +710,12 @@ def training_archive_page(payload: dict[str, Any], scope_id: str | None = None) 
                 if facility:
                     details["facility_sku"] = facility
                     details["facility_name"] = RELATIONSHIP_SOURCE_LABELS.get(facility, facility)
-            if details.get("facility_sku") in COMPREHENSIVE_SKUS:
-                details["floor"] = details.get("floor") or "8F"
     page_rows = deepcopy(rows[start:start + page_size])
     for event in page_rows:
-        event.setdefault("details", {})["actual_days"] = _duration_days(event)
+        details = event.setdefault("details", {})
+        # Floors are retired; stored history keeps its old label, the view drops it.
+        details.pop("floor", None)
+        details["actual_days"] = _duration_days(event)
     return {"event_type": event_type, "events": page_rows,
             "page": page, "page_size": page_size, "pages": pages, "total": total,
             "statistics": _archive_statistics(rows, event_type)}

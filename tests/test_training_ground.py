@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import uuid
 import threading
 import unittest
 import struct
@@ -28,8 +29,7 @@ from tools.attribute_growth_hook import (
 from tools.preferred_moves import FM24_VERIFIED_PREFERRED_MOVES
 from tools.training_ground import (
     FACILITIES,
-    TRAINING_FLOORS,
-    INDOOR_FACILITY_LIMIT,
+    COMPREHENSIVE_ROOM_SKUS,
     NO_EQUIPMENT_TRAINING_MULTIPLIER,
     OUTDOOR_SET_PIECE_AREA_ID,
     OUTDOOR_TEAM_TRAINING_AREA_ID,
@@ -57,8 +57,6 @@ from tools.training_ground import (
     estimated_training_days_to_20,
     find_training_submission,
     due_coaching_license_focuses,
-    place_facility,
-    purchase_facility,
     public_training_ground,
     rebind_training_focus_player,
     release_training_users,
@@ -67,12 +65,25 @@ from tools.training_ground import (
     record_training_focus,
     record_position_training_focus,
     rebase_attribute_training_focus,
-    store_facility,
     training_target_attribute,
     training_points_required,
     training_points_required_for_direction,
-    unlock_training_floor,
 )
+
+
+def _kept_facility(sku: str) -> dict:
+    """Write a kept (old-save) facility record; buying/placing equipment is retired."""
+    record = {"id": str(uuid.uuid4()), "sku": sku, "status": "placed"}
+    payload = training_ground_module.load_training_ground()
+    payload["facilities"].append(record)
+    training_ground_module.save_training_ground(payload)
+    return dict(record)
+
+
+def _placed(facility_id: str, *_ignored_position, **_ignored_options) -> dict:
+    """Kept records are used as-is; coordinates and floors are ignored."""
+    payload = training_ground_module.load_training_ground()
+    return dict(next(row for row in payload["facilities"] if row["id"] == facility_id))
 
 
 class TrainingGroundTests(unittest.TestCase):
@@ -108,38 +119,35 @@ class TrainingGroundTests(unittest.TestCase):
 
     @staticmethod
     def _purchase_existing_hidden_facility(sku: str) -> dict:
-        with patch.dict(FACILITIES[sku], {"available": True}):
-            return purchase_facility(sku)
+        return _kept_facility(sku)
 
-    def test_purchase_place_store_round_trip(self) -> None:
-        facility = purchase_facility("treadmill")
-        self.assertEqual(facility["status"], "stored")
-        placed = place_facility(facility["id"], "indoor", 35, 45, 1)
-        self.assertEqual((placed["status"], placed["rotation"]), ("placed", 1))
-        stored = store_facility(facility["id"])
-        self.assertEqual(stored["status"], "stored")
-        self.assertEqual(
-            {row["sku"] for row in public_training_ground()["facilities"]},
-            {
-                "treadmill", "set_piece_area", "team_training_area",
-                "goalkeeper_training_area", "passing_training_area",
-                "position_training_area",
-            },
-        )
-
-    def test_new_training_floors_are_locked_until_purchased(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertEqual(floors["outdoor"]["name"], "1号室外")
-        self.assertEqual(floors["outdoor_2"]["name"], "2号室外")
-        for scene in ("indoor_3f", "indoor_4f", "indoor_5f"):
-            self.assertFalse(floors[scene]["unlocked"])
-            self.assertEqual(TRAINING_FLOORS[scene]["price"], 5_000_000.0)
-        facility = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "请先解锁"):
-            place_facility(facility["id"], "indoor_3f", 50, 50)
-        unlock_training_floor("indoor_3f")
-        placed = place_facility(facility["id"], "indoor_3f", 50, 50)
-        self.assertEqual(placed["scene"], "indoor_3f")
+    def test_kept_facility_records_ignore_old_floor_and_coordinates(self) -> None:
+        payload = training_ground_module.load_training_ground()
+        payload["unlocked_floors"] = ["indoor_3f", "relationship_8f"]
+        payload["facilities"].append({
+            "id": "old-desk", "sku": "rules_learning_desk", "scene": "comprehensive_7f",
+            "status": "placed", "x": 10.0, "y": 20.0, "rotation": 1, "scale": 1.5,
+        })
+        training_ground_module.save_training_ground(payload)
+        loaded = training_ground_module.load_training_ground()
+        self.assertNotIn("unlocked_floors", loaded)
+        desk = next(row for row in loaded["facilities"] if row["id"] == "old-desk")
+        # The kept record is not migrated between floors any more.
+        self.assertEqual(desk["scene"], "comprehensive_7f")
+        public = public_training_ground()
+        self.assertNotIn("floors", public)
+        for row in public["catalog"]:
+            self.assertNotIn("scene", row)
+        for row in public["facilities"]:
+            if row.get("built_in"):
+                self.assertNotIn("scene", row)
+        for name in (
+            "TRAINING_FLOORS", "INDOOR_FACILITY_LIMIT", "TRAINING_FLOOR_UNLOCK_PRICE",
+            "unlock_training_floor", "assert_training_floor_unlocked",
+            "training_floor_status", "place_facility", "store_facility",
+            "purchase_facility", "_scene_accepts_product",
+        ):
+            self.assertFalse(hasattr(training_ground_module, name), name)
 
     def test_public_training_ground_reuses_one_storage_and_settings_snapshot(self) -> None:
         original_load = training_ground_module.load_training_ground
@@ -154,17 +162,9 @@ class TrainingGroundTests(unittest.TestCase):
         ):
             payload = public_training_ground("2026-07-19")
 
-        self.assertTrue(payload["floors"])
+        self.assertTrue(payload["catalog"])
         load_training.assert_called_once_with()
         load_training_settings.assert_called_once_with()
-
-    def test_coaching_office_moves_to_sixth_floor_with_legacy_alias(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        placed = place_facility(desk["id"], "office_6f", 50, 50)
-        self.assertEqual(placed["scene"], "office_6f")
-        stored = store_facility(desk["id"])
-        legacy = place_facility(stored["id"], "office_3f", 50, 50)
-        self.assertEqual(legacy["scene"], "office_3f")
 
     def test_wallet_only_connection_keeps_account_training_facilities_visible(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "src").joinpath(
@@ -199,8 +199,8 @@ class TrainingGroundTests(unittest.TestCase):
         charge.assert_not_called()
 
     def test_training_run_schedules_coaching_license_course(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
@@ -241,8 +241,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(result["staff"]["target_license_code"], 1)
 
     def test_training_run_schedules_player_manager_coaching_course(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
@@ -374,8 +374,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(active_training_focuses("2026-01-01"), [])
 
     def test_training_run_schedules_hidden_attribute_without_ca_estimate(self) -> None:
-        desk = purchase_facility("adaptation_pod")
-        place_facility(desk["id"], "comprehensive_7f", 50, 50)
+        desk = _kept_facility("adaptation_pod")
+        _placed(desk["id"], "comprehensive_7f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
@@ -424,8 +424,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual((player["ca"], player["pa"]), (100, 120))
 
     def test_football_launcher_stop_ball_accepts_outfield_and_goalkeepers(self) -> None:
-        launcher = purchase_facility("handling_net")
-        place_facility(launcher["id"], "outdoor", 50, 50)
+        launcher = _kept_facility("handling_net")
+        _placed(launcher["id"], "outdoor", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
@@ -529,14 +529,6 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertTrue(all(item["session_fee"] == 0.0 for item in FACILITIES.values()))
         self.assertEqual(FACILITIES["strength_rack"]["attributes"], ["身体:强壮"])
 
-    def test_duplicate_purchase_and_overlap_are_allowed(self) -> None:
-        first = purchase_facility("treadmill")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("treadmill")
-        self.assertNotEqual(first["id"], second["id"])
-        placed = place_facility(second["id"], "indoor", 40, 50)
-        self.assertEqual((placed["x"], placed["y"]), (40.0, 50.0))
-
     def test_hidden_attribute_facilities_are_single_user_two_speed_devices(self) -> None:
         expected = {
             "adaptation_pod": ("适应模拟舱", ["隐藏:适应性", "隐藏:多面性"], 1),
@@ -546,10 +538,6 @@ class TrainingGroundTests(unittest.TestCase):
             "brainwave_chair": ("脑波座椅", ["隐藏:情绪控制", "隐藏:稳定性"], 1),
             "rules_learning_desk": ("规则学习桌", ["隐藏:争议性", "隐藏:肮脏动作"], -1),
         }
-        expected_scenes = {
-            sku: "comprehensive_7f" for sku in expected
-        }
-        expected_scenes["rules_learning_desk"] = "office_6f"
         expected_sizes = {
             "club_culture_screen": [18.2, 16.8],
             "decisive_match_console": [19.2, 20],
@@ -563,7 +551,8 @@ class TrainingGroundTests(unittest.TestCase):
             self.assertEqual(product["direction"], direction)
             self.assertEqual(product["capacity"], 1)
             self.assertEqual(product["training_multiplier"], 2)
-            self.assertEqual(product["scene"], expected_scenes[sku])
+            self.assertNotIn("scene", product)
+            self.assertEqual(sku in COMPREHENSIVE_ROOM_SKUS, sku != "rules_learning_desk")
             if sku in expected_sizes:
                 self.assertEqual(product["size"], expected_sizes[sku])
             self.assertTrue(((Path(__file__).resolve().parents[1] / "src") / "web" / "assets" / "training" / f"{sku}.webp").is_file())
@@ -580,10 +569,7 @@ class TrainingGroundTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "低于当前属性"):
             training_target_attribute("until_10", 8, -1)
 
-        facility = purchase_facility("rules_learning_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(facility["id"], "comprehensive_7f", 45, 50)
-        place_facility(facility["id"], "office_6f", 45, 50)
+        facility = _kept_facility("rules_learning_desk")
         focus, _session = record_training_focus(
             facility["id"], 10, "A", "2026-07-20",
             "隐藏:争议性", None, "until_10", 15,
@@ -593,7 +579,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(focus["required_points"], 14)
         self.assertEqual(focus["multiplier"], 2)
         self.assertEqual(focus["facility_name"], "规则学习桌")
-        self.assertEqual(focus["floor"], "6F")
+        self.assertNotIn("floor", focus)
+        self.assertNotIn("scene", focus)
         self.assertEqual(focus["training_content"], "隐藏:争议性")
         advance_training_focuses("2026-07-21")
         active = active_training_focuses("2026-07-21")[0]
@@ -616,15 +603,16 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(rebased["target_attribute"], 10)
 
     def test_removed_placeholder_facilities_are_not_obtainable(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertTrue(floors["comprehensive_7f"]["unlocked"])
+        payload = training_ground_module.load_training_ground()
         for sku in (
             "passing_wall", "mind_room", "mentoring_room", "tactical_room",
             "video_analysis_room", "sports_science_room",
         ):
             self.assertNotIn(sku, FACILITIES)
-            with self.assertRaisesRegex(ValueError, "训练器材不存在"):
-                purchase_facility(sku)
+            with self.assertRaisesRegex(ValueError, "训练项目不存在"):
+                training_ground_module.training_project_for_request(
+                    payload, project_sku=sku,
+                )
 
     def test_training_catalog_keeps_outfield_coverage_without_placeholders(self) -> None:
         open_attributes = {
@@ -643,25 +631,9 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertNotIn("defence_zone", FACILITIES)
         self.assertNotIn("goalkeeper_rig", FACILITIES)
 
-    def test_scale_is_persisted_without_collision_bounds(self) -> None:
-        first = purchase_facility("treadmill")
-        placed = place_facility(first["id"], "indoor", 35, 50, scale=1.65)
-        self.assertEqual(placed["scale"], 1.65)
-        second = purchase_facility("strength_rack")
-        place_facility(second["id"], "indoor", 35, 50, scale=1.5)
-        with self.assertRaisesRegex(ValueError, "50%至200%"):
-            place_facility(second["id"], "indoor", 70, 50, scale=2.1)
-
-    def test_visual_size_does_not_inflate_custom_footprint(self) -> None:
-        first = purchase_facility("tactics_table")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("tactics_table")
-        placed = place_facility(second["id"], "indoor", 50, 50)
-        self.assertEqual(placed["status"], "placed")
-
     def test_facility_capacity_is_enforced_per_instance(self) -> None:
-        strength = purchase_facility("strength_rack")
-        place_facility(strength["id"], "indoor", 45, 50)
+        strength = _kept_facility("strength_rack")
+        _placed(strength["id"], "indoor", 45, 50)
         for player_id in (10, 11):
             assert_training_available(strength["id"], player_id, "2026-07-19")
             record_training_focus(
@@ -670,8 +642,6 @@ class TrainingGroundTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "使用人数已满"):
             assert_training_available(strength["id"], 12, "2026-07-19")
-        with self.assertRaisesRegex(ValueError, "不能收回"):
-            store_facility(strength["id"])
 
     def test_configured_capacities_match_training_catalog(self) -> None:
         self.assertEqual(FACILITIES["coaching_desk"]["capacity"], 1)
@@ -714,17 +684,12 @@ class TrainingGroundTests(unittest.TestCase):
 
     def test_outdoor_catalog_adds_builtin_set_piece_area_without_selling_it(self) -> None:
         catalog = public_training_ground()["catalog"]
-        purchasable = {
-            item["sku"] for item in catalog
-            if item["scene"] == "outdoor"
-            and item.get("available", True)
-            and not item.get("built_in")
-        }
+        built_in = {item["sku"] for item in catalog if item.get("built_in")}
         self.assertEqual(
-            purchasable,
+            built_in,
             {
-                "shooting_goal", "dribble_course", "tackle_gate",
-                "marking_track", "high_ball_frame", "handling_net",
+                "set_piece_area", "team_training_area", "goalkeeper_training_area",
+                "passing_training_area", "position_training_area",
             },
         )
         area = next(row for row in public_training_ground()["facilities"] if row["sku"] == "set_piece_area")
@@ -733,14 +698,6 @@ class TrainingGroundTests(unittest.TestCase):
         team_area = next(row for row in public_training_ground()["facilities"] if row["sku"] == "team_training_area")
         self.assertEqual(team_area["id"], OUTDOOR_TEAM_TRAINING_AREA_ID)
         self.assertTrue(team_area["built_in"])
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("set_piece_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("team_training_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("goalkeeper_training_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("passing_training_area")
     def test_new_specialist_equipment_has_unique_small_attribute_sets(self) -> None:
         specialist = {
             "tackle_gate", "marking_track", "high_ball_frame",
@@ -762,8 +719,6 @@ class TrainingGroundTests(unittest.TestCase):
         ):
             self.assertNotIn(sku, FACILITIES)
             self.assertIn(sku, training_ground_module.REMOVED_FACILITY_SKUS)
-            with self.assertRaisesRegex(ValueError, "训练器材不存在"):
-                purchase_facility(sku)
 
     def test_new_outdoor_equipment_uses_requested_default_sizes(self) -> None:
         self.assertEqual(FACILITIES["high_ball_frame"]["size"], [15.6, 14.3])
@@ -772,27 +727,17 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(FACILITIES["handling_net"]["size"], [11.55, 11.55])
         self.assertNotIn("通过连续", FACILITIES["handling_net"]["description"])
 
-    def test_outdoor_two_has_its_own_builtin_areas_and_accepts_outdoor_equipment(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertTrue(floors["outdoor"]["unlocked"])
-        self.assertTrue(floors["outdoor_2"]["unlocked"])
-        outdoor_two = {
+    def test_outdoor_two_keeps_its_builtin_area_ids_without_scenes(self) -> None:
+        facilities = {
             row["id"]: row for row in public_training_ground()["facilities"]
-            if row["scene"] == "outdoor_2"
+            if row.get("built_in")
         }
-        self.assertEqual(outdoor_two[OUTDOOR_2_SET_PIECE_AREA_ID]["sku"], "set_piece_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_TEAM_TRAINING_AREA_ID]["sku"], "team_training_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
-        outdoor_one = {
-            row["id"]: row for row in public_training_ground()["facilities"]
-            if row["scene"] == "outdoor"
-        }
-        self.assertEqual(outdoor_one[OUTDOOR_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
-        self.assertEqual(outdoor_one[OUTDOOR_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
-        facility = purchase_facility("tackle_gate")
-        placed = place_facility(facility["id"], "outdoor_2", 50, 50)
-        self.assertEqual(placed["scene"], "outdoor_2")
+        self.assertEqual(facilities[OUTDOOR_2_SET_PIECE_AREA_ID]["sku"], "set_piece_area")
+        self.assertEqual(facilities[OUTDOOR_2_TEAM_TRAINING_AREA_ID]["sku"], "team_training_area")
+        self.assertEqual(facilities[OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
+        self.assertEqual(facilities[OUTDOOR_2_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
+        self.assertEqual(facilities[OUTDOOR_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
+        self.assertEqual(facilities[OUTDOOR_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
 
     def test_outdoor_builtin_goalkeeper_and_passing_areas_own_their_attributes(self) -> None:
         self.assertEqual(
@@ -1010,50 +955,19 @@ class TrainingGroundTests(unittest.TestCase):
             self.assertEqual(rows[facility_id]["estimated_days"], 4)
             self.assertEqual(rows[facility_id]["multiplier"], 2)
 
-    def test_indoor_facilities_can_be_placed_on_independent_second_floor(self) -> None:
-        first = purchase_facility("treadmill")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("treadmill")
-        placed = place_facility(second["id"], "indoor_2f", 40, 50)
-        self.assertEqual(placed["scene"], "indoor_2f")
-        goal = purchase_facility("shooting_goal")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(goal["id"], "indoor_2f", 60, 50)
-
-    def test_coaching_desk_is_isolated_to_third_floor_office(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_3f", 50, 50)
-        self.assertEqual(placed["scene"], "office_3f")
-        treadmill = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(treadmill["id"], "office_3f", 50, 50)
-
     def test_leadership_desk_is_single_person_office_equipment(self) -> None:
         self.assertEqual(FACILITIES["leadership_desk"]["name"], "领导力训练桌")
-        desk = purchase_facility("leadership_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_3f", 50, 50)
-        self.assertEqual(placed["scene"], "office_3f")
         self.assertEqual(FACILITIES["leadership_desk"]["capacity"], 1)
 
     def test_defence_learning_desk_is_single_person_office_equipment(self) -> None:
         product = FACILITIES["defence_learning_desk"]
         self.assertEqual(product["name"], "防守学习桌")
-        self.assertEqual(product["scene"], "office_6f")
         self.assertEqual(product["capacity"], 1)
         self.assertEqual(product["attributes"], ["门将:指挥防守", "门将:拳击球(倾向)"])
-        desk = purchase_facility("defence_learning_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_6f", 50, 50)
-        self.assertEqual(placed["scene"], "office_6f")
 
     def test_coaching_license_course_progresses_and_completes(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         focus, session = record_coaching_license_focus(
             desk["id"], 88, "测试教练", "教练", "0x1234",
             679, "曼城", "2026-01-01", 2, 1,
@@ -1062,7 +976,7 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(focus["due_on"], "2026-06-30")
         self.assertEqual(session["operation"], "coaching_license")
         self.assertEqual(focus["facility_name"], "教练学习桌")
-        self.assertEqual(focus["floor"], "3F")
+        self.assertNotIn("floor", focus)
         self.assertEqual(focus["training_content"], "教练证书进修")
         self.assertEqual(due_coaching_license_focuses("2026-06-29"), [])
         self.assertEqual(
@@ -1076,10 +990,10 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(completed["memory_result"]["after"], 1)
 
     def test_coach_cannot_use_two_learning_desks_at_once(self) -> None:
-        first = purchase_facility("coaching_desk")
-        second = purchase_facility("coaching_desk")
-        place_facility(first["id"], "office_3f", 35, 50)
-        place_facility(second["id"], "office_3f", 65, 50)
+        first = _kept_facility("coaching_desk")
+        second = _kept_facility("coaching_desk")
+        _placed(first["id"], "office_3f", 35, 50)
+        _placed(second["id"], "office_3f", 65, 50)
         record_coaching_license_focus(
             first["id"], 88, "测试教练", "教练", "0x1234",
             679, "曼城", "2026-01-01", 3, 2,
@@ -1090,28 +1004,9 @@ class TrainingGroundTests(unittest.TestCase):
                 679, "曼城", "2026-01-02", 3, 2,
             )
 
-    def test_each_indoor_floor_is_limited_to_fifteen_facilities(self) -> None:
-        for _index in range(INDOOR_FACILITY_LIMIT):
-            facility = purchase_facility("treadmill")
-            place_facility(facility["id"], "indoor", 40, 50)
-        overflow = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "每层最多放置15个"):
-            place_facility(overflow["id"], "indoor", 40, 50)
-        place_facility(overflow["id"], "indoor_2f", 40, 50)
-
-    def test_outdoor_has_no_facility_limit(self) -> None:
-        for _index in range(INDOOR_FACILITY_LIMIT + 1):
-            facility = purchase_facility("shooting_goal")
-            place_facility(facility["id"], "outdoor", 50, 50)
-        purchased = [
-            row for row in public_training_ground()["facilities"]
-            if row["sku"] == "shooting_goal"
-        ]
-        self.assertEqual(len(purchased), INDOOR_FACILITY_LIMIT + 1)
-
     def test_clear_training_ground_removes_facilities_people_and_records(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1141,8 +1036,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(public["sessions"], [])
 
     def test_releasing_training_users_preserves_facilities_and_sessions(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1164,8 +1059,8 @@ class TrainingGroundTests(unittest.TestCase):
         assert_training_available(facility["id"], 11, "2026-07-20")
 
     def test_releasing_training_users_save_failure_keeps_original_state(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1197,8 +1092,8 @@ class TrainingGroundTests(unittest.TestCase):
             training_points_required(20)
 
     def test_training_focus_accumulates_three_points_per_game_day(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1215,9 +1110,29 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(due[0]["id"], focus["id"])
         self.assertEqual(due[0]["progress_points"], 14)
 
+    def test_equipment_settles_exactly_on_the_displayed_day(self) -> None:
+        # Already true before team training changes: settlement is driven by
+        # game-date catch-up in training_ground, with no FROZEN gate.
+        import inspect
+        import tools.training_ground as ground_module
+        self.assertNotIn("FROZEN", inspect.getsource(ground_module))
+        treadmill = _kept_facility("treadmill")
+        focus, _session = record_training_focus(
+            treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
+            "until_increase", 10,
+        )
+        shown = public_training_ground("2026-07-19")["focuses"][0]["estimated_days"]
+        self.assertEqual(shown, 5)
+        self.assertEqual(advance_training_focuses("2026-07-23"), [])
+        self.assertEqual(advance_training_focuses("2026-07-24")[0]["id"], focus["id"])
+        # A repeated or very late advance reports it due again but never
+        # over-credits: progress is capped at the requirement.
+        late = advance_training_focuses("2026-09-30")
+        self.assertEqual(late[0]["progress_points"], late[0]["required_points"])
+
     def test_training_submission_id_is_persisted_for_safe_retry(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10, client_submission_id="training-request-1",
@@ -1232,8 +1147,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertIsNone(find_training_submission("missing-request"))
 
     def test_training_focus_persists_managed_team_and_player_identity(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
 
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
@@ -2000,8 +1915,8 @@ class TrainingGroundTests(unittest.TestCase):
         )
 
     def test_until_next_point_natural_growth_completes(self) -> None:
-        until = purchase_facility("reaction_wall")
-        place_facility(until["id"], "indoor", 70, 55)
+        until = _kept_facility("reaction_wall")
+        _placed(until["id"], "indoor", 70, 55)
         until_focus, _session = record_training_focus(
             until["id"], 11, "B", "2026-07-20", "精神:预判", 0x20,
             "until_increase", 12,
@@ -2017,8 +1932,8 @@ class TrainingGroundTests(unittest.TestCase):
         ))
 
     def test_attribute_focus_rebases_after_external_drop(self) -> None:
-        facility = purchase_facility("reaction_wall")
-        place_facility(facility["id"], "indoor", 70, 55)
+        facility = _kept_facility("reaction_wall")
+        _placed(facility["id"], "indoor", 70, 55)
         focus, _session = record_training_focus(
             facility["id"], 11, "B", "2026-07-20", "精神:预判", 0x20,
             "until_increase", 12,
@@ -2029,8 +1944,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(rebased["rebased_from_attribute"], 12)
 
     def test_until_20_recalculates_each_stage_and_completes_at_20(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor_2f", 55, 55)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor_2f", 55, 55)
         focus, _session = record_training_focus(
             treadmill["id"], 12, "C", "2026-07-20", "身体:速度", 0x35,
             "until_20", 17,
@@ -2061,8 +1976,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(active_training_focuses("2027-08-14"), [])
 
     def test_fixed_even_target_recalculates_stages_and_stops_at_target(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 55, 55)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 55, 55)
         focus, _session = record_training_focus(
             treadmill["id"], 12, "C", "2026-07-20", "身体:速度", 0x35,
             "until_18", 15,
@@ -2091,8 +2006,8 @@ class TrainingGroundTests(unittest.TestCase):
             training_target_attribute("until_16", 16)
 
     def test_habit_training_waits_one_week_before_completion(self) -> None:
-        machine = purchase_facility("habit_lab")
-        place_facility(machine["id"], "indoor", 35, 50)
+        machine = _kept_facility("habit_lab")
+        _placed(machine["id"], "indoor", 35, 50)
         focus, session = record_habit_training_focus(
             machine["id"], 10, "A", "2026-07-19", 13, "喜欢反越位", "learn",
         )
@@ -2114,8 +2029,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(public_training_ground("2026-07-26")["sessions"][0]["id"], session["id"])
 
     def test_public_focus_contains_usage_days(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2127,8 +2042,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(row["estimated_days"], 0)
 
     def test_cancel_training_focus_releases_user_and_keeps_history(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2178,8 +2093,8 @@ class TrainingGroundTests(unittest.TestCase):
             )
 
     def test_training_focus_persists_ca_over_pa_confirmation(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_20", 17, allow_ca_over_pa=True,
@@ -2366,8 +2281,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual((ca, pa), (123, 150))
 
     def test_completed_focus_does_not_persist_rollback_bytes(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2417,7 +2332,9 @@ class TrainingGroundTests(unittest.TestCase):
                 action = (
                     "改变"
                     if item.get("attribute_kind") == "hidden"
-                    and item.get("scene") == "comprehensive_7f"
+                    and item["name"] in {
+                        FACILITIES[sku]["name"] for sku in COMPREHENSIVE_ROOM_SKUS
+                    }
                     else ("降低" if int(item.get("direction") or 1) < 0 else "提升")
                 )
                 numeral = {2: "二", 3: "三", 4: "四"}.get(

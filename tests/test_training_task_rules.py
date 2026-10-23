@@ -14,6 +14,7 @@ from tools.relationship_training import (
     migrate_relationship_training_rooms,
 )
 from tools.training_catalog import (
+    TRAINING_GROUND_MODULES,
     TRAINING_MODULES,
     build_training_project_catalog,
     training_module_for_product,
@@ -52,7 +53,6 @@ def _empty_payload(facilities: list[dict] | None = None) -> dict:
         "sessions": [],
         "focuses": [],
         "history": [],
-        "unlocked_floors": [],
     }
 
 
@@ -68,6 +68,19 @@ class TrainingProjectRulesTests(unittest.TestCase):
         self.assertEqual({row["module"] for row in catalog}, set(TRAINING_MODULES))
         self.assertEqual(set(by_sku), set(FACILITIES))
         self.assertEqual(len(by_sku), 29)
+        self.assertEqual(
+            TRAINING_GROUND_MODULES, (*TRAINING_MODULES, "team_training"),
+        )
+        # Modules come from the project itself; nothing carries a floor/scene.
+        for row in catalog:
+            self.assertNotIn("scene", row)
+            self.assertNotIn("floor", row)
+        self.assertEqual(by_sku["position_training_area"]["module"], "position_training")
+        for sku in ("adaptation_pod", "career_terminal", "club_culture_screen",
+                    "decisive_match_console", "brainwave_chair", "rules_learning_desk",
+                    "leadership_desk", "defence_learning_desk"):
+            self.assertEqual(by_sku[sku]["module"], "player_training", sku)
+        self.assertEqual(by_sku["coaching_desk"]["module"], "staff_training")
         self.assertEqual(
             {row["sku"] for row in catalog if row["module"] == "staff_training"},
             {"coaching_desk"},
@@ -376,7 +389,7 @@ class TrainingTaskMigrationTests(unittest.TestCase):
         self.assertEqual(settling["cancelled_session"]["completed_on"], "2026-07-10")
         self.assertEqual(by_id["room-idle"]["status"], "idle")
 
-        # The 8F gate and room inventory stay exactly as they were.
+        # Room definitions and existing room records stay exactly as they were.
         self.assertEqual(RELATIONSHIP_ROOMS, rooms_before)
         self.assertEqual(len(state["rooms"]), 3)
         snapshot = copy.deepcopy(state)

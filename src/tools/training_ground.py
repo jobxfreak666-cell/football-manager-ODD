@@ -14,6 +14,7 @@ from tools.app_paths import save_data_root
 from tools.app_settings import load_settings, local_purchase_price
 from tools.training_archive import archive_training_focus
 from tools.training_catalog import (
+    LAB_PROJECT_SKUS,
     build_training_project_catalog,
     training_module_for_product,
 )
@@ -34,30 +35,6 @@ NO_EQUIPMENT_TRAINING_MULTIPLIER = 2
 POSITION_TRAINING_MULTIPLIER = 4
 TASK_RULES_VERSION = 1
 TRAINING_TASK_MIGRATION_REASON = "training_task_model_migration"
-INDOOR_FACILITY_LIMIT = 15
-TRAINING_FLOOR_UNLOCK_PRICE = 5_000_000.0
-TRAINING_FLOORS: dict[str, dict[str, Any]] = {
-    "indoor": {"floor": "1F", "name": "室内 1F", "price": 0.0, "unlocked_by_default": True},
-    "indoor_2f": {"floor": "2F", "name": "室内 2F", "price": 0.0, "unlocked_by_default": True},
-    "indoor_3f": {"floor": "3F", "name": "室内 3F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "indoor_4f": {"floor": "4F", "name": "室内 4F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "indoor_5f": {"floor": "5F", "name": "室内 5F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "office_6f": {"floor": "6F", "name": "办公室 6F", "price": 0.0, "unlocked_by_default": True},
-    "comprehensive_7f": {
-        "floor": "7F", "name": "实验室 7F", "price": 0.0,
-        "unlocked_by_default": True,
-    },
-    "relationship_8f": {
-        "floor": "8F", "name": "关系综训楼 8F",
-        "price": TRAINING_FLOOR_UNLOCK_PRICE,
-    },
-    "outdoor": {"floor": "", "name": "1号室外", "price": 0.0, "unlocked_by_default": True},
-    "outdoor_2": {"floor": "", "name": "2号室外", "price": 0.0, "unlocked_by_default": True},
-    "position_training": {
-        "floor": "", "name": "位置训练", "price": 0.0,
-        "unlocked_by_default": True,
-    },
-}
 OUTDOOR_SET_PIECE_AREA_ID = "outdoor-set-piece-area"
 OUTDOOR_TEAM_TRAINING_AREA_ID = "outdoor-team-training-area"
 OUTDOOR_2_SET_PIECE_AREA_ID = "outdoor-2-set-piece-area"
@@ -99,35 +76,35 @@ COACHING_LICENSE_NEXT = {0: 7, 7: 6, 6: 5, 5: 4, 4: 3, 3: 2, 2: 1}
 
 FACILITIES: dict[str, dict[str, Any]] = {
     "coaching_desk": {
-        "name": "教练学习桌", "scene": "office_6f", "price": 100_000.0,
+        "name": "教练学习桌", "price": 100_000.0,
         "session_fee": 0.0, "icon": "graduation-cap", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "安排俱乐部教练进修，结业后证书提升一级。",
         "attributes": [], "staff_training": True,
     },
     "leadership_desk": {
-        "name": "领导力训练桌", "scene": "office_6f", "price": 800_000.0,
+        "name": "领导力训练桌", "price": 800_000.0,
         "session_fee": 0.0, "icon": "badge-captain", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "三倍速提升领导力。",
         "attributes": ["精神:领导力"],
     },
     "defence_learning_desk": {
-        "name": "防守学习桌", "scene": "office_6f", "price": 900_000.0,
+        "name": "防守学习桌", "price": 900_000.0,
         "session_fee": 0.0, "icon": "shield-check", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "三倍速提升指挥防守与拳击球倾向。",
         "attributes": ["门将:指挥防守", "门将:拳击球(倾向)"],
     },
     "habit_lab": {
-        "name": "习惯塑形机", "scene": "indoor", "price": 1_000_000.0,
+        "name": "习惯塑形机", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "brain-circuit", "size": [18, 23],
         "footprint": [9, 8],
         "capacity": 1,
         "description": "学习或遗忘一项球员习惯。", "attributes": [],
     },
     "strength_rack": {
-        "name": "综合力量架", "scene": "indoor", "price": 200_000.0,
+        "name": "综合力量架", "price": 200_000.0,
         "session_fee": 0.0, "icon": "dumbbell", "size": [19, 18],
         "footprint": [13.5, 10],
         "capacity": 2,
@@ -135,7 +112,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:强壮"],
     },
     "treadmill": {
-        "name": "专业跑步机", "scene": "indoor", "price": 800_000.0,
+        "name": "专业跑步机", "price": 800_000.0,
         "session_fee": 0.0, "icon": "activity", "size": [17, 19],
         "footprint": [12, 13],
         "capacity": 1,
@@ -143,7 +120,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:速度", "身体:爆发力"],
     },
     "reaction_wall": {
-        "name": "掉棍反应机", "scene": "indoor", "price": 400_000.0,
+        "name": "掉棍反应机", "price": 400_000.0,
         "session_fee": 0.0, "icon": "scan-eye", "size": [25, 25],
         "footprint": [17, 11],
         "capacity": 2,
@@ -151,7 +128,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["门将:反应", "精神:预判", "精神:集中"],
     },
     "tactics_table": {
-        "name": "战术投影台", "scene": "indoor", "price": 400_000.0,
+        "name": "战术投影台", "price": 400_000.0,
         "session_fee": 0.0, "icon": "presentation", "size": [24, 25],
         "footprint": [9, 8],
         "capacity": 2,
@@ -159,7 +136,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["精神:视野", "精神:决断", "精神:无球跑动"],
     },
     "jump_rig": {
-        "name": "垂直弹跳机", "scene": "indoor", "price": 200_000.0,
+        "name": "垂直弹跳机", "price": 200_000.0,
         "session_fee": 0.0, "icon": "move-up", "size": [22, 27],
         "footprint": [12, 9],
         "capacity": 1,
@@ -167,7 +144,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:弹跳"],
     },
     "hypoxic_pod": {
-        "name": "低氧适应舱", "scene": "indoor", "price": 400_000.0,
+        "name": "低氧适应舱", "price": 400_000.0,
         "session_fee": 0.0, "icon": "wind", "size": [23, 24],
         "footprint": [13, 11],
         "capacity": 1,
@@ -175,7 +152,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:耐力", "身体:体质"],
     },
     "balance_platform": {
-        "name": "动态平衡台", "scene": "indoor", "price": 200_000.0,
+        "name": "动态平衡台", "price": 200_000.0,
         "session_fee": 0.0, "icon": "scale", "size": [23, 21],
         "footprint": [14, 11],
         "capacity": 2,
@@ -183,7 +160,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:平衡"],
     },
     "pressure_pod": {
-        "name": "决胜压力舱", "scene": "indoor", "price": 800_000.0,
+        "name": "决胜压力舱", "price": 800_000.0,
         "session_fee": 0.0, "icon": "brain", "size": [18, 24],
         "footprint": [10, 9],
         "capacity": 1,
@@ -191,7 +168,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["精神:意志力", "精神:镇定"],
     },
     "shooting_goal": {
-        "name": "射门训练门", "scene": "outdoor", "price": 500_000.0,
+        "name": "射门训练门", "price": 500_000.0,
         "session_fee": 0.0, "icon": "crosshair", "size": [15, 13],
         "footprint": [12, 7],
         "capacity": 2,
@@ -199,7 +176,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:射门", "技术:远射", "技术:头球", "定位球:罚点球"],
     },
     "set_piece_area": {
-        "name": "定位球训练区", "scene": "outdoor", "price": 0.0,
+        "name": "定位球训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "flag-triangle-right",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -207,7 +184,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["定位球:任意球", "定位球:角球", "定位球:界外球"],
     },
     "team_training_area": {
-        "name": "球队合练区", "scene": "outdoor", "price": 0.0,
+        "name": "球队合练区", "price": 0.0,
         "session_fee": 0.0, "icon": "users-round",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -218,7 +195,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         ],
     },
     "goalkeeper_training_area": {
-        "name": "门将训练区", "scene": "outdoor", "price": 0.0,
+        "name": "门将训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "goal",
         "capacity": None, "unlimited": True, "built_in": True,
         "position_group": "goalkeepers",
@@ -227,7 +204,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["门将:大脚开球", "门将:手抛球", "门将:出击(倾向)"],
     },
     "passing_training_area": {
-        "name": "传球训练区", "scene": "outdoor", "price": 0.0,
+        "name": "传球训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "arrow-left-right",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -235,7 +212,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:传球", "技术:传中"],
     },
     "position_training_area": {
-        "name": "阵型位置训练区", "scene": "position_training", "price": 0.0,
+        "name": "阵型位置训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "route", "capacity": None,
         "unlimited": True, "built_in": True,
         "training_multiplier": POSITION_TRAINING_MULTIPLIER,
@@ -243,7 +220,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": [],
     },
     "dribble_course": {
-        "name": "盘带障碍区", "scene": "outdoor", "price": 800_000.0,
+        "name": "盘带障碍区", "price": 800_000.0,
         "session_fee": 0.0, "icon": "route", "size": [17, 14],
         "footprint": [14, 9],
         "capacity": 2,
@@ -251,35 +228,35 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:盘带", "技术:技术", "身体:灵活"],
     },
     "tackle_gate": {
-        "name": "截球闸门", "scene": "outdoor", "price": 1_200_000.0,
+        "name": "截球闸门", "price": 1_200_000.0,
         "session_fee": 0.0, "icon": "shield", "image_sku": "tackle_gate",
         "size": [16.1, 14], "footprint": [14, 10], "capacity": 2,
         "description": "三倍速提升抢断与勇敢。",
         "attributes": ["技术:抢断", "精神:勇敢"],
     },
     "marking_track": {
-        "name": "跟防跑道", "scene": "outdoor", "price": 1_000_000.0,
+        "name": "跟防跑道", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "scan-line", "image_sku": "marking_track",
         "size": [16.5, 13.5], "footprint": [14, 9], "capacity": 2,
         "description": "三倍速提升盯人与防守站位。",
         "attributes": ["技术:盯人", "精神:防守站位"],
     },
     "high_ball_frame": {
-        "name": "高球落点架", "scene": "outdoor", "price": 1_400_000.0,
+        "name": "高球落点架", "price": 1_400_000.0,
         "session_fee": 0.0, "icon": "hand", "image_sku": "high_ball_frame",
         "size": [15.6, 14.3], "footprint": [15, 10], "capacity": 2,
         "description": "三倍速提升拦截传中与制空范围。",
         "attributes": ["门将:拦截传中", "门将:制空范围"],
     },
     "handling_net": {
-        "name": "足球发射器", "scene": "outdoor", "price": 1_000_000.0,
+        "name": "足球发射器", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "circle-dot", "image_sku": "football_launcher",
         "size": [11.55, 11.55], "footprint": [13, 10], "capacity": 2,
         "description": "三倍速提升手控球与停球。",
         "attributes": ["门将:手控球", "技术:停球"],
     },
     "adaptation_pod": {
-        "name": "适应模拟舱", "scene": "comprehensive_7f", "price": 8_000_000.0,
+        "name": "适应模拟舱", "price": 8_000_000.0,
         "session_fee": 0.0, "icon": "orbit", "size": [22, 27],
         "footprint": [14, 12], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -288,7 +265,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "career_terminal": {
-        "name": "生涯终端", "scene": "comprehensive_7f", "price": 12_000_000.0,
+        "name": "生涯终端", "price": 12_000_000.0,
         "session_fee": 0.0, "icon": "monitor-up", "size": [22, 25],
         "footprint": [14, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -297,7 +274,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "club_culture_screen": {
-        "name": "俱乐部文化屏", "scene": "comprehensive_7f", "price": 6_000_000.0,
+        "name": "俱乐部文化屏", "price": 6_000_000.0,
         "session_fee": 0.0, "icon": "badge", "size": [18.2, 16.8],
         "footprint": [18, 10], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -306,7 +283,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "decisive_match_console": {
-        "name": "决胜主机", "scene": "comprehensive_7f", "price": 15_000_000.0,
+        "name": "决胜主机", "price": 15_000_000.0,
         "session_fee": 0.0, "icon": "gamepad-2", "size": [19.2, 20],
         "footprint": [16, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -315,7 +292,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "brainwave_chair": {
-        "name": "脑波座椅", "scene": "comprehensive_7f", "price": 10_000_000.0,
+        "name": "脑波座椅", "price": 10_000_000.0,
         "session_fee": 0.0, "icon": "armchair", "size": [17.6, 20],
         "footprint": [15, 12], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -324,7 +301,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "rules_learning_desk": {
-        "name": "规则学习桌", "scene": "office_6f", "price": 5_000_000.0,
+        "name": "规则学习桌", "price": 5_000_000.0,
         "session_fee": 0.0, "icon": "book-open-check", "size": [24, 22],
         "footprint": [16, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -345,10 +322,7 @@ REMOVED_FACILITY_SKUS = frozenset({
     "defence_zone", "punching_pad", "goalkeeper_rig",
 })
 
-COMPREHENSIVE_ROOM_SKUS = frozenset({
-    "adaptation_pod", "career_terminal", "club_culture_screen",
-    "decisive_match_console", "brainwave_chair",
-})
+COMPREHENSIVE_ROOM_SKUS = LAB_PROJECT_SKUS
 
 
 _BUILT_IN_FACILITY_SKUS = {
@@ -363,28 +337,11 @@ _BUILT_IN_FACILITY_SKUS = {
     POSITION_TRAINING_AREA_ID: "position_training_area",
 }
 
-_BUILT_IN_FACILITY_SCENES = {
-    OUTDOOR_2_SET_PIECE_AREA_ID: "outdoor_2",
-    OUTDOOR_2_TEAM_TRAINING_AREA_ID: "outdoor_2",
-    OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID: "outdoor_2",
-    OUTDOOR_2_PASSING_TRAINING_AREA_ID: "outdoor_2",
-}
-
-
 def _built_in_facility(facility_id: str) -> dict[str, Any]:
-    sku = _BUILT_IN_FACILITY_SKUS[facility_id]
-    scene = _BUILT_IN_FACILITY_SCENES.get(
-        facility_id, str(FACILITIES[sku]["scene"]),
-    )
     return {
         "id": facility_id,
-        "sku": sku,
-        "scene": scene,
+        "sku": _BUILT_IN_FACILITY_SKUS[facility_id],
         "status": "placed",
-        "x": 50.0,
-        "y": 50.0,
-        "rotation": 0,
-        "scale": 1.0,
         "built_in": True,
     }
 
@@ -433,15 +390,9 @@ def _placed_facility_product(
 def _training_archive_location(
     facility: dict[str, Any], product: dict[str, Any],
 ) -> dict[str, Any]:
-    scene = str(facility.get("scene") or product.get("scene") or "")
-    floor = "3F" if scene == "office_3f" else str(
-        (TRAINING_FLOORS.get(scene) or {}).get("floor") or ""
-    )
     return {
         "facility_sku": str(facility.get("sku") or ""),
         "facility_name": str(product.get("name") or facility.get("sku") or "训练设施"),
-        "scene": scene,
-        "floor": floor,
     }
 
 
@@ -554,7 +505,6 @@ def _new_state() -> dict[str, Any]:
     return {
         "schema_version": 12, "task_rules_version": TASK_RULES_VERSION,
         "facilities": [], "sessions": [], "focuses": [], "history": [],
-        "unlocked_floors": [],
     }
 
 
@@ -740,7 +690,6 @@ def load_training_ground() -> dict[str, Any]:
     payload.setdefault("sessions", [])
     payload.setdefault("focuses", [])
     payload.setdefault("history", [])
-    payload.setdefault("unlocked_floors", [])
     payload["schema_version"] = 12
     original_facilities = list(payload["facilities"])
     removed_facility_ids = {
@@ -768,22 +717,9 @@ def load_training_ground() -> dict[str, Any]:
                 "facility_ids": sorted(removed_facility_ids),
             })
             payload["history"] = payload["history"][-500:]
-    payload["unlocked_floors"] = [
-        str(scene) for scene in payload["unlocked_floors"]
-        if str(scene) in TRAINING_FLOORS
-        and not TRAINING_FLOORS[str(scene)].get("unlocked_by_default")
-    ]
-    # Existing 3F office placements remain usable after the office moves to 6F.
-    if any(row.get("scene") == "office_3f" for row in payload["facilities"]):
-        payload["unlocked_floors"].append("office_6f")
-    payload["unlocked_floors"] = list(dict.fromkeys(payload["unlocked_floors"]))
-    for facility in payload["facilities"]:
-        facility.setdefault("scale", 1.0)
-        if (
-            facility.get("sku") == "rules_learning_desk"
-            and facility.get("scene") == "comprehensive_7f"
-        ):
-            facility["scene"] = "office_6f"
+    # Floors are gone: stale floor unlocks are dropped (no refund). Kept
+    # facility records are read by sku only; their scene/coordinates are ignored.
+    payload.pop("unlocked_floors", None)
     for focus in payload["focuses"]:
         focus.setdefault("focus_type", "attribute")
         focus.setdefault("initial_attribute", None)
@@ -890,66 +826,6 @@ def migrate_training_tasks(payload: dict[str, Any], *, game_date: str = "") -> b
         payload["history"] = payload["history"][-500:]
     payload["task_rules_version"] = TASK_RULES_VERSION
     return True
-
-
-def _training_floor_unlocked(payload: dict[str, Any], scene: str) -> bool:
-    floor = TRAINING_FLOORS.get(str(scene))
-    if not floor:
-        return False
-    return bool(
-        floor.get("unlocked_by_default")
-        or str(scene) in set(payload.get("unlocked_floors") or [])
-    )
-
-
-def _training_floor_status(
-    payload: dict[str, Any], settings: dict[str, Any],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "scene": scene,
-            **details,
-            "price": local_purchase_price(details["price"], settings),
-            "unlocked": _training_floor_unlocked(payload, scene),
-        }
-        for scene, details in TRAINING_FLOORS.items()
-    ]
-
-
-def training_floor_status(game_date: str = "") -> list[dict[str, Any]]:
-    with _LOCK:
-        return _training_floor_status(load_training_ground(), load_settings())
-
-
-def assert_training_floor_unlocked(scene: str) -> dict[str, Any]:
-    scene = str(scene or "")
-    option = TRAINING_FLOORS.get(scene)
-    if not option:
-        raise ValueError("训练场楼层无效")
-    with _LOCK:
-        payload = load_training_ground()
-        if not _training_floor_unlocked(payload, scene):
-            raise ValueError(f"请先解锁{option['name']}")
-    return dict(option)
-
-
-def unlock_training_floor(scene: str) -> dict[str, Any]:
-    scene = str(scene or "")
-    option = TRAINING_FLOORS.get(scene)
-    if not option:
-        raise ValueError("训练场楼层无效")
-    if option.get("unlocked_by_default"):
-        raise ValueError(f"{option['name']}无需购买")
-    with _LOCK:
-        payload = load_training_ground()
-        unlocked = payload.setdefault("unlocked_floors", [])
-        if scene in unlocked:
-            raise ValueError(f"{option['name']}已经解锁")
-        unlocked.append(scene)
-        payload["history"].append({"at": _now(), "type": "floor_unlock", "scene": scene})
-        payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return {"scene": scene, "unlocked": True}
 
 
 def clear_training_ground() -> dict[str, int]:
@@ -1364,7 +1240,6 @@ def public_training_ground(game_date: str = "") -> dict[str, Any]:
             if row.get("status") != "active"
         ][:50]
         return {
-            "floors": _training_floor_status(payload, settings),
             "catalog": build_training_project_catalog(FACILITIES, settings),
             "facilities": [
                 *[dict(row) for row in payload["facilities"]],
@@ -1380,132 +1255,6 @@ def public_training_ground(game_date: str = "") -> dict[str, Any]:
             "training_point_requirements": dict(TRAINING_POINT_REQUIREMENTS),
             "coaching_license_course_days": dict(COACHING_LICENSE_COURSE_DAYS),
         }
-
-
-def purchase_facility(sku: str) -> dict[str, Any]:
-    if sku not in FACILITIES:
-        raise ValueError("训练器材不存在")
-    if FACILITIES[sku].get("built_in"):
-        raise ValueError("该训练区域由场地自带，无需购买")
-    if FACILITIES[sku].get("available", True) is False:
-        raise ValueError("该训练器材暂未开放购买")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = {
-            "id": str(uuid.uuid4()), "sku": sku, "scene": FACILITIES[sku]["scene"],
-            "status": "stored", "x": 50.0, "y": 50.0, "rotation": 0,
-            "scale": 1.0,
-            "purchased_at": _now(),
-        }
-        payload["facilities"].append(facility)
-        payload["history"].append({"at": _now(), "type": "purchase", "sku": sku})
-        payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def remove_facility(facility_id: str) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域不能出售")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        if any(
-            row.get("status") == "active" and row.get("facility_id") == facility_id
-            for row in payload["focuses"]
-        ):
-            raise ValueError("该器材仍有球员正在使用，不能出售")
-        payload["facilities"].remove(facility)
-        payload["history"].append({"at": _now(), "type": "sale", "sku": facility["sku"]})
-        payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def restore_facility(facility: dict[str, Any]) -> None:
-    with _LOCK:
-        payload = load_training_ground()
-        if not any(row.get("id") == facility.get("id") for row in payload["facilities"]):
-            payload["facilities"].append(dict(facility))
-            save_training_ground(payload)
-
-
-def _scene_accepts_product(scene: str, product_scene: str) -> bool:
-    if product_scene == "indoor":
-        return scene in {
-            "indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f",
-        }
-    if product_scene == "office_6f":
-        return scene in {"office_3f", "office_6f"}
-    if product_scene == "comprehensive_7f":
-        return scene == "comprehensive_7f"
-    if product_scene == "outdoor":
-        return scene in {"outdoor", "outdoor_2"}
-    return scene == product_scene
-
-
-def place_facility(
-    facility_id: str, scene: str, x: Any, y: Any, rotation: Any = 0,
-    scale: Any = None,
-) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域无需放置")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        product = FACILITIES[facility["sku"]]
-        if not _scene_accepts_product(scene, str(product["scene"])):
-            raise ValueError("该器材不能放置在这个场地")
-        floor_scene = "office_6f" if scene == "office_3f" else scene
-        if not _training_floor_unlocked(payload, floor_scene):
-            option = TRAINING_FLOORS.get(floor_scene)
-            raise ValueError(f"请先解锁{option['name'] if option else '该训练场楼层'}")
-        position_x, position_y = float(x), float(y)
-        if not 5 <= position_x <= 95 or not 8 <= position_y <= 92:
-            raise ValueError("器材位置超出可用区域")
-        resolved_scale = float(facility.get("scale") or 1.0) if scale is None else float(scale)
-        if not 0.5 <= resolved_scale <= 2.0:
-            raise ValueError("器材尺寸必须处于50%至200%")
-        already_in_scene = facility.get("status") == "placed" and facility.get("scene") == scene
-        if scene in {
-            "indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f",
-            "office_3f", "office_6f", "comprehensive_7f",
-        } and not already_in_scene:
-            placed_count = sum(
-                row.get("status") == "placed" and row.get("scene") == scene
-                for row in payload["facilities"]
-            )
-            if placed_count >= INDOOR_FACILITY_LIMIT:
-                raise ValueError(f"室内每层最多放置{INDOOR_FACILITY_LIMIT}个器材")
-        facility.update({
-            "scene": scene, "status": "placed", "x": round(position_x, 2),
-            "y": round(position_y, 2), "rotation": int(rotation) % 2,
-            "scale": round(resolved_scale, 2),
-        })
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def store_facility(facility_id: str) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域不能收纳")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        if any(
-            row.get("status") == "active" and row.get("facility_id") == facility_id
-            for row in payload["focuses"]
-        ):
-            raise ValueError("该器材仍有球员正在使用，不能收回器材库")
-        facility["status"] = "stored"
-        save_training_ground(payload)
-        return dict(facility)
 
 
 def assert_training_available(
@@ -1557,7 +1306,6 @@ def _project_facility(
     return {
         "id": str(facility_id or ""),
         "sku": str(project_sku),
-        "scene": str(product.get("scene") or ""),
         "status": "placed",
     }
 
