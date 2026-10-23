@@ -11664,22 +11664,46 @@ class LocalOddsState:
     def _team_training_participant_left(
         self, participant: dict[str, Any], profiles: list[dict[str, Any]],
     ) -> bool:
-        """True only when a successfully read team snapshot lacks the person.
+        """True only when the last fully read roster of the team lacks the person.
 
-        A missing team snapshot or an empty roster is treated as not read
-        (temporarily unreadable), never as the person having left.
+        A roster counts as fully read when its team snapshot finished
+        (``profile_stage`` complete) and the list is not empty; it then
+        replaces the remembered one. A missing, partial (players-only, no
+        reserve squads or staff yet) or empty snapshot is never compared, so a
+        partial read cannot make anyone look gone and settle a room early.
         """
-        kind = str(participant.get("kind") or "")
+        ids = self._team_training_complete_roster_ids(
+            int(participant.get("team_id") or 0),
+            str(participant.get("kind") or ""), profiles,
+        )
+        return ids is not None and int(participant.get("id") or 0) not in ids
+
+    def _team_training_complete_roster_ids(
+        self, team_id: int, kind: str, profiles: list[dict[str, Any]],
+    ) -> set[int] | None:
+        """Ids of the last fully read ``kind`` roster of ``team_id``, or None."""
+        with self.lock:
+            save_id = str((getattr(self, "output", None) or {}).get("save_instance_id") or "")
+            remembered = getattr(self, "team_training_complete_rosters", None)
+            if remembered is None:
+                remembered = {}
+                self.team_training_complete_rosters = remembered
+        key = (save_id, int(team_id), str(kind))
         profile = next((
             row for row in profiles
-            if int((row.get("team") or {}).get("id") or 0) == int(participant.get("team_id") or 0)
+            if int((row.get("team") or {}).get("id") or 0) == int(team_id)
         ), None)
-        roster = self._relationship_training_people(profile, kind) if profile else []
-        if not roster:
-            return False
-        return not any(
-            int(row.get("id") or 0) == int(participant.get("id") or 0) for row in roster
-        )
+        complete = bool(profile) and str(
+            profile.get("profile_stage") or "complete"
+        ) == "complete"
+        roster = self._relationship_training_people(profile, kind) if complete else []
+        ids = {int(row.get("id") or 0) for row in roster} - {0}
+        with self.lock:
+            if ids:
+                remembered[key] = ids
+                return set(ids)
+            known = remembered.get(key)
+            return set(known) if known is not None else None
 
     def _team_training_disqualification(
         self, room: dict[str, Any], profiles: list[dict[str, Any]],

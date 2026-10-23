@@ -1769,6 +1769,41 @@ def test_unreadable_team_snapshot_does_not_count_as_left():
     assert value._team_training_disqualification(room, []) == ""
 
 
+def test_partial_roster_read_never_counts_a_participant_as_left():
+    value = team_training_state()
+    youth = {"kind": "player", "id": 77, "name": "U21", "role": "player_a", "team_id": 10}
+    value.club_profiles[10]["squads"] = [{"team_id": 11, "players": [{"id": 77, "name": "U21"}]}]
+    room = {"id": "r", "sku": "mind_room", "participants": [youth]}
+    complete = list(value.club_profiles.values())
+    assert value._team_training_disqualification(room, complete) == ""
+    # Next refresh publishes the players-only stage: reserve squads not read yet.
+    partial = [{**complete[0], "squads": [], "staff": [], "profile_stage": "players"}]
+    assert value._team_training_participant_left(youth, partial) is False
+    assert value._team_training_disqualification(room, partial) == ""
+    # A complete read without the player is a real departure.
+    gone = [{**complete[0], "squads": [], "profile_stage": "complete"}]
+    assert value._team_training_participant_left(youth, gone) is True
+    # Afterwards a partial read still compares against that last complete one.
+    assert value._team_training_participant_left(youth, partial) is True
+
+
+def test_partial_roster_read_does_not_settle_a_room_early(team_room_store):
+    value = team_training_state()
+    room_id = _enter(value, _tactical_payload(20, "partial"), estimate=10)["room"]["id"]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
+    settled = []
+    assert _advance(value, "2026-08-21", settled)["settled_room_ids"] == []
+    complete = value.club_profiles[10]
+    value.club_profiles[10] = {**complete, "staff": [], "profile_stage": "players"}
+    assert _advance(value, "2026-08-22", settled)["settled_room_ids"] == []
+    assert _team_room(team_room_store, room_id)["status"] == "occupied"
+    value.club_profiles[10] = {
+        **complete, "profile_stage": "complete",
+        "staff": [row for row in complete["staff"] if row["id"] != 20],
+    }
+    assert _advance(value, "2026-08-23", settled)["early_settled_room_ids"] == [room_id]
+
+
 def test_left_participant_detected_on_game_day_settles_once_on_every_path(team_room_store):
     value = team_training_state()
     room_id = _enter(value, _tactical_payload(20, "left"), estimate=10)["room"]["id"]
