@@ -32,6 +32,11 @@ TEAM_TRAINING_TARGETS = ("until_increase", "14", "16", "18", "20")
 RELATIONSHIP_TRAINING_MIGRATION_REASON = "training_task_model_migration"
 RELATIONSHIP_TRAINING_TASK_RULES_VERSION = 1
 _LOCK = threading.RLock()
+
+# (document key, default, mutator(document, charge)) -> mutator result
+TeamTrainingCommit = Callable[
+    [str, Any, Callable[[Any, Callable[[], Any]], Any]], Any,
+]
 INTIMACY_PER_DAY = 0.33
 SPORTS_SCIENCE_JOB_TYPES = {40, 48}
 ANALYSIS_JOB_TYPES = {58, 60, 62}
@@ -681,14 +686,16 @@ def enter_relationship_training_room(
     target: str = "until_increase",
     participant_estimates: dict[tuple[str, int], int] | None = None,
     captured_multipliers: dict[str, Any] | None = None,
-    charge: Callable[[], dict[str, Any] | None] | None = None,
-    refund: Callable[[dict[str, Any]], Any] | None = None,
+    commit: TeamTrainingCommit | None = None,
 ) -> dict[str, Any]:
     """Arrange one session and charge its fee exactly once per submission id.
 
-    ``charge`` runs under the module lock after every check passes; a replayed
-    or concurrent duplicate submission returns the first result and is not
-    charged again. Any failure after charging calls ``refund``.
+    ``commit(key, default, mutator)`` must persist the rooms document and any
+    payment in one write; ``mutator(document, charge)`` calls ``charge()``
+    only after every check passes and the submission has no receipt yet. The
+    fee, the room and its receipt therefore land together or not at all, so a
+    retry after an interruption either replays the receipt or charges afresh.
+    Without ``commit`` the room is stored with no payment.
     """
     sku = str(room_sku or "")
     definition = ROOMS.get(sku)
@@ -699,7 +706,7 @@ def enter_relationship_training_room(
     submission_id = str(client_submission_id or "").strip()
     if len(submission_id) > 128:
         raise ValueError("训练请求编号过长")
-    if charge is not None and not submission_id:
+    if commit is not None and not submission_id:
         raise ValueError("训练场已改版，请刷新页面后重新提交训练安排")
     resolved_room_id = str(room_id or "").strip()
     total_days = max(1, int(estimated_days or 1))
@@ -718,7 +725,9 @@ def enter_relationship_training_room(
             "payment": receipt.get("payment"), "replayed": True,
         }
 
-    def mutate(raw: Any, payment: dict[str, Any] | None) -> dict[str, Any]:
+    def mutate(
+        raw: dict[str, Any], charge: Callable[[], dict[str, Any] | None],
+    ) -> dict[str, Any]:
         state = _normalize_state(raw)
         prior = replay(state)
         if prior:
@@ -748,6 +757,8 @@ def enter_relationship_training_room(
         if not chosen:
             raise ValueError("请至少选择一项训练属性")
         room = _room_for_new_session(state, sku, resolved_room_id)
+        # Last step that can refuse: money moves only once the room is valid.
+        payment = charge() if max(0, int(session_fee_minor or 0)) > 0 else None
         room.update({
             "status": "occupied", "participants": normalized,
             "attributes": chosen, "started_on": str(game_date or "") or None,
@@ -774,20 +785,13 @@ def enter_relationship_training_room(
 
     with _LOCK:
         # Duplicate submissions (retry or concurrent double click) are resolved
-        # under the same lock before any money moves.
-        prior = replay(_normalize_state(load_document("relationship_training_rooms", None)))
-        if prior:
-            return prior
-        payment = charge() if charge is not None else None
-        try:
-            return update_document(
-                "relationship_training_rooms", _new_state(),
-                lambda raw: mutate(raw, payment),
-            )
-        except Exception:
-            if payment and refund is not None:
-                refund(payment)
-            raise
+        # inside the same write that would charge, so they never pay twice.
+        if commit is not None:
+            return commit("relationship_training_rooms", _new_state(), mutate)
+        return update_document(
+            "relationship_training_rooms", _new_state(),
+            lambda raw: mutate(raw, lambda: None),
+        )
 
 
 def release_relationship_training_room(room_id: str, game_date: str) -> dict[str, Any]:

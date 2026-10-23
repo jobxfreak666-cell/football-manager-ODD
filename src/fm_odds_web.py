@@ -116,7 +116,7 @@ from tools.club_economy import (
     clawback_rewound_transfer_budget, rewound_transfer_budget_withdrawals,
     salary_status, set_salary_schedule, transfer_wallet, credit_status,
     adjust_bank_balance,
-    charge_combined_funds, refund_combined_funds, collect_match_integrity_penalty,
+    charge_combined_funds, commit_documents_with_combined_charge, refund_combined_funds, collect_match_integrity_penalty,
     economy_path,
     _collect_combined_funds,
     borrow_credit, repay_credit, process_credit_due,
@@ -11588,20 +11588,13 @@ class LocalOddsState:
             RELATIONSHIP_TRAINING_ROOMS[room_sku],
         )
 
-        def charge() -> dict[str, Any] | None:
-            if fee_minor <= 0:
-                return None
-            return charge_combined_funds(
+        def commit(key: str, default: Any, mutator: Any) -> dict[str, Any]:
+            return commit_documents_with_combined_charge(
+                {key: default},
+                lambda documents, charge: mutator(documents[key], charge),
                 from_minor(fee_minor), "relationship_training_room_session",
                 room_sku=room_sku,
             )
-
-        def refund(payment: dict[str, Any]) -> None:
-            if payment.get("total"):
-                refund_combined_funds(
-                    payment, "relationship_training_room_session_rollback",
-                    room_sku=room_sku,
-                )
 
         result = enter_relationship_training_room(
             room_sku, canonical, attributes, game_date,
@@ -11614,7 +11607,7 @@ class LocalOddsState:
                 if row.get("has_effect")
             },
             captured_multipliers=estimate.get("captured_multipliers") or {},
-            charge=charge, refund=refund,
+            commit=commit,
         )
         return {
             "room": public_team_training_session(result["room"], game_date),
