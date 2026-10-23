@@ -1024,7 +1024,7 @@ def test_owned_club_rename_ui_only_submits_short_name():
     assert "short_name:shortName" in script
     assert "name, short_name:shortName" not in script
     assert "result.native?.after?.short_name" in script
-    assert "club.renamed_short_name || club.short_name" in script
+    assert "club.renamed_short_name || club.short_name" in " ".join(script.split())
     assert "display_name:detail.club.short_name" in script
 
 
