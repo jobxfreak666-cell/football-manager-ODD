@@ -792,3 +792,51 @@ def test_settle_killed_after_writing_completes_without_reapplying(room_store, mo
     assert room["last_session"]["effects"]["interrupted_settlement"]["reason"] == "settlement_interrupted"
     assert room_store["relationship_training_rooms"]["attribute_progress"] == {}
     assert rooms.interrupted_team_training_rooms(later) == []
+
+
+def test_submission_past_the_receipt_cap_is_refused_and_never_charged_again(room_store):
+    charges: list[int] = []
+
+    def charge():
+        charges.append(1)
+        return {"total": 1.0, "bank": 1.0, "wallet": 0.0}
+
+    args = ("mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20")
+    first = rooms.enter_relationship_training_room(
+        *args, client_submission_id="old-pay", session_fee_minor=100,
+        commit=_commit_charging(charge),
+    )
+    pending = rooms.release_relationship_training_room(first["room"]["id"], "2026-08-25")
+    rooms.finalize_relationship_training_room(first["room"]["id"], pending["id"], {})
+    state = room_store["relationship_training_rooms"]
+    # Many later sessions push this receipt out of the 500-entry cap.
+    state["session_receipts"] = {f"later-{index}": {"room_sku": "mind_room"}
+                                 for index in range(rooms.SESSION_RECEIPT_LIMIT)}
+    with pytest.raises(ValueError, match="已经处理过"):
+        rooms.enter_relationship_training_room(
+            *args, client_submission_id="old-pay", session_fee_minor=100,
+            commit=_commit_charging(charge),
+        )
+    # Even once the room has moved on, the submission history still refuses it.
+    state["rooms"][0]["last_session"] = None
+    with pytest.raises(ValueError, match="已经处理过"):
+        rooms.enter_relationship_training_room(
+            *args, client_submission_id="old-pay", session_fee_minor=100,
+            commit=_commit_charging(charge),
+        )
+    assert charges == [1]
+    assert state["rooms"][0]["status"] == "idle"
+    # A new id is charged normally.
+    rooms.enter_relationship_training_room(
+        *args, client_submission_id="new-pay", session_fee_minor=100,
+        commit=_commit_charging(charge),
+    )
+    assert charges == [1, 1]
+
+
+def test_submission_history_keeps_far_more_ids_than_receipts(room_store):
+    state = room_store["relationship_training_rooms"]
+    state["submissions"] = [f"id-{index}" for index in range(rooms.SUBMISSION_HISTORY_LIMIT + 10)]
+    normalized = rooms._normalize_state(deepcopy(state))
+    assert len(normalized["submissions"]) == rooms.SUBMISSION_HISTORY_LIMIT
+    assert rooms.SUBMISSION_HISTORY_LIMIT > rooms.SESSION_RECEIPT_LIMIT

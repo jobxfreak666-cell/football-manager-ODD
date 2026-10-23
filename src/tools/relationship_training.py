@@ -20,6 +20,10 @@ from tools.training_ground import training_points_required_for_direction
 
 MODULE_KEY = TEAM_TRAINING_MODULE
 SESSION_RECEIPT_LIMIT = 500
+# Submission ids outlive their receipts: an id seen here but without a
+# receipt is refused, never charged again. Ids are short, so keep many.
+SUBMISSION_HISTORY_LIMIT = 5000
+SUBMISSION_ALREADY_PROCESSED = "该训练请求已经处理过，请刷新页面查看训练状态，如需再次训练请重新提交"
 # Every this many game days a sweep settles any session whose estimated
 # settle date has passed but was not settled yet (skipped days, failures).
 TEAM_TRAINING_SWEEP_INTERVAL_DAYS = 14
@@ -294,7 +298,7 @@ def _normalize_state(value: Any) -> dict[str, Any]:
         row for row in state["rooms"]
         if isinstance(row, dict) and row.get("sku") in ROOMS
     ]
-    state["submissions"] = list(state["submissions"])[-500:]
+    state["submissions"] = list(state["submissions"])[-SUBMISSION_HISTORY_LIMIT:]
     state["attribute_progress"] = dict(state["attribute_progress"])
     state["intimacy_progress"] = dict(state["intimacy_progress"])
     state["height_baselines"] = {
@@ -684,7 +688,18 @@ def _session_receipt(state: dict[str, Any], submission_id: str) -> dict[str, Any
         row for row in state["rooms"]
         if submission_id and row.get("client_submission_id") == submission_id
     ), None)
-    return {"room": dict(prior), "room_sku": prior.get("sku"), "payment": None} if prior else None
+    if prior:
+        return {"room": dict(prior), "room_sku": prior.get("sku"), "payment": None}
+    # Receipts are capped; an older, already settled submission still shows
+    # in its room's last session or in the submission history.
+    settled = next((
+        row for row in state["rooms"]
+        if submission_id
+        and (row.get("last_session") or {}).get("client_submission_id") == submission_id
+    ), None)
+    if settled or (submission_id and submission_id in state["submissions"]):
+        raise ValueError(SUBMISSION_ALREADY_PROCESSED)
+    return None
 
 
 def enter_relationship_training_room(
@@ -780,7 +795,7 @@ def enter_relationship_training_room(
         })
         if submission_id:
             state["submissions"].append(submission_id)
-            state["submissions"] = state["submissions"][-500:]
+            state["submissions"] = state["submissions"][-SUBMISSION_HISTORY_LIMIT:]
             state["session_receipts"][submission_id] = {
                 "room_sku": sku, "room": dict(room), "payment": deepcopy(payment),
                 "at": _now(),
