@@ -131,6 +131,13 @@ def test_room_entry_is_idempotent_and_prevents_cross_room_occupancy(room_store):
         )
 
 
+def _commit_charging(charge):
+    """Commit stub honouring the contract: one write, ``charge`` only on demand."""
+    def commit(key, default, mutator):
+        return rooms.update_document(key, default, lambda raw: mutator(raw, charge))
+    return commit
+
+
 def test_session_is_charged_once_and_replay_is_not_charged_again(room_store):
     charges: list[int] = []
 
@@ -141,11 +148,11 @@ def test_session_is_charged_once_and_replay_is_not_charged_again(room_store):
     args = ("mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20")
     first = rooms.enter_relationship_training_room(
         *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
-        charge=charge, refund=lambda _payment: None,
+        commit=_commit_charging(charge),
     )
     again = rooms.enter_relationship_training_room(
         *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
-        charge=charge, refund=lambda _payment: None,
+        commit=_commit_charging(charge),
     )
     assert len(charges) == 1
     assert first["replayed"] is False and again["replayed"] is True
@@ -156,7 +163,7 @@ def test_session_is_charged_once_and_replay_is_not_charged_again(room_store):
     rooms.finalize_relationship_training_room(first["room"]["id"], pending["id"], {})
     late = rooms.enter_relationship_training_room(
         *args, client_submission_id="pay-1", session_fee_minor=250_000_000,
-        charge=charge, refund=lambda _payment: None,
+        commit=_commit_charging(charge),
     )
     assert late["replayed"] is True and len(charges) == 1
 
@@ -165,7 +172,7 @@ def test_charged_session_requires_a_submission_id(room_store):
     with pytest.raises(ValueError, match="刷新页面"):
         rooms.enter_relationship_training_room(
             "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
-            charge=lambda: {"total": 1.0}, refund=lambda _payment: None,
+            commit=_commit_charging(lambda: {"total": 1.0}),
         )
 
 
@@ -179,22 +186,21 @@ def test_submission_id_reused_for_another_room_is_rejected_without_charge(room_s
         rooms.enter_relationship_training_room(
             "mentoring_room", [_player(2, "mentor"), _player(3, "student")],
             ["精神:领导力"], "2026-08-20", client_submission_id="same",
-            charge=lambda: charges.append(1) or {"total": 1.0},
-            refund=lambda _payment: None,
+            commit=_commit_charging(lambda: charges.append(1) or {"total": 1.0}),
+            session_fee_minor=100,
         )
     assert charges == []
 
 
-def test_failed_entry_after_charge_is_refunded(room_store):
-    refunds = []
-    payment = {"total": 2_500_000.0, "bank": 2_500_000.0, "wallet": 0.0}
+def test_invalid_entry_is_never_charged_and_stores_nothing(room_store):
+    charges = []
     with pytest.raises(ValueError, match="至少选择一项训练属性"):
         rooms.enter_relationship_training_room(
             "mind_room", [_player(1, "player_a")], ["not-in-scope"], "2026-08-20",
-            client_submission_id="refund-1",
-            charge=lambda: dict(payment), refund=refunds.append,
+            client_submission_id="refund-1", session_fee_minor=250_000_000,
+            commit=_commit_charging(lambda: charges.append(1) or {"total": 1.0}),
         )
-    assert refunds == [payment]
+    assert charges == []
     assert room_store["relationship_training_rooms"]["rooms"] == []
 
 
@@ -214,8 +220,8 @@ def test_concurrent_double_click_charges_once(room_store):
         start.wait()
         results.append(rooms.enter_relationship_training_room(
             "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
-            client_submission_id="double-click", charge=charge,
-            refund=lambda _payment: None,
+            client_submission_id="double-click", session_fee_minor=100,
+            commit=_commit_charging(charge),
         ))
 
     threads = [threading.Thread(target=submit) for _ in range(2)]
@@ -595,3 +601,118 @@ def test_claim_settles_an_early_room_today_once(room_store):
     assert rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})["rooms"] == []
     session = rooms.release_relationship_training_room(room_id, "2026-07-22")
     assert session["captured_multipliers"] == {"coach": 1.5}
+
+
+# ---- 断电/被杀进程后重试：扣钱、房间、提交编号必须一起落盘 ----
+
+@pytest.fixture()
+def disk_account(tmp_path, monkeypatch):
+    from unittest.mock import patch
+
+    from tools import club_economy
+    from tools.money import to_minor, write_minor
+
+    monkeypatch.setattr(rooms, "load_settings", lambda: {})
+    monkeypatch.setattr(rooms, "local_purchase_price", lambda value, _settings: value)
+    with (
+        patch("tools.club_economy.save_data_root", return_value=tmp_path),
+        patch("tools.betting_account.save_data_root", return_value=tmp_path),
+    ):
+        economy = club_economy.load_economy()
+        write_minor(economy, "general_balance", to_minor(10_000_000.0))
+        club_economy.save_economy(economy)
+        yield tmp_path
+
+
+def _disk_state():
+    from tools import account_store, club_economy
+
+    account_store._CONTAINER_CACHE.clear()  # read back from disk like a fresh process
+    documents = account_store.load_container(
+        key="economy", legacy_path=club_economy.economy_path(),
+    )["documents"]
+    economy = documents.get("economy") or {}
+    rooms_doc = rooms._normalize_state(documents.get("relationship_training_rooms"))
+    occupied = [room for room in rooms_doc["rooms"] if room.get("status") == "occupied"]
+    session_charges = [
+        row for row in economy.get("transactions") or []
+        if row.get("type") == "relationship_training_room_session"
+    ]
+    return club_economy._bank_balance_minor(economy), occupied, session_charges, rooms_doc
+
+
+def _enter_paid(submission_id="crash-1"):
+    from tools.club_economy import commit_documents_with_combined_charge
+    from tools.money import from_minor
+
+    fee_minor = 250_000_000
+
+    def commit(key, default, mutator):
+        return commit_documents_with_combined_charge(
+            {key: default}, lambda documents, charge: mutator(documents[key], charge),
+            from_minor(fee_minor), "relationship_training_room_session",
+            room_sku="mind_room",
+        )
+
+    return rooms.enter_relationship_training_room(
+        "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-08-20",
+        client_submission_id=submission_id, session_fee_minor=fee_minor,
+        commit=commit,
+    )
+
+
+def test_kill_after_charge_before_room_saved_then_retry_charges_once(disk_account):
+    from unittest.mock import patch
+
+    from tools import club_economy
+
+    bank_before, occupied, charges, _ = _disk_state()
+    assert (len(occupied), len(charges)) == (0, 0)
+    original = club_economy._collect_combined_funds
+
+    def charge_then_die(*args, **kwargs):
+        original(*args, **kwargs)
+        raise SystemExit("process killed after charging")
+
+    with patch.object(club_economy, "_collect_combined_funds", charge_then_die):
+        with pytest.raises(SystemExit):
+            _enter_paid()
+    bank, occupied, charges, _ = _disk_state()
+    assert (bank, len(occupied), len(charges)) == (bank_before, 0, 0)
+
+    first = _enter_paid()
+    again = _enter_paid()
+    bank, occupied, charges, rooms_doc = _disk_state()
+    assert first["replayed"] is False and again["replayed"] is True
+    assert bank == bank_before - 250_000_000
+    assert len(charges) == 1 and len(occupied) == 1
+    assert list(rooms_doc["session_receipts"]) == ["crash-1"]
+    assert rooms_doc["session_receipts"]["crash-1"]["payment"]["transaction_id"] == charges[0]["id"]
+
+
+def test_kill_during_the_single_write_leaves_nothing_then_retry_charges_once(disk_account):
+    from unittest.mock import patch
+
+    bank_before, *_ = _disk_state()
+    with patch("tools.betting_account.save_documents", side_effect=SystemExit("killed mid-write")):
+        with pytest.raises(SystemExit):
+            _enter_paid()
+    bank, occupied, charges, rooms_doc = _disk_state()
+    assert (bank, occupied, charges) == (bank_before, [], [])
+    assert rooms_doc["session_receipts"] == {}
+
+    _enter_paid()
+    bank, occupied, charges, _ = _disk_state()
+    assert bank == bank_before - 250_000_000
+    assert len(charges) == 1 and len(occupied) == 1
+
+
+def test_rejected_entry_on_disk_moves_no_money(disk_account):
+    bank_before, *_ = _disk_state()
+    _enter_paid("first")
+    with pytest.raises(ValueError, match="其他团队训练房间"):
+        _enter_paid("second")
+    bank, occupied, charges, rooms_doc = _disk_state()
+    assert bank == bank_before - 250_000_000
+    assert len(charges) == 1 and len(occupied) == 1
+    assert "second" not in rooms_doc["session_receipts"]

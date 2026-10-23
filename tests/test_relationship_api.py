@@ -2,7 +2,7 @@ import threading
 import base64
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import fm_odds_web
 import pytest
@@ -681,7 +681,23 @@ def _option(days, participants=()):
     return {"days": days, "settle_on": None, "participants": list(participants)}
 
 
-def _enter(value, payload, *, charge=None, refund=None, payment=None, estimate=4):
+def _fake_charge_commit(payment, calls):
+    """Stand-in for the atomic economy commit: same contract, in-memory store."""
+    from tools import relationship_training as rooms
+
+    def commit(defaults, mutator, amount, kind, **details):
+        (key, default), = defaults.items()
+
+        def charge():
+            calls.append(call(amount, kind, **details))
+            return dict(payment) if payment else payment
+
+        return rooms.update_document(key, default, lambda raw: mutator({key: raw}, charge))
+
+    return commit
+
+
+def _enter(value, payload, *, charge=None, payment=None, estimate=4):
     payment = payment or {
         "bank": 2_500_000.0, "wallet": 0.0, "total": 2_500_000.0,
         "transaction_id": "session-1",
@@ -693,18 +709,14 @@ def _enter(value, payload, *, charge=None, refund=None, payment=None, estimate=4
         patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
         patch("fm_odds_web.resolve_public_person_address", side_effect=lambda _r, person, _k: int(str(person.get("address") or "0x1"), 0)),
         patch("fm_odds_web.persons_relation_negative", return_value=False),
-        patch("fm_odds_web.charge_combined_funds", return_value=payment) as charged,
-        patch("fm_odds_web.refund_combined_funds") as refunded,
+        patch(
+            "fm_odds_web.commit_documents_with_combined_charge",
+            _fake_charge_commit(payment, charge if charge is not None else []),
+        ),
         patch("fm_odds_web.public_economy", return_value={"bank_balance": 1.0}),
         patch.object(value, "_team_training_estimate", return_value=_option(estimate)),
     ):
-        try:
-            return value.relationship_training_room_enter(payload)
-        finally:
-            if charge is not None:
-                charge.extend(charged.call_args_list)
-            if refund is not None:
-                refund.extend(refunded.call_args_list)
+        return value.relationship_training_room_enter(payload)
 
 
 def _mind_payload(submission="req-1", player_id=1):
@@ -769,15 +781,14 @@ def test_team_room_enter_requires_request_id_before_charging(team_room_store):
     assert charges == []
 
 
-def test_team_room_enter_refunds_when_room_write_fails(team_room_store):
+def test_team_room_enter_rejected_participant_is_never_charged(team_room_store):
     value = team_training_state()
     _enter(value, _mind_payload("first"))
-    charges, refunds = [], []
-    # Same player again under a new request id: rejected after the charge.
+    charges = []
+    # Same player again under a new request id: refused before any money moves.
     with pytest.raises(ValueError, match="其他团队训练房间"):
-        _enter(value, _mind_payload("second"), charge=charges, refund=refunds)
-    assert len(charges) == 1 and len(refunds) == 1
-    assert refunds[0].args[1] == "relationship_training_room_session_rollback"
+        _enter(value, _mind_payload("second"), charge=charges)
+    assert charges == []
 
 
 def test_team_room_concurrent_double_click_charges_once(team_room_store):
@@ -798,8 +809,7 @@ def test_team_room_concurrent_double_click_charges_once(team_room_store):
         patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()),
         patch("fm_odds_web.resolve_public_person_address", return_value=0x1000),
         patch("fm_odds_web.persons_relation_negative", return_value=False),
-        patch("fm_odds_web.charge_combined_funds", side_effect=lambda *a, **k: calls.append(a) or payment),
-        patch("fm_odds_web.refund_combined_funds"),
+        patch("fm_odds_web.commit_documents_with_combined_charge", _fake_charge_commit(payment, calls)),
         patch("fm_odds_web.public_economy", return_value={}),
         patch.object(value, "_team_training_estimate", return_value=_option(4)),
     ):
@@ -1052,7 +1062,7 @@ def test_enter_captures_guider_multipliers(team_room_store):
             patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
             patch("fm_odds_web.resolve_public_person_address", return_value=0x1000),
             patch("fm_odds_web.persons_relation_negative", return_value=False),
-            patch("fm_odds_web.charge_combined_funds", return_value=None),
+            patch("fm_odds_web.commit_documents_with_combined_charge", _fake_charge_commit(None, [])),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
             room = value.relationship_training_room_enter(_tactical_payload(20, "cap"))["room"]
@@ -1147,7 +1157,7 @@ def test_enter_uses_the_chosen_target_option_and_per_person_days(team_room_store
                 patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
                 patch("fm_odds_web.resolve_public_person_address", return_value=0x1000),
                 patch("fm_odds_web.persons_relation_negative", return_value=False),
-                patch("fm_odds_web.charge_combined_funds", side_effect=lambda *a, **k: charges.append(a)),
+                patch("fm_odds_web.commit_documents_with_combined_charge", _fake_charge_commit(None, charges)),
             ):
                 value.relationship_training_room_enter({**_mind_payload("t20"), "target": "20"})
     assert charges == []
@@ -1164,10 +1174,10 @@ def test_enter_rejects_unknown_target_before_charging(team_room_store):
 def test_one_session_per_room_at_a_time(team_room_store):
     value = team_training_state()
     _enter(value, _mind_payload("first", player_id=1))
-    refunds = []
+    charges = []
     with pytest.raises(ValueError, match="正在训练中"):
-        _enter(value, _mind_payload("second", player_id=2), refund=refunds)
-    assert len(refunds) == 1
+        _enter(value, _mind_payload("second", player_id=2), charge=charges)
+    assert charges == []
 
 
 def test_auto_settle_on_due_date_exactly_once(team_room_store):
