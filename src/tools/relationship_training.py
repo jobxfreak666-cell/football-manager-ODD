@@ -23,7 +23,7 @@ SESSION_RECEIPT_LIMIT = 500
 # Every this many game days a sweep settles any session whose estimated
 # settle date has passed but was not settled yet (skipped days, failures).
 TEAM_TRAINING_SWEEP_INTERVAL_DAYS = 14
-TEAM_TRAINING_VOID_REASON = "participant_no_longer_eligible"
+TEAM_TRAINING_EARLY_REASON = "participant_no_longer_eligible"
 # The same choices as an equipment task's 「训练时长」 for raising an attribute.
 # One target per session applies to every selected raise effect; a lower
 # effect has no target and drops one point per session.
@@ -40,10 +40,6 @@ RELATION_REASON_MULTIPLIERS = {
     10: 1.25, 4: 1.25, 1: 1.75, 2: 1.75, 3: 1.75, 9: 2.0,
 }
 LICENSE_FM_TO_TIER = {0: 1, 7: 2, 6: 3, 5: 4, 4: 5, 3: 6, 2: 7, 1: 8}
-
-
-class TeamTrainingSessionVoid(ValueError):
-    """A paid session can no longer take effect (a participant became ineligible)."""
 
 
 def _job_type(person: dict[str, Any]) -> int:
@@ -676,6 +672,7 @@ def enter_relationship_training_room(
     session_fee_minor: int = 0, estimated_days: int = 1,
     target: str = "until_increase",
     participant_estimates: dict[tuple[str, int], int] | None = None,
+    captured_multipliers: dict[str, Any] | None = None,
     charge: Callable[[], dict[str, Any] | None] | None = None,
     refund: Callable[[dict[str, Any]], Any] | None = None,
 ) -> dict[str, Any]:
@@ -750,6 +747,9 @@ def enter_relationship_training_room(
             "session_fee_minor": max(0, int(session_fee_minor or 0)),
             "estimated_total_days": total_days, "estimated_settle_on": settle_on,
             "auto_settle_attempted_on": None, "target": resolved_target,
+            # Guider multipliers at enter; settle falls back to them when the
+            # coach or mentor stops qualifying before the session ends.
+            "captured_multipliers": deepcopy(captured_multipliers or {}),
         })
         if submission_id:
             state["submissions"].append(submission_id)
@@ -809,6 +809,7 @@ def release_relationship_training_room(room_id: str, game_date: str) -> dict[str
             "estimated_total_days": room.get("estimated_total_days"),
             "estimated_settle_on": room.get("estimated_settle_on"),
             "target": room.get("target"),
+            "captured_multipliers": deepcopy(room.get("captured_multipliers") or {}),
             "relationship_rules": [
                 {
                     "from_role": str(ROOMS[str(room["sku"])]["roles"][0]["key"]),
@@ -966,7 +967,7 @@ def finalize_relationship_training_room(
             "pending_session": None, "settlement_started_at": None,
             "estimated_total_days": None, "estimated_settle_on": None,
             "auto_settle_attempted_on": None, "target": None,
-            "last_session": completed,
+            "captured_multipliers": None, "last_session": completed,
         })
         return completed
 
@@ -1010,7 +1011,7 @@ def commit_relationship_training_settlement(
             "pending_session": None, "settlement_started_at": None,
             "estimated_total_days": None, "estimated_settle_on": None,
             "auto_settle_attempted_on": None, "target": None,
-            "last_session": completed,
+            "captured_multipliers": None, "last_session": completed,
         })
         return {"completed": completed, "archive": archived}
 
@@ -1048,7 +1049,9 @@ def team_training_sweep_due(last_sweep_on: Any, game_date: str) -> bool:
     return (today - last).days >= TEAM_TRAINING_SWEEP_INTERVAL_DAYS
 
 
-def claim_due_team_training_rooms(game_date: str) -> dict[str, Any]:
+def claim_due_team_training_rooms(
+    game_date: str, early_room_ids: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """The single due check for team-training sessions; change cadence here.
 
     On every game-date advance a session is due once its game date reaches
@@ -1057,7 +1060,12 @@ def claim_due_team_training_rooms(game_date: str) -> dict[str, Any]:
     already tried today and picks up sessions with no estimate. Claims are
     recorded atomically, so repeated runs on one date do not retry. Settling
     itself stays exactly-once through ``release_relationship_training_room``.
+
+    ``early_room_ids`` maps a not-yet-due room to the reason a participant
+    stopped qualifying; such a room is claimed today and settles early with
+    the days actually elapsed.
     """
+    early = dict(early_room_ids or {})
     today = _parse_date(game_date)
     if today is None:
         return {"rooms": [], "sweep": False}
@@ -1070,7 +1078,12 @@ def claim_due_team_training_rooms(game_date: str) -> dict[str, Any]:
             if room.get("status") != "occupied":
                 continue
             due = _parse_date(room.get("estimated_settle_on"))
-            if due is None:
+            early_reason = early.get(str(room.get("id") or ""))
+            if early_reason and (due is None or due > today):
+                if room.get("auto_settle_attempted_on") == game_date and not sweep:
+                    continue
+                settle_on = game_date
+            elif due is None:
                 if not sweep:
                     continue
                 settle_on = game_date
@@ -1084,49 +1097,11 @@ def claim_due_team_training_rooms(game_date: str) -> dict[str, Any]:
             claimed.append({
                 "room_id": str(room.get("id") or ""), "room_sku": str(room.get("sku") or ""),
                 "completed_on": settle_on,
+                "early_reason": early_reason if settle_on == game_date and early_reason else "",
             })
         if sweep:
             state["last_sweep_on"] = game_date
         return {"rooms": claimed, "sweep": sweep}
-
-    with _LOCK:
-        return update_document("relationship_training_rooms", _new_state(), mutate)
-
-
-def void_relationship_training_room(
-    room_id: str, game_date: str, reason: str,
-) -> dict[str, Any] | None:
-    """End a session that can no longer take effect: no award, no refund."""
-    def mutate(raw: Any) -> dict[str, Any] | None:
-        state = _normalize_state(raw)
-        room = next((row for row in state["rooms"] if row.get("id") == room_id), None)
-        if not room or room.get("status") != "occupied":
-            return None
-        attributes = list(room.get("attributes") or [])
-        voided = {
-            "id": str(uuid.uuid4()), "focus_type": "relationship_training",
-            "module": MODULE_KEY, "room_id": str(room["id"]),
-            "room_sku": str(room.get("sku") or ""),
-            "facility_name": str((ROOMS.get(str(room.get("sku") or "")) or {}).get("name") or ""),
-            "participants": [dict(row) for row in room.get("participants") or []],
-            "attributes": attributes,
-            "started_on": room.get("started_on"), "completed_on": str(game_date or ""),
-            "completed_at": _now(), "status": "cancelled",
-            "cancel_reason": TEAM_TRAINING_VOID_REASON, "cancel_detail": str(reason),
-            "client_submission_id": room.get("client_submission_id"),
-            "session_fee_minor": room.get("session_fee_minor"),
-            "estimated_settle_on": room.get("estimated_settle_on"),
-            "refunded": False,
-        }
-        room.update({
-            "status": "idle", "participants": [], "attributes": [],
-            "started_on": None, "entered_at": None, "client_submission_id": None,
-            "pending_session": None, "settlement_started_at": None,
-            "estimated_total_days": None, "estimated_settle_on": None,
-            "auto_settle_attempted_on": None, "target": None,
-            "last_session": voided,
-        })
-        return voided
 
     with _LOCK:
         return update_document("relationship_training_rooms", _new_state(), mutate)

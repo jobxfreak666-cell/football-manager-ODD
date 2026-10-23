@@ -858,15 +858,20 @@ def _settle_tactical(value, coach_id, *, frozen=False):
         try:
             value.relationship_training_room_settle({"room_id": "room-1"})
         finally:
-            settle_calls = (commit.call_count, restore.call_count)
+            settle_calls = (commit.call_count, restore.call_count, commit.call_args)
     return settle_calls
 
 
 def test_tactical_room_settle_uses_the_same_coach_rule_as_enter():
     value = team_training_state()
-    assert _settle_tactical(value, 20)[0] == 1
-    with pytest.raises(ValueError, match="持证"):
-        _settle_tactical(team_training_state(), 21)
+    count, _restored, call = _settle_tactical(value, 20)
+    assert count == 1 and "early_settlement" not in call.args[2]
+    # An unlicensed coach no longer fails settle: it settles early instead.
+    count, _restored, call = _settle_tactical(team_training_state(), 21)
+    assert count == 1
+    early = call.args[2]["early_settlement"]
+    assert early["reason"] == "participant_no_longer_eligible"
+    assert early["details"] == ["战术指导室导师只能选择教练团队的持证职员"]
 
 
 def test_training_payload_exposes_team_rooms_with_fee_and_eligible_staff(team_room_store):
@@ -899,9 +904,130 @@ def test_manual_team_settle_works_in_release_build():
     assert _settle_tactical(team_training_state(), 20, frozen=True)[0] == 1
 
 
-def test_settle_rule_failure_is_a_void_signal_not_a_generic_error():
-    with pytest.raises(fm_odds_web.TeamTrainingSessionVoid):
-        _settle_tactical(team_training_state(), 21, frozen=True)
+def _settle_with_attribute(value, session, plan, values, *, relation=None, required=100):
+    with (
+        patch.object(value, "_bind_current_save"),
+        patch.object(value, "_data_scope_id", return_value="account-1"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch.object(value, "relationship_training_rooms_state", return_value={"rooms": []}),
+        patch("fm_odds_web.release_relationship_training_room", return_value=session),
+        patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
+        patch("fm_odds_web.relationship_training_progress", return_value={
+            "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
+        }),
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda **_k: operation_context()),
+        patch("fm_odds_web.resolve_public_person_address", side_effect=lambda _r, person, _k: int(str(person.get("address") or "0x1"), 0)),
+        patch("fm_odds_web.read_person_public_profile", side_effect=lambda _r, address: {
+            "uid": {0x1000: 1, 0x2000: 2, 0x2021: 21}.get(int(address), 0),
+        }),
+        patch("fm_odds_web.read_relationship_pair", return_value=relation or {}),
+        patch("fm_odds_web.read_player_training_attributes", return_value=values),
+        patch("fm_odds_web.training_points_required_for_direction", return_value=required),
+        patch("fm_odds_web.write_bidirectional_intimacy") as intimacy,
+        patch("fm_odds_web.commit_relationship_training_settlement",
+              return_value={"completed": {}, "archive": {"created": True}}) as commit,
+        patch("fm_odds_web.restore_relationship_training_room") as restore,
+        patch("fm_odds_web.invalidate_club_profile_cache"),
+    ):
+        result = value.relationship_training_room_settle({"room_id": "room-1"})
+    assert restore.call_count == 0 and result["ok"] is True
+    return commit.call_args, intimacy
+
+
+def test_unlicensed_coach_settles_early_with_the_coach_multiplier_from_enter():
+    value = team_training_state()
+    value.club_profiles[10]["staff"][1]["abilities"] = {"人员管理": 18, "激励": 18}
+    coach = {"kind": "staff", "id": 21, "name": "无证教练", "role": "coach", "team_id": 10}
+    player = {"kind": "player", "id": 1, "name": "A", "role": "player", "team_id": 10}
+    session = {
+        "id": "early-tac", "room_sku": "tactical_room", "target": "16",
+        "participants": [coach, player], "attributes": ["hidden:职业素养"],
+        "captured_multipliers": {"coach": 2.5}, "estimated_settle_on": "2026-09-01",
+    }
+    plan = {
+        "elapsed_days": 4, "focus_coefficient": 1.0, "attribute_points": 12.0,
+        "beneficiaries": [player], "guiders": [coach],
+        "attributes": [{"key": "hidden:职业素养", "kind": "hidden"}], "pairs": [],
+    }
+    call, _intimacy = _settle_with_attribute(value, session, plan, {"1:hidden:职业素养": 10})
+    assert call.kwargs["attribute_progress"]["tactical_room:player:1:hidden:职业素养"] == 30.0
+    early = call.args[2]["early_settlement"]
+    assert early["detected_on"] == "2026-08-20"
+    assert early["estimated_settle_on"] == "2026-09-01"
+
+
+def test_mentor_no_longer_credible_settles_early_with_mentor_multiplier_from_enter():
+    value = team_training_state()
+    mentor = {"kind": "player", "id": 1, "name": "A", "role": "mentor", "team_id": 10}
+    student = {"kind": "player", "id": 2, "name": "B", "role": "student", "team_id": 10}
+    session = {
+        "id": "early-mentor", "room_sku": "mentoring_room", "target": "until_increase",
+        "participants": [mentor, student], "attributes": ["精神:领导力"],
+        "captured_multipliers": {"mentor": {"2": 3.0}},
+    }
+    plan = {
+        "elapsed_days": 2, "focus_coefficient": 1.0, "attribute_points": 6.0,
+        "beneficiaries": [student], "guiders": [mentor],
+        "attributes": [{"key": "精神:领导力", "kind": "visible"}], "pairs": [],
+    }
+    call, _intimacy = _settle_with_attribute(
+        value, session, plan, {"1:精神:领导力": 18, "2:精神:领导力": 10},
+    )
+    assert call.kwargs["attribute_progress"]["mentoring_room:player:2:精神:领导力"] == 18.0
+    assert call.args[2]["early_settlement"]["details"] == [
+        fm_odds_web.MENTOR_NOT_CREDIBLE_MESSAGE,
+    ]
+
+
+def test_negative_relationship_settles_early_without_writing_that_pair():
+    value = team_training_state()
+    left = {"kind": "player", "id": 1, "name": "A", "role": "player_a", "team_id": 10}
+    right = {"kind": "player", "id": 2, "name": "B", "role": "player_b", "team_id": 10}
+    session = {
+        "id": "early-neg", "room_sku": "mind_room", "target": "until_increase",
+        "participants": [left, right], "attributes": ["精神:意志力"],
+    }
+    plan = {
+        "elapsed_days": 3, "focus_coefficient": 1.0, "attribute_points": 9.0,
+        "beneficiaries": [left, right], "guiders": [],
+        "attributes": [{"key": "精神:意志力", "kind": "visible"}],
+        "pairs": [{
+            "person_a": left, "person_b": right, "reason_a2b": 5, "reason_b2a": 5,
+            "base_increment": 0.99,
+        }],
+    }
+    negative = {"a_to_b": {"relation_type": 2, "level": 30}, "b_to_a": None}
+    call, intimacy = _settle_with_attribute(
+        value, session, plan, {"1:精神:意志力": 10, "2:精神:意志力": 10},
+        relation=negative,
+    )
+    intimacy.assert_not_called()
+    assert call.kwargs["intimacy_progress"] == {}
+    assert call.kwargs["attribute_progress"]["mind_room:player:1:精神:意志力"] == 9.0
+    assert "负面关系" in call.args[2]["early_settlement"]["details"][0]
+
+
+def test_enter_captures_guider_multipliers(team_room_store):
+    value = team_training_state()
+    with patch.object(value, "relationship_training_room_preview", return_value={
+        "target_options": {"until_increase": _option(3)},
+        "captured_multipliers": {"coach": 1.75},
+    }):
+        option = value._team_training_estimate({}, "tactical_room", "until_increase")
+    assert option["captured_multipliers"] == {"coach": 1.75}
+    with patch.object(value, "_team_training_estimate", return_value=option):
+        with (
+            patch.object(value, "_bind_current_save"),
+            patch.object(value, "_ensure_training_task_migration", return_value=False),
+            patch.object(value, "relationship_training_rooms_state", return_value={}),
+            patch("fm_odds_web.borrow_game_operation", return_value=operation_context()),
+            patch("fm_odds_web.resolve_public_person_address", return_value=0x1000),
+            patch("fm_odds_web.persons_relation_negative", return_value=False),
+            patch("fm_odds_web.charge_combined_funds", return_value=None),
+            patch("fm_odds_web.public_economy", return_value={}),
+        ):
+            room = value.relationship_training_room_enter(_tactical_payload(20, "cap"))["room"]
+    assert _team_room(team_room_store, room["id"])["captured_multipliers"] == {"coach": 1.75}
 
 
 # ---- 团队训练：预计时间、到期自动结算、每 14 天补结算 ----
@@ -922,11 +1048,15 @@ def _fake_settle(value, settled):
     return settle
 
 
-def _advance(value, game_date, settled, settle=None):
+def _advance(value, game_date, settled, settle=None, negative=False):
     value.output["game_date"] = game_date
-    with patch.object(
-        value, "_settle_relationship_training_room",
-        side_effect=settle or _fake_settle(value, settled),
+    with (
+        patch.object(
+            value, "_settle_relationship_training_room",
+            side_effect=settle or _fake_settle(value, settled),
+        ),
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()),
+        patch("fm_odds_web.persons_relation_negative", return_value=negative),
     ):
         return value._settle_due_team_training(game_date)
 
@@ -973,7 +1103,9 @@ def test_enter_uses_the_chosen_target_option_and_per_person_days(team_room_store
     with patch.object(value, "relationship_training_room_preview", return_value={
         "target_options": {"until_increase": _option(2), "18": option},
     }) as preview:
-        assert value._team_training_estimate({"attributes": []}, "mind_room", "18") == option
+        assert value._team_training_estimate({"attributes": []}, "mind_room", "18") == {
+            **option, "captured_multipliers": {},
+        }
     assert preview.call_args.args[0]["target"] == "18"
     charges = []
     with patch.object(value, "relationship_training_room_preview", return_value={
@@ -1132,20 +1264,43 @@ def test_sweep_cadence_follows_game_date():
     assert team_training_sweep_due("2026-08-20", "") is False
 
 
-def test_auto_settle_ends_session_without_award_when_staff_no_longer_eligible(team_room_store):
+def test_ineligible_participant_settles_early_once_on_detection_day(team_room_store):
     value = team_training_state()
-    room_id = _enter(value, _mind_payload("void"), estimate=1)["room"]["id"]
+    room_id = _enter(value, _tactical_payload(20, "early"), estimate=10)["room"]["id"]
     team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
-    void = Mock(side_effect=fm_odds_web.TeamTrainingSessionVoid("战术指导室导师只能选择教练团队的持证职员"))
-    with patch("fm_odds_web.refund_combined_funds") as refund:
-        result = _advance(value, "2026-08-21", [], settle=void)
-    refund.assert_not_called()
-    assert result["voided_room_ids"] == [room_id]
-    room = _team_room(team_room_store, room_id)
-    assert room["status"] == "idle"
-    assert room["last_session"]["status"] == "cancelled"
-    assert room["last_session"]["refunded"] is False
-    assert _advance(value, "2026-08-22", [])["voided_room_ids"] == []
+    settled = []
+    with patch("fm_odds_web.persons_relation_negative", return_value=False), \
+            patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()):
+        assert _advance(value, "2026-08-22", settled)["settled_room_ids"] == []
+        value.club_profiles[10]["staff"][0]["coaching_license"] = {"code": 0}
+        with patch("fm_odds_web.refund_combined_funds") as refund:
+            result = _advance(value, "2026-08-23", settled)
+        refund.assert_not_called()
+        assert result["early_settled_room_ids"] == [room_id]
+        assert settled == [(room_id, "2026-08-23")]  # days actually elapsed: 3
+        for day in ("2026-08-23", "2026-08-30", "2026-09-10"):
+            _advance(value, day, settled)
+    assert settled == [(room_id, "2026-08-23")]
+    assert _team_room(team_room_store, room_id)["status"] == "idle"
+
+
+def test_negative_relationship_is_detected_early_on_game_day(team_room_store):
+    value = team_training_state()
+    payload = _mind_payload("neg")
+    payload["participants"].append({"kind": "player", "id": 2, "team_id": 10, "role": "player_b"})
+    room_id = _enter(value, payload, estimate=10)["room"]["id"]
+    with (
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()),
+        patch("fm_odds_web.persons_relation_negative", return_value=True),
+    ):
+        reasons = value._team_training_early_reasons("2026-08-21")
+    assert "负面关系" in reasons[room_id]
+    # Read once per game date: a second sync the same day does not reopen the game.
+    with patch("fm_odds_web.borrow_game_operation") as again:
+        value._team_training_early_reasons("2026-08-21")
+    again.assert_not_called()
+    with patch("fm_odds_web.borrow_game_operation", side_effect=RuntimeError("游戏未连接")):
+        assert value._team_training_early_reasons("2026-08-22") == {}
 
 
 def test_training_sync_runs_team_due_check_in_release_build():
@@ -1157,7 +1312,7 @@ def test_training_sync_runs_team_due_check_in_release_build():
         patch("fm_odds_web.FROZEN", True),
         patch.object(value, "_ensure_training_task_migration", return_value=False),
         patch.object(value, "_settle_due_team_training", return_value={
-            "sweep": False, "settled_room_ids": ["r"], "voided_room_ids": [], "errors": [],
+            "sweep": False, "settled_room_ids": ["r"], "early_settled_room_ids": [], "errors": [],
         }) as due,
         patch("fm_odds_web.active_training_focuses", return_value=[]),
         patch("fm_odds_web.advance_training_focuses", return_value=[]) as advance,

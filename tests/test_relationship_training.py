@@ -573,17 +573,25 @@ def test_claim_marks_each_due_room_once_per_game_date(room_store):
     claim = rooms.claim_due_team_training_rooms("2026-07-25")
     assert claim["rooms"] == [{
         "room_id": entered["room"]["id"], "room_sku": "mind_room",
-        "completed_on": "2026-07-21",
+        "completed_on": "2026-07-21", "early_reason": "",
     }]
     assert rooms.claim_due_team_training_rooms("2026-07-25")["rooms"] == []
 
 
-def test_void_ends_session_without_award(room_store):
+def test_claim_settles_an_early_room_today_once(room_store):
     entered = rooms.enter_relationship_training_room(
         "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-07-19",
-        client_submission_id="void", estimated_days=2, session_fee_minor=5,
+        client_submission_id="early", estimated_days=20,
+        captured_multipliers={"coach": 1.5},
     )
-    voided = rooms.void_relationship_training_room(entered["room"]["id"], "2026-07-21", "x")
-    assert voided["status"] == "cancelled" and voided["refunded"] is False
-    assert "effects" not in voided
-    assert rooms.void_relationship_training_room(entered["room"]["id"], "2026-07-21", "x") is None
+    room_id = entered["room"]["id"]
+    assert room_store["relationship_training_rooms"]["rooms"][0]["captured_multipliers"] == {"coach": 1.5}
+    room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-07-19"
+    claim = rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})
+    assert claim["rooms"] == [{
+        "room_id": room_id, "room_sku": "mind_room",
+        "completed_on": "2026-07-22", "early_reason": "x",
+    }]
+    assert rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})["rooms"] == []
+    session = rooms.release_relationship_training_room(room_id, "2026-07-22")
+    assert session["captured_multipliers"] == {"coach": 1.5}

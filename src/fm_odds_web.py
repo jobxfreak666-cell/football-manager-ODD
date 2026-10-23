@@ -326,10 +326,9 @@ from tools.relationship_training import (
     relationship_training_staff_eligible, tactical_coach_eligible,
     validate_relationship_training_guidance,
     validate_relationship_training_staff,
-    TeamTrainingSessionVoid, claim_due_team_training_rooms,
+    TEAM_TRAINING_EARLY_REASON, claim_due_team_training_rooms,
     public_team_training_session, normalize_team_training_target,
     team_training_goal, team_training_target_options,
-    void_relationship_training_room,
 )
 from tools.training_archive import (
     archive_relationship_change_event,
@@ -5350,7 +5349,7 @@ class LocalOddsState:
             team_training = self._settle_due_team_training(game_date)
         except Exception as error:
             team_training = {
-                "sweep": False, "settled_room_ids": [], "voided_room_ids": [],
+                "sweep": False, "settled_room_ids": [], "early_settled_room_ids": [],
                 "errors": [str(error)],
             }
         focuses = active_training_focuses(game_date) if game_date else []
@@ -11434,11 +11433,25 @@ class LocalOddsState:
         target_options = team_training_target_options(
             effects, canonical, pairs, preview_game_date,
         )
+        captured_multipliers: dict[str, Any] = {}
+        if room_sku == "tactical_room" and coach_source:
+            captured_multipliers["coach"] = round(coach_multiplier, 6)
+        if mentor_source is not None:
+            captured_multipliers["mentor"] = {
+                str(int(row["id"])): round(1.0 + abs(
+                    estimate_player_status_tier(mentor_source)
+                    - estimate_player_status_tier(
+                        live_people[("player", int(row["id"]))]["source"]
+                    )
+                ) * 0.5, 6)
+                for row in beneficiaries
+            }
         for row in effects:
             row.pop("daily_points_raw", None)
         return {
             "pairs": pairs, "negative": negative, "effects": effects,
             "target": target, "target_options": target_options,
+            "captured_multipliers": captured_multipliers,
             "summary": {
                 "selected_count": selected_count, "scope_count": scope_count,
                 "focus_coefficient": round(focus, 4),
@@ -11589,6 +11602,7 @@ class LocalOddsState:
                 for row in estimate.get("participants") or []
                 if row.get("has_effect")
             },
+            captured_multipliers=estimate.get("captured_multipliers") or {},
             charge=charge, refund=refund,
         )
         return {
@@ -11610,7 +11624,7 @@ class LocalOddsState:
         option = (preview.get("target_options") or {}).get(target)
         if not option:
             raise ValueError("所选训练目标对所有参与者都不可用（已达到或超过目标），请换一个目标")
-        return option
+        return {**option, "captured_multipliers": dict(preview.get("captured_multipliers") or {})}
 
     def relationship_training_room_settle(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Manual settle (dev and release): settles as of today's game date."""
@@ -11624,21 +11638,108 @@ class LocalOddsState:
             "rooms": self.relationship_training_rooms_state(),
         }
 
-    def _settle_due_team_training(self, game_date: str) -> dict[str, Any]:
-        """Auto-settle due team-training sessions through the manual settle code.
+    def _team_training_disqualification(
+        self, room: dict[str, Any], profiles: list[dict[str, Any]],
+    ) -> str:
+        """Reason a guider stopped qualifying, from the current team snapshot."""
+        sku = str(room.get("sku") or "")
+        rules = {"tactical_room": ("coach", "staff"), "mentoring_room": ("mentor", "player")}
+        if sku not in rules:
+            return ""
+        role, kind = rules[sku]
+        guider = next((
+            row for row in room.get("participants") or [] if row.get("role") == role
+        ), None)
+        if not guider:
+            return ""
+        profile = next((
+            row for row in profiles
+            if int((row.get("team") or {}).get("id") or 0) == int(guider.get("team_id") or 0)
+        ), None)
+        person = next((
+            row for row in self._relationship_training_people(profile, kind)
+            if int(row.get("id") or 0) == int(guider.get("id") or 0)
+        ), None) if profile else None
+        if not person:
+            return ""
+        if sku == "tactical_room" and not tactical_coach_eligible(person):
+            return TACTICAL_COACH_MESSAGE
+        if sku == "mentoring_room" and not mentor_credible(person):
+            return MENTOR_NOT_CREDIBLE_MESSAGE
+        return ""
 
-        Runs on every game-date advance; the due rule and the 14-day sweep live
-        in ``claim_due_team_training_rooms``. A session already settled by hand
-        is idle and never claimed; a concurrent settle loses the status flip in
+    def _team_training_early_reasons(self, game_date: str) -> dict[str, str]:
+        """Not-yet-due sessions whose participant stopped qualifying today."""
+        rooms = [
+            row for row in load_relationship_training_rooms().get("rooms") or []
+            if row.get("status") == "occupied"
+            and str(row.get("estimated_settle_on") or "") > game_date
+        ]
+        if not rooms:
+            return {}
+        with self.lock:
+            profiles = [
+                deepcopy(row)
+                for row in (getattr(self, "club_profiles", None) or {}).values()
+            ]
+        reasons: dict[str, str] = {}
+        for room in rooms:
+            reason = self._team_training_disqualification(room, profiles)
+            if reason:
+                reasons[str(room["id"])] = reason
+        # The relationship read needs the game; do it once per game date.
+        checked = getattr(self, "team_training_relation_checked", None) or ("", set())
+        if checked[0] != game_date:
+            checked = (game_date, set())
+        unchecked = [
+            row for row in rooms
+            if str(row["id"]) not in reasons and str(row["id"]) not in checked[1]
+        ]
+        if unchecked:
+            try:
+                with borrow_game_operation() as operation:
+                    for room in unchecked:
+                        for left, right in self._relationship_training_pairs(
+                            str(room["sku"]), list(room.get("participants") or []),
+                        ):
+                            if not left.get("person_key") or not right.get("person_key"):
+                                continue
+                            if persons_relation_negative(
+                                operation.reader,
+                                int(str(left["person_key"]), 0),
+                                int(str(right["person_key"]), 0),
+                            ):
+                                reasons[str(room["id"])] = (
+                                    f"{left.get('name')} 与 {right.get('name')} 已产生负面关系"
+                                )
+                                break
+                checked[1].update(str(row["id"]) for row in unchecked)
+            except Exception:
+                # The game is not readable right now; the due date or the
+                # next game day still settles the session.
+                pass
+            self.team_training_relation_checked = checked
+        return reasons
+
+    def _settle_due_team_training(self, game_date: str) -> dict[str, Any]:
+        """Auto-settle team-training sessions through the manual settle code.
+
+        Runs on every game-date advance: due sessions settle as of their
+        estimated date; a session whose coach/mentor stopped qualifying or
+        whose pair turned negative settles early today with the days elapsed.
+        The due rule and the 14-day sweep live in
+        ``claim_due_team_training_rooms``. A session already settled by hand is
+        idle and never claimed; a concurrent settle loses the status flip in
         ``release_relationship_training_room``, so nothing settles twice.
         """
         result: dict[str, Any] = {
-            "sweep": False, "settled_room_ids": [], "voided_room_ids": [],
+            "sweep": False, "settled_room_ids": [], "early_settled_room_ids": [],
             "errors": [],
         }
         if not game_date:
             return result
-        claim = claim_due_team_training_rooms(game_date)
+        early = self._team_training_early_reasons(game_date)
+        claim = claim_due_team_training_rooms(game_date, early)
         result["sweep"] = bool(claim.get("sweep"))
         for row in claim.get("rooms") or []:
             room_id = str(row.get("room_id") or "")
@@ -11647,13 +11748,10 @@ class LocalOddsState:
                     room_id, completed_on=str(row.get("completed_on") or game_date),
                 )
                 result["settled_room_ids"].append(room_id)
+                if row.get("early_reason"):
+                    result["early_settled_room_ids"].append(room_id)
             except ValueError as error:
-                if isinstance(error, TeamTrainingSessionVoid):
-                    # Equipment has no analogue for an ineligible participant;
-                    # end the session without award so the room is not stuck.
-                    if void_relationship_training_room(room_id, game_date, str(error)):
-                        result["voided_room_ids"].append(room_id)
-                elif "当前未被占用" not in str(error):
+                if "当前未被占用" not in str(error):
                     result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
             except Exception as error:
                 result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
@@ -11706,6 +11804,10 @@ class LocalOddsState:
         try:
             plan = relationship_training_effect_plan(session)
             stored_progress = relationship_training_progress()
+            captured = dict(session.get("captured_multipliers") or {})
+            early_reasons: list[str] = []
+            negative_pairs: set[tuple[str, int, str, int]] = set()
+            mentor_override: dict[str, float] | None = None
             live_people: dict[tuple[str, int], dict[str, Any]] = {}
             pair_details: dict[tuple[str, int, str, int], dict[str, Any]] = {}
             with borrow_game_operation() as operation:
@@ -11745,11 +11847,16 @@ class LocalOddsState:
                         int(live_people[left_key]["person_address"]),
                         int(live_people[right_key]["person_address"]),
                     )
-                    for direction in (detail.get("a_to_b"), detail.get("b_to_a")):
-                        if direction and int(direction.get("relation_type", 1)) != 1:
-                            raise TeamTrainingSessionVoid(
-                                f"{left.get('name')} 与 {right.get('name')} 已产生负面关系，训练自动终止"
-                            )
+                    if any(
+                        direction and int(direction.get("relation_type", 1)) != 1
+                        for direction in (detail.get("a_to_b"), detail.get("b_to_a"))
+                    ):
+                        # Settle early with earned progress; this pair gets no
+                        # intimacy (writing it would deepen the hostility).
+                        negative_pairs.add((*left_key, *right_key))
+                        early_reasons.append(
+                            f"{left.get('name')} 与 {right.get('name')} 已产生负面关系"
+                        )
                     pair_details[(*left_key, *right_key)] = detail
 
             definition = RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
@@ -11759,7 +11866,11 @@ class LocalOddsState:
                 )
                 source = live_people[("player", int(mentor["id"]))]["source"]
                 if not mentor_credible(source):
-                    raise TeamTrainingSessionVoid(MENTOR_NOT_CREDIBLE_MESSAGE)
+                    early_reasons.append(MENTOR_NOT_CREDIBLE_MESSAGE)
+                    mentor_override = {
+                        str(key): float(value)
+                        for key, value in dict(captured.get("mentor") or {}).items()
+                    }
             coach_source: dict[str, Any] | None = None
             coach_multiplier = 1.0
             if session["room_sku"] == "tactical_room":
@@ -11768,11 +11879,13 @@ class LocalOddsState:
                 )
                 coach_source = live_people[("staff", int(coach["id"]))]["source"]
                 license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
-                if not tactical_coach_eligible(coach_source):
-                    raise TeamTrainingSessionVoid(TACTICAL_COACH_MESSAGE)
                 coach_multiplier = coach_composite_multiplier(
                     license_code, int(coach_source.get("current_reputation") or 0),
                 )
+                if not tactical_coach_eligible(coach_source):
+                    early_reasons.append(TACTICAL_COACH_MESSAGE)
+                    if captured.get("coach") is not None:
+                        coach_multiplier = float(captured["coach"])
             staff_team_bonus = 0.0
             staff_team_multiplier = 1.0
             if session["room_sku"] in {"video_analysis_room", "sports_science_room"}:
@@ -11867,13 +11980,18 @@ class LocalOddsState:
                         total += relationship_intimacy_bonus(detail.get("b_to_a"))
                 return total
 
+            def mentor_multiplier(student_id: int) -> float:
+                if mentor_override and str(int(student_id)) in mentor_override:
+                    return mentor_override[str(int(student_id))]
+                student = live_people[("player", int(student_id))]["source"]
+                return 1.0 + abs(
+                    estimate_player_status_tier(mentor_source)
+                    - estimate_player_status_tier(student)
+                ) * 0.5
+
             def room_multiplier(beneficiary: dict[str, Any], attribute_key: str) -> float:
                 if mentor_source is not None:
-                    student = live_people[("player", int(beneficiary["id"]))]["source"]
-                    return 1.0 + abs(
-                        estimate_player_status_tier(mentor_source)
-                        - estimate_player_status_tier(student)
-                    ) * 0.5
+                    return mentor_multiplier(int(beneficiary["id"]))
                 if session["room_sku"] == "video_analysis_room":
                     return staff_team_multiplier
                 if session["room_sku"] == "sports_science_room":
@@ -12060,6 +12178,8 @@ class LocalOddsState:
                 right = pair["person_b"]
                 left_key = (str(left["kind"]), int(left["id"]))
                 right_key = (str(right["kind"]), int(right["id"]))
+                if (*left_key, *right_key) in negative_pairs:
+                    continue
                 detail = pair_details.get((*left_key, *right_key), {})
                 pair_room_multiplier = (
                     staff_team_multiplier
@@ -12068,12 +12188,7 @@ class LocalOddsState:
                 )
                 if mentor_source is not None:
                     student = right if right.get("role") == "student" else left
-                    pair_room_multiplier = 1.0 + abs(
-                        estimate_player_status_tier(mentor_source)
-                        - estimate_player_status_tier(
-                            live_people[("player", int(student["id"]))]["source"]
-                        )
-                    ) * 0.5
+                    pair_room_multiplier = mentor_multiplier(int(student["id"]))
                 a_key = directed_progress_key(left, right)
                 b_key = directed_progress_key(right, left)
                 a_accumulated = (
@@ -12161,6 +12276,15 @@ class LocalOddsState:
                 "condition_changes": condition_changes,
                 "relationship_changes": relationship_changes,
             }
+            if early_reasons:
+                # A participant stopped qualifying: settled early on the day it
+                # was detected with the progress earned so far, no refund.
+                settlement["early_settlement"] = {
+                    "reason": TEAM_TRAINING_EARLY_REASON,
+                    "details": list(dict.fromkeys(early_reasons)),
+                    "detected_on": game_date,
+                    "estimated_settle_on": session.get("estimated_settle_on"),
+                }
             committed = commit_relationship_training_settlement(
                 room_id, str(session["id"]), settlement, scope_id=scope_id,
                 attribute_progress=attribute_progress_updates,
