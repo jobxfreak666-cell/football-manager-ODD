@@ -340,10 +340,10 @@ class TrainingTaskFrontendTests(unittest.TestCase):
         ''')
         assert_node_ok(result)
 
-    def test_markup_has_exactly_the_three_training_modules(self) -> None:
+    def test_markup_has_exactly_the_four_training_modules(self) -> None:
         helper_block = HELPERS.split("const TRAINING_MODULES = [", 1)[1].split("];", 1)[0]
         keys = re.findall(r'key:"([a-z_]+)"', helper_block)
-        self.assertEqual(keys, ["player_training", "position_training", "staff_training"])
+        self.assertEqual(keys, ["player_training", "position_training", "staff_training", "team_training"])
         self.assertIn('id="training-module-tabs"', INDEX_HTML)
         self.assertIn('id="training-roster"', INDEX_HTML)
         self.assertIn('id="training-dock-content"', INDEX_HTML)
@@ -395,7 +395,7 @@ class TrainingTaskFrontendTests(unittest.TestCase):
         result = run_node(source)
         assert_node_ok(result)
 
-    def test_module_tabs_render_three_entries(self) -> None:
+    def test_module_tabs_render_four_entries(self) -> None:
         result = harness(r'''
     const root = {dataset:{}, innerHTML:"", setAttribute(name, value) { this[name] = value; }};
     fixtures.dom["#training-module-tabs"] = root;
@@ -407,7 +407,7 @@ class TrainingTaskFrontendTests(unittest.TestCase):
     app.trainingModule = "player_training";
     renderTrainingModuleTabs();
     const buttons = [...root.innerHTML.matchAll(/data-training-module="([a-z_]+)"/g)].map((match) => match[1]);
-    assert.deepEqual(buttons, ["player_training","position_training","staff_training"]);
+    assert.deepEqual(buttons, ["player_training","position_training","staff_training","team_training"]);
     assert.equal((root.innerHTML.match(/aria-selected="true"/g) || []).length, 1);
         ''')
         assert_node_ok(result)

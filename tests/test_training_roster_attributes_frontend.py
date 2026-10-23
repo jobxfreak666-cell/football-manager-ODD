@@ -1,4 +1,4 @@
-"""Training roster: clicking a player expands the row and shows their attributes."""
+"""Training roster: clicking a player shows their attributes; clicking staff shows only the coaching licence."""
 from __future__ import annotations
 
 import json
@@ -76,6 +76,25 @@ console.log(JSON.stringify(roster.innerHTML.split('<article').slice(1)));
     return json.loads(out)
 
 
+STAFF = [
+    {"id": 101, "name": "Coach B", "coaching_license": {"name": "National B", "next_name": "National A", "maximum": False}},
+    {"id": 102, "name": "Coach Pro", "coaching_license": {"name": "Continental Pro", "next_name": None, "maximum": True}},
+    {"id": 103, "name": "Coach Unread"},
+]
+
+
+def staff_rows_after_clicking(person_id, locale="zh-CN"):
+    out = run(locale, f"""
+app.trainingModule = "staff_training";
+app.trainingPersonKind = "staff";
+app.trainingPersonId = {json.dumps(person_id)};
+PLAYERS.splice(0, PLAYERS.length, ...{json.dumps(STAFF, ensure_ascii=False)});
+renderTrainingRoster();
+console.log(JSON.stringify(roster.innerHTML.split('<article').slice(1)));
+""")
+    return json.loads(out)
+
+
 class TrainingRosterAttributesTest(unittest.TestCase):
     def test_only_the_clicked_player_expands(self):
         rows = rows_after_clicking(1)
@@ -119,9 +138,26 @@ class TrainingRosterAttributesTest(unittest.TestCase):
         for chinese in ["左脚", "右脚", "受伤倾向", "一对一", "意外性"]:
             self.assertNotIn(chinese, text)
 
-    def test_staff_rows_never_expand(self):
-        rows = rows_after_clicking(1, kind="staff", module="staff_training")
-        self.assertFalse(any("training-person-attributes" in row for row in rows))
+    def test_staff_row_expands_to_coaching_licence_only(self):
+        rows = staff_rows_after_clicking(101)
+        self.assertIn("training-staff-licence", rows[0])
+        self.assertIn('aria-expanded="true"', rows[0])
+        self.assertIn("<h4>training.current_licence</h4>", rows[0])
+        self.assertIn("<b>National B</b>", rows[0])
+        self.assertIn("training.next_license</span><b>National A</b>", rows[0])
+        # Staff never show the 21 abilities or hidden attributes.
+        self.assertNotIn("ability-list", rows[0])
+        self.assertNotIn("player-attribute-sections", rows[0])
+        for other in rows[1:]:
+            self.assertNotIn("training-person-attributes", other)
+
+    def test_staff_licence_at_top_level_and_unread(self):
+        top = staff_rows_after_clicking(102)[1]
+        self.assertIn('class="licence-max">training.no_next_licence', top)
+        self.assertNotIn("training.next_license", top)
+        unread = staff_rows_after_clicking(103)[2]
+        self.assertIn("<b>training.licence_unread</b>", unread)
+        self.assertNotIn("training.no_next_licence", unread)
 
 
 if __name__ == "__main__":

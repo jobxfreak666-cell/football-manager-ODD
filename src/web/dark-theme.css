@@ -649,7 +649,7 @@
   .training-relationship-summary-open,.training-room-card,.room-attr-card,
   .training-room-attr-option,.training-room-role-select,.training-room-candidate,
   .training-room-person-card,.intimacy-ranking-tab.active,.lb-stats>div,.lb-table,
-  .staff-abilities .staff-ability-empty,.training-room-rename-btn,
+  .staff-abilities .staff-ability-empty,
   .training-archive-role-empty,.training-archive-person>button
 ) { background:var(--night-surface-1); border-color:var(--night-line); color:var(--night-copy); }
 :root[data-theme="dark"] :is(
@@ -773,11 +773,10 @@
 :root[data-theme="dark"] .activity-page.facility-text-view .activity-scene-node span{color:#e1ece6}
 :root[data-theme="dark"] .activity-page.facility-text-view :is(.activity-scene-node b,.activity-scene-lock span){color:#94a79e}
 :root[data-theme="dark"] .activity-page.facility-text-view .activity-floor-panel{background:#111b17}
-:root[data-theme="dark"] .training-page.facility-text-view :is(.training-facility,.training-empty,.training-floor-lock){border-color:#344a3f;background:#17231e;color:#dce8e1}
+:root[data-theme="dark"] .training-page.facility-text-view :is(.training-facility,.training-empty){border-color:#344a3f;background:#17231e;color:#dce8e1}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility:hover{border-color:#55876f;background:#1d3027}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility.selected{border-color:#5aa77f;background:#1d3a2d;box-shadow:inset 3px 0 #68c99d}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility>span:last-child{color:#e1ece6}
-:root[data-theme="dark"] .training-page.facility-text-view .training-floor-lock span{color:#94a79e}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage{border-color:#344a3f;background:#111b17!important}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage-effect{border-color:#30443a;color:#dce8e1}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage-windows{background:#26362e}
@@ -815,7 +814,7 @@
   .bank-statement-dialog-content,.bank-statement-month,.manager-switcher,
   .analysis-range-summary,.betting-championship-content,.manual-rule-note,
   .detail-loading-state,.detail-error-state,.activity-roster-group-section>header,
-  .credit-default-details summary,.training-floor-panel,.owned-manager-summary span,
+  .credit-default-details summary,.owned-manager-summary span,
   .world-player-editor-action-row input,.world-player-editor-action-row select,
   .activity-panel-head-aside>span,.intelligence-card-body,.training-archive-dialog,
   .relations-summary>div,.relations-card-head,.intimacy-ranking-dialog,
