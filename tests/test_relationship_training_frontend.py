@@ -399,6 +399,48 @@ assert.equal(app.state.training_ground.team_rooms[1].active.room_id, "room-7");
 ''', rooms)
 
 
+def test_settle_stops_when_scope_resets_back_during_confirm() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = ACTIVE
+    run(r'''
+confirmHook = async () => {
+  SCOPE = "other-save";
+  resetTrainingWorkspaceState();
+  SCOPE = "scope";
+  resetTrainingWorkspaceState();
+  return true;
+};
+await settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+assert.equal(requests.length, 0, "a reset invalidates the old confirmation even if the account returns");
+assert.equal(app.trainingActionBusy, false);
+''', rooms)
+
+
+def test_settle_confirmation_does_not_replace_a_pending_operation() -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = ACTIVE
+    run(r'''
+let finishConfirm;
+confirmHook = () => new Promise((resolve) => { finishConfirm = resolve; });
+const old = settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+let finishEnter;
+respond = () => new Promise((resolve) => { finishEnter = resolve; });
+app.teamTrainingRoomSku = "mind_room";
+renderTeamTrainingDetail();
+app.teamTrainingSelections.player_a = [1];
+const fresh = submitTeamTraining();
+const freshId = app.teamTrainingSubmission.id;
+finishConfirm(true);
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(requests.filter((row) => row.path.endsWith("/settle")).length, 0);
+assert.equal(app.trainingActionBusy, true);
+assert.equal(app.teamTrainingSubmission.id, freshId);
+finishEnter({team_rooms:app.state.training_ground.team_rooms});
+await Promise.all([old, fresh]);
+assert.equal(app.trainingActionBusy, false);
+''', rooms)
+
+
 def test_settle_response_from_previous_account_is_not_applied() -> None:
     rooms = json.loads(json.dumps(ROOMS))
     rooms[1]["active"] = ACTIVE
@@ -413,3 +455,78 @@ assert.equal(app.trainingMutationRevision, revision);
 assert.ok(!toasts.includes("relationship.room.settle_done"));
 assert.equal(app.trainingActionBusy, false);
 ''', rooms)
+
+
+@pytest.mark.parametrize("old_operation", ["enter", "settle"])
+@pytest.mark.parametrize("old_outcome", ["success", "error", "timeout"])
+@pytest.mark.parametrize("return_to_original_scope", [False, True])
+def test_late_team_request_preserves_the_new_operation(
+    old_operation: str, old_outcome: str, return_to_original_scope: bool,
+) -> None:
+    rooms = json.loads(json.dumps(ROOMS))
+    rooms[1]["active"] = ACTIVE
+    run(r'''
+const deferred = [];
+const settleButton = {
+  attributes:new Map(),
+  setAttribute(name, value) { this.attributes.set(name, value); },
+  removeAttribute(name) { this.attributes.delete(name); },
+};
+nodes["#training-settle-button"] = settleButton;
+respond = (path) => {
+  if (path.endsWith("/enter") || path.endsWith("/settle")) {
+    return new Promise((resolve, reject) => deferred.push({resolve, reject}));
+  }
+  return {};
+};
+app.teamTrainingRoomSku = "mind_room";
+renderTeamTrainingDetail();
+app.teamTrainingSelections.player_a = [1];
+const old = OLD_OPERATION === "enter"
+  ? submitTeamTraining()
+  : settleTeamTrainingRoom(app.state.training_ground.team_rooms[1]);
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(deferred.length, 1);
+
+SCOPE = "other-save";
+resetTrainingWorkspaceState();
+assert.equal(settleButton.attributes.has("aria-busy"), false);
+if (RETURN_TO_ORIGINAL_SCOPE) {
+  SCOPE = "scope";
+  resetTrainingWorkspaceState();
+}
+PLAYERS = [{id:2,name:"Current player",age:24,ca:150,training_team_id:1}];
+app.state.training_ground = {team_rooms:CURRENT_ROOMS};
+renderTeamTrainingDetail();
+app.teamTrainingSelections.player_a = [2];
+const fresh = submitTeamTraining();
+assert.equal(deferred.length, 2);
+const freshId = app.teamTrainingSubmission.id;
+const toastCount = toasts.length;
+const revision = app.trainingMutationRevision;
+
+if (OLD_OUTCOME === "success") {
+  deferred[0].resolve({team_rooms:[], settlement:{attribute_changes:[], relationship_changes:[]}});
+} else {
+  const error = new Error("old account request failed");
+  if (OLD_OUTCOME === "timeout") error.code = "REQUEST_TIMEOUT";
+  deferred[0].reject(error);
+}
+await old;
+assert.equal(app.trainingActionBusy, true, "the current request must remain busy");
+assert.equal(app.teamTrainingSubmission.id, freshId, "keep the current retry ID");
+assert.equal(toasts.length, toastCount, "ignore old errors and completion messages");
+assert.equal(app.trainingMutationRevision, revision, "ignore old room responses");
+assert.equal(app.state.training_ground.team_rooms.length, 2);
+await submitTeamTraining();
+assert.equal(deferred.length, 2, "do not submit again while the current request is pending");
+
+deferred[1].resolve({team_rooms:app.state.training_ground.team_rooms});
+await fresh;
+assert.equal(app.trainingActionBusy, false);
+assert.equal(app.trainingActionRequest, null);
+assert.equal(app.teamTrainingSubmission, null);
+'''.replace("OLD_OPERATION", json.dumps(old_operation))
+       .replace("OLD_OUTCOME", json.dumps(old_outcome))
+       .replace("RETURN_TO_ORIGINAL_SCOPE", json.dumps(return_to_original_scope))
+       .replace("CURRENT_ROOMS", json.dumps(ROOMS, ensure_ascii=False)), rooms)

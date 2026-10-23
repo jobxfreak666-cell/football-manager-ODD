@@ -12197,6 +12197,7 @@ function resetTrainingWorkspaceState() {
   app.trainingPlayerPositionFilter = "all";
   app.trainingActionBusy = false;
   app.trainingActionRequest = null;
+  $("#training-settle-button")?.removeAttribute("aria-busy");
   app.trainingCancelFocusId = null;
   app.trainingRosterLoading = false;
   app.trainingStaffLoading = false;
@@ -12837,13 +12838,17 @@ async function submitTeamTraining() {
   if (app.teamTrainingSubmission?.fingerprint !== fingerprint) app.teamTrainingSubmission = {fingerprint, id:clientSubmissionId()};
   const payload = {...semantic, client_submission_id:app.teamTrainingSubmission.id};
   const scopeAtStart = trainingScopeKey();
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
+  const requestStillCurrent = () => scopeAtStart === trainingScopeKey()
+    && app.trainingActionRequest === actionRequest;
   app.trainingActionBusy = true;
   renderTraining();
   try {
     const response = await request("/api/training/relationship-rooms/enter", {
       method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
     });
-    if (scopeAtStart !== trainingScopeKey()) return;
+    if (!requestStillCurrent()) return;
     app.teamTrainingSubmission = null;
     applyTeamTrainingRooms(response.team_rooms);
     applyEconomySnapshot(response.economy);
@@ -12857,42 +12862,57 @@ async function submitTeamTraining() {
           amount:paid > 0 ? formatPounds(paid) : trainingFeeLabel(response.session_fee_minor ?? room.session_fee_minor),
         }));
   } catch (error) {
+    if (!requestStillCurrent()) return;
     if (error.code !== "REQUEST_TIMEOUT") app.teamTrainingSubmission = null;
     toast(error.message || uiText("training.arrange_failed"));
   } finally {
-    app.trainingActionBusy = false;
-    renderTraining();
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
   }
 }
 async function settleTeamTrainingRoom(room) {
   const roomId = String(room?.active?.room_id || "");
   if (app.trainingActionBusy || !roomId) return;
   const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
   const confirmed = await fmoddConfirm(
     uiText("relationship.room.settle_confirm"),
     uiText("relationship.room.settle_confirm_action"), uiText("relationship.room.settle_title"),
   );
-  if (!confirmed || scopeAtStart !== trainingScopeKey()) return;
+  if (
+    !confirmed || app.trainingActionBusy
+    || scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq
+  ) return;
   const button = $("#training-settle-button");
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
+  const requestStillCurrent = () => scopeAtStart === trainingScopeKey()
+    && app.trainingActionRequest === actionRequest;
   app.trainingActionBusy = true;
   button?.setAttribute("aria-busy", "true");
   renderTraining();
   try {
-    if (scopeAtStart !== trainingScopeKey()) return;
+    if (!requestStillCurrent()) return;
     const response = await request("/api/training/relationship-rooms/settle", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({room_id:roomId}),
     });
-    if (scopeAtStart !== trainingScopeKey()) return;
+    if (!requestStillCurrent()) return;
     applyTeamTrainingRooms(response.team_rooms);
     const attributes = response.settlement?.attribute_changes?.length || 0;
     const relationships = response.settlement?.relationship_changes?.length || 0;
     toast(uiText("relationship.room.settle_done", {attributes, relationships}));
-  } catch (error) { if (scopeAtStart === trainingScopeKey()) toast(error.message); }
+  } catch (error) { if (requestStillCurrent()) toast(error.message); }
   finally {
-    app.trainingActionBusy = false;
-    button?.removeAttribute("aria-busy");
-    renderTraining();
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      button?.removeAttribute("aria-busy");
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
   }
 }
 function bindTeamTrainingEvents() {

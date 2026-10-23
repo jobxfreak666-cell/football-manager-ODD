@@ -13,6 +13,13 @@ from tools.training_ground import FACILITIES
 
 ROOT = Path(__file__).resolve().parents[1] / "src"
 LOCALES = ("en-GB", "zh-CN")
+DISPLAY_ONLY_TRAINING_ATTRIBUTE_SOURCES = {
+    "一对一",
+    "意外性",
+    "左脚",
+    "右脚",
+    "受伤倾向",
+}
 
 
 def _enum_probe() -> dict[str, object]:
@@ -89,7 +96,7 @@ def test_dynamic_enum_domains_have_complete_bilingual_stable_id_coverage() -> No
         key.split(":", 1)[-1]
         for facility in FACILITIES.values()
         for key in facility.get("attributes", [])
-    }
+    } | DISPLAY_ONLY_TRAINING_ATTRIBUTE_SOURCES
     assert set(source_keys) == expected_sources
     assert set(modules[2]["en-GB"]) == {
         *source_keys.values(), *output["groupSourceKeys"].values(),

@@ -49,4 +49,6 @@ jobs:
           tests/test_i18n_dynamic_enums.py
           tests/test_settings_frontend_optimization.py
           tests/test_frontend_font_sizes.py
+          tests/test_relationship_training_frontend.py
+          tests/test_training_roster_attributes_frontend.py
           -q
