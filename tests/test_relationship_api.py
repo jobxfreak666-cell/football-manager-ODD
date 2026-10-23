@@ -1381,3 +1381,190 @@ def test_settle_lower_effect_drops_one_point_per_session():
 
 def test_settle_skips_effect_already_at_target():
     assert _settle_mind("14", before=15) == (0, None)
+
+
+# ---- 团队训练：参与者离队 → 当天提前结算，跳过此人 ----
+
+def _without(value, kind, person_id):
+    key = "staff" if kind == "staff" else "players"
+    value.club_profiles[10][key] = [
+        row for row in value.club_profiles[10][key] if int(row["id"]) != person_id
+    ]
+
+
+def test_left_coach_settles_early_with_captured_multiplier_and_teachable_list():
+    value = team_training_state()
+    _without(value, "staff", 20)
+    coach = {"kind": "staff", "id": 20, "name": "助教", "role": "coach", "team_id": 10}
+    player = {"kind": "player", "id": 1, "name": "A", "role": "player", "team_id": 10}
+    session = {
+        "id": "left-coach", "room_sku": "tactical_room", "target": "20",
+        "participants": [coach, player], "attributes": ["hidden:职业素养", "hidden:雄心"],
+        "captured_multipliers": {"coach": 2.0, "coach_teachable": ["hidden:职业素养"]},
+    }
+    plan = {
+        "elapsed_days": 4, "focus_coefficient": 1.0, "attribute_points": 12.0,
+        "beneficiaries": [player], "guiders": [coach],
+        "attributes": [
+            {"key": "hidden:职业素养", "kind": "hidden"},
+            {"key": "hidden:雄心", "kind": "hidden"},
+        ],
+        "pairs": [{"person_a": coach, "person_b": player, "reason_a2b": 7,
+                   "reason_b2a": 8, "base_increment": 1.32}],
+    }
+    call, intimacy = _settle_with_attribute(
+        value, session, plan, {"1:hidden:职业素养": 10, "1:hidden:雄心": 10},
+    )
+    progress = call.kwargs["attribute_progress"]
+    assert progress == {"tactical_room:player:1:hidden:职业素养": 24.0}
+    intimacy.assert_not_called()
+    early = call.args[2]["early_settlement"]
+    assert early["reason"] == "participant_left_team"
+    assert early["skipped_participant_ids"] == [20]
+    assert early["details"][0].startswith("participant_left_team")
+
+
+def test_left_mentor_uses_captured_values_and_multiplier():
+    value = team_training_state()
+    _without(value, "player", 1)
+    mentor = {"kind": "player", "id": 1, "name": "A", "role": "mentor", "team_id": 10}
+    student = {"kind": "player", "id": 2, "name": "B", "role": "student", "team_id": 10}
+    session = {
+        "id": "left-mentor", "room_sku": "mentoring_room", "target": "20",
+        "participants": [mentor, student], "attributes": ["精神:领导力"],
+        "captured_multipliers": {"mentor": {"2": 3.0}, "mentor_values": {"精神:领导力": 18}},
+    }
+    plan = {
+        "elapsed_days": 2, "focus_coefficient": 1.0, "attribute_points": 6.0,
+        "beneficiaries": [student], "guiders": [mentor],
+        "attributes": [{"key": "精神:领导力", "kind": "visible"}], "pairs": [],
+    }
+    call, _intimacy = _settle_with_attribute(value, session, plan, {"2:精神:领导力": 10})
+    assert call.kwargs["attribute_progress"] == {"mentoring_room:player:2:精神:领导力": 18.0}
+    assert call.args[2]["early_settlement"]["skipped_participant_ids"] == [1]
+
+
+def test_left_student_is_skipped_and_the_other_student_settles():
+    value = team_training_state()
+    value.club_profiles[10]["players"][0]["ca"] = 150  # credible mentor
+    mentor = {"kind": "player", "id": 1, "name": "A", "role": "mentor", "team_id": 10}
+    stays = {"kind": "player", "id": 2, "name": "B", "role": "student", "team_id": 10}
+    left = {"kind": "player", "id": 3, "name": "C", "role": "student", "team_id": 10}
+    session = {
+        "id": "left-student", "room_sku": "mentoring_room", "target": "20",
+        "participants": [mentor, stays, left], "attributes": ["精神:领导力"],
+        "captured_multipliers": {"mentor": {"2": 2.0, "3": 2.0}},
+    }
+    plan = {
+        "elapsed_days": 2, "focus_coefficient": 1.0, "attribute_points": 6.0,
+        "beneficiaries": [stays, left], "guiders": [mentor],
+        "attributes": [{"key": "精神:领导力", "kind": "visible"}], "pairs": [],
+    }
+    with patch("fm_odds_web.estimate_player_status_tier", return_value=1):
+        call, _intimacy = _settle_with_attribute(
+            value, session, plan, {"1:精神:领导力": 18, "2:精神:领导力": 10},
+        )
+    assert list(call.kwargs["attribute_progress"]) == ["mentoring_room:player:2:精神:领导力"]
+    early = call.args[2]["early_settlement"]
+    assert early["skipped_participant_ids"] == [3]
+    assert early["reason"] == "participant_left_team"
+
+
+def test_left_pair_member_gets_no_closeness_and_gives_no_bonus():
+    value = team_training_state()
+    _without(value, "player", 2)
+    left = {"kind": "player", "id": 1, "name": "A", "role": "player_a", "team_id": 10}
+    gone = {"kind": "player", "id": 2, "name": "B", "role": "player_b", "team_id": 10}
+    session = {
+        "id": "left-pair", "room_sku": "mind_room", "target": "20",
+        "participants": [left, gone], "attributes": ["精神:意志力"],
+    }
+    plan = {
+        "elapsed_days": 3, "focus_coefficient": 1.0, "attribute_points": 9.0,
+        "beneficiaries": [left, gone], "guiders": [],
+        "attributes": [{"key": "精神:意志力", "kind": "visible"}],
+        "pairs": [{"person_a": left, "person_b": gone, "reason_a2b": 5,
+                   "reason_b2a": 5, "base_increment": 0.99}],
+    }
+    friendly = {"a_to_b": {"relation_type": 1, "level": 90, "reason": 9}, "b_to_a": None}
+    call, intimacy = _settle_with_attribute(
+        value, session, plan, {"1:精神:意志力": 10}, relation=friendly,
+    )
+    intimacy.assert_not_called()
+    assert call.kwargs["intimacy_progress"] == {}
+    assert call.kwargs["attribute_progress"] == {"mind_room:player:1:精神:意志力": 9.0}
+
+
+def test_unreadable_team_snapshot_does_not_count_as_left():
+    value = team_training_state()
+    value.club_profiles[10]["players"] = []  # roster not read
+    player = {"kind": "player", "id": 1, "name": "A", "role": "player_a", "team_id": 10}
+    session = {"id": "unread", "room_sku": "mind_room", "participants": [player],
+               "attributes": ["精神:意志力"]}
+    plan = {"elapsed_days": 1, "focus_coefficient": 1.0, "attribute_points": 3.0,
+            "beneficiaries": [player], "guiders": [], "attributes": [], "pairs": []}
+    with (
+        patch.object(value, "_bind_current_save"),
+        patch.object(value, "_data_scope_id", return_value="account-1"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch("fm_odds_web.release_relationship_training_room", return_value=session),
+        patch("fm_odds_web.relationship_training_effect_plan", return_value=plan),
+        patch("fm_odds_web.relationship_training_progress", return_value={
+            "attribute_progress": {}, "intimacy_progress": {}, "height_baselines": {},
+        }),
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda **_k: operation_context()),
+        patch("fm_odds_web.commit_relationship_training_settlement") as commit,
+        patch("fm_odds_web.restore_relationship_training_room") as restore,
+    ):
+        with pytest.raises(ValueError, match="不属于原球队"):
+            value.relationship_training_room_settle({"room_id": "room-1"})
+    commit.assert_not_called()
+    restore.assert_called_once()
+    room = {"id": "r", "sku": "mind_room", "participants": [player]}
+    assert value._team_training_disqualification(room, list(value.club_profiles.values())) == ""
+    assert value._team_training_disqualification(room, []) == ""
+
+
+def test_left_participant_detected_on_game_day_settles_once_on_every_path(team_room_store):
+    value = team_training_state()
+    room_id = _enter(value, _tactical_payload(20, "left"), estimate=10)["room"]["id"]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
+    settled = []
+    assert _advance(value, "2026-08-21", settled)["settled_room_ids"] == []
+    # The game is unreadable for a day (no snapshot): nothing happens.
+    profiles = value.club_profiles
+    value.club_profiles = {}
+    assert _advance(value, "2026-08-22", settled)["settled_room_ids"] == []
+    value.club_profiles = profiles
+    _without(value, "staff", 20)
+    with patch("fm_odds_web.refund_combined_funds") as refund:
+        result = _advance(value, "2026-08-23", settled)
+    refund.assert_not_called()
+    assert result["early_settled_room_ids"] == [room_id]
+    assert settled == [(room_id, "2026-08-23")]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-01"
+    assert _advance(value, "2026-08-23", settled)["sweep"] is True
+    _advance(value, "2026-08-30", settled)
+    assert settled == [(room_id, "2026-08-23")]
+    assert _team_room(team_room_store, room_id)["status"] == "idle"
+
+
+def test_left_participant_found_by_the_sweep_settles_once(team_room_store):
+    value = team_training_state()
+    room_id = _enter(value, _tactical_payload(20, "left-sweep"), estimate=30)["room"]["id"]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
+    _without(value, "staff", 20)
+    settled = []
+    busy = Mock(side_effect=RuntimeError("游戏忙"))
+    assert _advance(value, "2026-08-21", settled, settle=busy)["errors"]
+    assert _advance(value, "2026-08-21", settled)["settled_room_ids"] == []
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-01"
+    swept = _advance(value, "2026-08-21", settled)
+    assert swept["sweep"] is True and swept["early_settled_room_ids"] == [room_id]
+    assert settled == [(room_id, "2026-08-21")]
+
+
+def test_preview_captures_coach_teachable_and_mentor_values():
+    result = _tactical_preview(12, "16")
+    assert result["captured_multipliers"]["coach_teachable"] == ["hidden:职业素养"]
+    assert result["captured_multipliers"]["coach"] > 0

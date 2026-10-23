@@ -24,6 +24,7 @@ SESSION_RECEIPT_LIMIT = 500
 # settle date has passed but was not settled yet (skipped days, failures).
 TEAM_TRAINING_SWEEP_INTERVAL_DAYS = 14
 TEAM_TRAINING_EARLY_REASON = "participant_no_longer_eligible"
+TEAM_TRAINING_LEFT_REASON = "participant_left_team"
 # The same choices as an equipment task's 「训练时长」 for raising an attribute.
 # One target per session applies to every selected raise effect; a lower
 # effect has no target and drops one point per session.

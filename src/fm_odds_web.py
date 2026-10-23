@@ -326,7 +326,8 @@ from tools.relationship_training import (
     relationship_training_staff_eligible, tactical_coach_eligible,
     validate_relationship_training_guidance,
     validate_relationship_training_staff,
-    TEAM_TRAINING_EARLY_REASON, claim_due_team_training_rooms,
+    TEAM_TRAINING_EARLY_REASON, TEAM_TRAINING_LEFT_REASON,
+    claim_due_team_training_rooms,
     public_team_training_session, normalize_team_training_target,
     team_training_goal, team_training_target_options,
 )
@@ -11436,6 +11437,16 @@ class LocalOddsState:
         captured_multipliers: dict[str, Any] = {}
         if room_sku == "tactical_room" and coach_source:
             captured_multipliers["coach"] = round(coach_multiplier, 6)
+            # What the coach could teach at enter, used if the coach leaves.
+            captured_multipliers["coach_teachable"] = [
+                key for key in selected_attributes if coach_can_teach(key)
+            ]
+        if mentor:
+            captured_multipliers["mentor_values"] = {
+                key: int(current_values[f"{int(mentor['id'])}:{key}"])
+                for key in selected_attributes
+                if current_values.get(f"{int(mentor['id'])}:{key}") is not None
+            }
         if mentor_source is not None:
             captured_multipliers["mentor"] = {
                 str(int(row["id"])): round(1.0 + abs(
@@ -11638,11 +11649,39 @@ class LocalOddsState:
             "rooms": self.relationship_training_rooms_state(),
         }
 
+    def _team_training_participant_left(
+        self, participant: dict[str, Any], profiles: list[dict[str, Any]],
+    ) -> bool:
+        """True only when a successfully read team snapshot lacks the person.
+
+        A missing team snapshot or an empty roster is treated as not read
+        (temporarily unreadable), never as the person having left.
+        """
+        kind = str(participant.get("kind") or "")
+        profile = next((
+            row for row in profiles
+            if int((row.get("team") or {}).get("id") or 0) == int(participant.get("team_id") or 0)
+        ), None)
+        roster = self._relationship_training_people(profile, kind) if profile else []
+        if not roster:
+            return False
+        return not any(
+            int(row.get("id") or 0) == int(participant.get("id") or 0) for row in roster
+        )
+
     def _team_training_disqualification(
         self, room: dict[str, Any], profiles: list[dict[str, Any]],
     ) -> str:
         """Reason a guider stopped qualifying, from the current team snapshot."""
         sku = str(room.get("sku") or "")
+        left = [
+            row for row in room.get("participants") or []
+            if self._team_training_participant_left(row, profiles)
+        ]
+        if left:
+            return "participant_left_team：" + "、".join(
+                str(row.get("name") or row.get("id")) for row in left
+            )
         rules = {"tactical_room": ("coach", "staff"), "mentoring_room": ("mentor", "player")}
         if sku not in rules:
             return ""
@@ -11808,6 +11847,8 @@ class LocalOddsState:
             early_reasons: list[str] = []
             negative_pairs: set[tuple[str, int, str, int]] = set()
             mentor_override: dict[str, float] | None = None
+            skipped: set[tuple[str, int]] = set()
+            skipped_rows: list[dict[str, Any]] = []
             live_people: dict[tuple[str, int], dict[str, Any]] = {}
             pair_details: dict[tuple[str, int, str, int], dict[str, Any]] = {}
             with borrow_game_operation() as operation:
@@ -11824,6 +11865,15 @@ class LocalOddsState:
                         if int(row.get("id") or 0) == identifier
                     ), None)
                     if not person:
+                        if self._team_training_participant_left(participant, profiles):
+                            # Left the team: settle early without this person.
+                            skipped.add((kind, identifier))
+                            skipped_rows.append({
+                                "kind": kind, "id": identifier,
+                                "name": participant.get("name"),
+                                "role": participant.get("role"),
+                            })
+                            continue
                         raise ValueError("综训参与者已不属于原球队，请刷新后重试")
                     person_address = resolve_public_person_address(
                         operation.reader, person, kind,
@@ -11842,6 +11892,8 @@ class LocalOddsState:
                     right = pair["person_b"]
                     left_key = (str(left["kind"]), int(left["id"]))
                     right_key = (str(right["kind"]), int(right["id"]))
+                    if left_key in skipped or right_key in skipped:
+                        continue
                     detail = read_relationship_pair(
                         operation.reader,
                         int(live_people[left_key]["person_address"]),
@@ -11859,13 +11911,36 @@ class LocalOddsState:
                         )
                     pair_details[(*left_key, *right_key)] = detail
 
+            if skipped:
+                early_reasons.append("participant_left_team：" + "、".join(
+                    str(row.get("name") or row.get("id")) for row in skipped_rows
+                ))
+                plan = {
+                    **plan,
+                    "beneficiaries": [
+                        row for row in plan["beneficiaries"]
+                        if (str(row["kind"]), int(row["id"])) not in skipped
+                    ],
+                    "pairs": [
+                        row for row in plan["pairs"]
+                        if (str(row["person_a"]["kind"]), int(row["person_a"]["id"])) not in skipped
+                        and (str(row["person_b"]["kind"]), int(row["person_b"]["id"])) not in skipped
+                    ],
+                }
             definition = RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
+            mentor_left = False
             if session["room_sku"] == "mentoring_room":
                 mentor = next(
                     row for row in session["participants"] if row.get("role") == "mentor"
                 )
-                source = live_people[("player", int(mentor["id"]))]["source"]
-                if not mentor_credible(source):
+                mentor_left = ("player", int(mentor["id"])) in skipped
+                source = (live_people.get(("player", int(mentor["id"]))) or {}).get("source")
+                if mentor_left:
+                    mentor_override = {
+                        str(key): float(value)
+                        for key, value in dict(captured.get("mentor") or {}).items()
+                    }
+                elif not mentor_credible(source):
                     early_reasons.append(MENTOR_NOT_CREDIBLE_MESSAGE)
                     mentor_override = {
                         str(key): float(value)
@@ -11877,12 +11952,16 @@ class LocalOddsState:
                 coach = next(
                     row for row in session["participants"] if row.get("role") == "coach"
                 )
-                coach_source = live_people[("staff", int(coach["id"]))]["source"]
-                license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
-                coach_multiplier = coach_composite_multiplier(
-                    license_code, int(coach_source.get("current_reputation") or 0),
-                )
-                if not tactical_coach_eligible(coach_source):
+                coach_source = (live_people.get(("staff", int(coach["id"]))) or {}).get("source")
+                if coach_source is None:
+                    coach_multiplier = float(captured.get("coach") or 1.0)
+                    license_code = 0
+                else:
+                    license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
+                    coach_multiplier = coach_composite_multiplier(
+                        license_code, int(coach_source.get("current_reputation") or 0),
+                    )
+                if coach_source is not None and not tactical_coach_eligible(coach_source):
                     early_reasons.append(TACTICAL_COACH_MESSAGE)
                     if captured.get("coach") is not None:
                         coach_multiplier = float(captured["coach"])
@@ -11911,6 +11990,9 @@ class LocalOddsState:
 
             def coach_can_teach(attribute_key: str) -> bool:
                 if coach_source is None:
+                    if session["room_sku"] == "tactical_room" and "coach_teachable" in captured:
+                        # The coach left: use what they could teach at enter.
+                        return attribute_key in set(captured.get("coach_teachable") or [])
                     return True
                 name = attribute_key.partition(":")[2]
                 abilities = coach_source.get("abilities") or {}
@@ -11930,6 +12012,8 @@ class LocalOddsState:
             read_targets: list[dict[str, Any]] = []
             for participant in session.get("participants") or []:
                 if participant.get("kind") != "player":
+                    continue
+                if ("player", int(participant["id"])) in skipped:
                     continue
                 live = live_people[("player", int(participant["id"]))]
                 for attribute in plan["attributes"]:
@@ -11960,8 +12044,13 @@ class LocalOddsState:
                 if row.get("role") == "mentor"
             ), 0)
             mentor_source = (
-                live_people[("player", mentor_id)]["source"] if mentor_id else None
+                (live_people.get(("player", mentor_id)) or {}).get("source")
+                if mentor_id else None
             )
+            captured_mentor_values = {
+                str(key): int(value)
+                for key, value in dict(captured.get("mentor_values") or {}).items()
+            }
             attribute_changes: list[dict[str, Any]] = []
             attribute_progress_updates: dict[str, float] = {}
 
@@ -11983,6 +12072,8 @@ class LocalOddsState:
             def mentor_multiplier(student_id: int) -> float:
                 if mentor_override and str(int(student_id)) in mentor_override:
                     return mentor_override[str(int(student_id))]
+                if mentor_source is None:
+                    return 1.0
                 student = live_people[("player", int(student_id))]["source"]
                 return 1.0 + abs(
                     estimate_player_status_tier(mentor_source)
@@ -11990,7 +12081,7 @@ class LocalOddsState:
                 ) * 0.5
 
             def room_multiplier(beneficiary: dict[str, Any], attribute_key: str) -> float:
-                if mentor_source is not None:
+                if session["room_sku"] == "mentoring_room" and mentor_id:
                     return mentor_multiplier(int(beneficiary["id"]))
                 if session["room_sku"] == "video_analysis_room":
                     return staff_team_multiplier
@@ -12026,6 +12117,9 @@ class LocalOddsState:
                         before = int(current_values[f"{player_id}:{key}"])
                         if mentor_id:
                             mentor_value = current_values.get(f"{mentor_id}:{key}")
+                            if mentor_value is None and mentor_source is None:
+                                # The mentor left: use their value from enter.
+                                mentor_value = captured_mentor_values.get(key)
                             threshold_ok = (
                                 mentor_value is not None and (
                                     direction > 0 and int(mentor_value) >= 15
@@ -12280,8 +12374,14 @@ class LocalOddsState:
                 # A participant stopped qualifying: settled early on the day it
                 # was detected with the progress earned so far, no refund.
                 settlement["early_settlement"] = {
-                    "reason": TEAM_TRAINING_EARLY_REASON,
+                    "reason": (
+                        TEAM_TRAINING_LEFT_REASON
+                        if skipped and len(set(early_reasons)) == 1
+                        else TEAM_TRAINING_EARLY_REASON
+                    ),
                     "details": list(dict.fromkeys(early_reasons)),
+                    "skipped_participant_ids": [int(row["id"]) for row in skipped_rows],
+                    "skipped_participants": skipped_rows,
                     "detected_on": game_date,
                     "estimated_settle_on": session.get("estimated_settle_on"),
                 }
