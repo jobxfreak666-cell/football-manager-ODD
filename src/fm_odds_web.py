@@ -326,6 +326,10 @@ from tools.relationship_training import (
     relationship_training_staff_eligible, tactical_coach_eligible,
     validate_relationship_training_guidance,
     validate_relationship_training_staff,
+    TeamTrainingSessionVoid, claim_due_team_training_rooms,
+    public_team_training_session, normalize_team_training_target,
+    team_training_goal, team_training_target_options,
+    void_relationship_training_room,
 )
 from tools.training_archive import (
     archive_relationship_change_event,
@@ -5342,6 +5346,13 @@ class LocalOddsState:
     def _sync_training_focuses(self, game_date: str) -> dict[str, Any]:
         if game_date:
             self._ensure_training_task_migration(game_date)
+        try:
+            team_training = self._settle_due_team_training(game_date)
+        except Exception as error:
+            team_training = {
+                "sweep": False, "settled_room_ids": [], "voided_room_ids": [],
+                "errors": [str(error)],
+            }
         focuses = active_training_focuses(game_date) if game_date else []
         due_focus_ids = {
             str(row.get("id") or "") for row in advance_training_focuses(game_date)
@@ -5370,7 +5381,10 @@ class LocalOddsState:
         )
         cached_sync_status = getattr(self, "training_sync_status", None)
         due_coaching_focuses = due_coaching_license_focuses(game_date)
-        settlement_due = bool(due_focus_ids or due_coaching_focuses) or any(
+        # The 14-day sweep also forces a full equipment pass past the cache.
+        settlement_due = bool(
+            due_focus_ids or due_coaching_focuses or team_training.get("sweep")
+        ) or any(
             focus.get("focus_type") == "preferred_move"
             and str(focus.get("expires_on") or "") <= game_date
             for focus in focuses
@@ -5388,6 +5402,7 @@ class LocalOddsState:
                 "completed_position_focus_ids": [],
                 "advanced_position_focus_ids": [],
                 "completed_coaching_license_focus_ids": [],
+                "team_training": team_training,
             }
         coaching_errors: list[str] = []
         coaching_pending: list[int] = []
@@ -5807,6 +5822,7 @@ class LocalOddsState:
             "completed_position_focus_ids": completed_position_focuses,
             "advanced_position_focus_ids": advanced_position_focuses,
             "completed_coaching_license_focus_ids": completed_coaching,
+            "team_training": team_training,
         }
         self.training_sync_key = sync_key
         self.training_sync_status = dict(result)
@@ -10882,10 +10898,15 @@ class LocalOddsState:
             raise ValueError("尚未识别当前存档账户")
         if game_date:
             self._ensure_training_task_migration(game_date)
-        return relationship_training_catalog()
+        return relationship_training_catalog(game_date)
 
-    def _team_training_rooms(self) -> list[dict[str, Any]]:
+    def _team_training_rooms(self, game_date: str = "") -> list[dict[str, Any]]:
         """Fourth training-ground module: rooms, per-session fee and eligible staff."""
+        active_sessions = [
+            public_team_training_session(row, game_date)
+            for row in load_relationship_training_rooms().get("rooms") or []
+            if row.get("status") in {"occupied", "settling"}
+        ]
         with self.lock:
             profiles = [
                 deepcopy(row)
@@ -10928,12 +10949,24 @@ class LocalOddsState:
                     })
                     for role in staff_roles
                 },
+                # One session per room at a time; None when the room is free.
+                "active": next((
+                    row["active"] for row in active_sessions if row.get("sku") == sku
+                ), None),
             })
         return rooms
 
     def _public_training_ground(self, game_date: str) -> dict[str, Any]:
         training_ground = public_training_ground(game_date)
-        training_ground["team_rooms"] = self._team_training_rooms()
+        training_ground["team_rooms"] = self._team_training_rooms(game_date)
+        # Same lists keyed by staff role, where the design preview looks first.
+        eligible: dict[str, set[int]] = {}
+        for room in training_ground["team_rooms"]:
+            for role, ids in (room.get("eligible_staff_ids") or {}).items():
+                eligible.setdefault(role, set()).update(ids)
+        training_ground["eligible_staff_ids"] = {
+            role: sorted(ids) for role, ids in eligible.items()
+        }
         return training_ground
 
     @staticmethod
@@ -11023,9 +11056,11 @@ class LocalOddsState:
         }
         if set(selected_attributes) - set(scope):
             raise ValueError("训练属性不在当前房间作用域内")
+        target = normalize_team_training_target(payload.get("target"))
         with self.lock:
             self._bind_current_save()
             profiles = [deepcopy(row) for row in self.club_profiles.values()]
+            preview_game_date = str(self.output.get("game_date") or "")
 
         staged: list[tuple[str, int, int, str, dict[str, Any], dict[str, Any]]] = []
         for source in submitted:
@@ -11292,11 +11327,22 @@ class LocalOddsState:
                     beneficiary, key, current,
                 )
                 daily_points = base_daily_points * (1.0 + relation_bonus) * room_multiplier
+                goal = team_training_goal(
+                    target, current, direction, mentor_value,
+                ) if eligible and not is_height else None
                 row = {
                     "participant": {
                         key_name: beneficiary[key_name]
                         for key_name in ("id", "name", "kind", "role", "team_id")
                     },
+                    "attribute_kind": str(attribute.get("kind") or "visible"),
+                    "base_eligible": eligible,
+                    "daily_points_raw": daily_points,
+                    "goal": goal,
+                    "excluded_reason": (
+                        "已达到或超过训练目标"
+                        if eligible and not is_height and goal is None else ""
+                    ),
                     "attribute_key": key,
                     "attribute_label": str(attribute.get("label") or key.partition(":")[2] or key),
                     "direction": direction, "current": current,
@@ -11385,8 +11431,14 @@ class LocalOddsState:
                     "relationship_bonus": round(relationship_intimacy_bonus(relation), 4),
                 }
 
+        target_options = team_training_target_options(
+            effects, canonical, pairs, preview_game_date,
+        )
+        for row in effects:
+            row.pop("daily_points_raw", None)
         return {
             "pairs": pairs, "negative": negative, "effects": effects,
+            "target": target, "target_options": target_options,
             "summary": {
                 "selected_count": selected_count, "scope_count": scope_count,
                 "focus_coefficient": round(focus, 4),
@@ -11506,6 +11558,8 @@ class LocalOddsState:
                     raise ValueError(
                         f"{left['name']} 与 {right['name']} 存在负面关系，不能配对训练"
                     )
+        target = normalize_team_training_target(payload.get("target"))
+        estimate = self._team_training_estimate(payload, room_sku, target)
         fee_minor = relationship_training_session_fee_minor(
             RELATIONSHIP_TRAINING_ROOMS[room_sku],
         )
@@ -11529,22 +11583,85 @@ class LocalOddsState:
             room_sku, canonical, attributes, game_date,
             client_submission_id=str(payload.get("client_submission_id") or ""),
             room_id=room_id, session_fee_minor=fee_minor,
+            estimated_days=int(estimate["days"]), target=target,
+            participant_estimates={
+                (str(row["kind"]), int(row["id"])): int(row["estimated_days"])
+                for row in estimate.get("participants") or []
+                if row.get("has_effect")
+            },
             charge=charge, refund=refund,
         )
         return {
-            "room": result["room"], "payment": result.get("payment"),
+            "room": public_team_training_session(result["room"], game_date),
+            "payment": result.get("payment"),
             "replayed": bool(result.get("replayed")),
             "session_fee_minor": fee_minor,
             "rooms": self.relationship_training_rooms_state(),
             "economy": public_economy(),
         }
 
+    def _team_training_estimate(
+        self, payload: dict[str, Any], room_sku: str, target: str,
+    ) -> dict[str, Any]:
+        """Estimate at enter from the same preview the player sees, before any charge."""
+        preview = self.relationship_training_room_preview({
+            **payload, "room_sku": room_sku, "target": target,
+        })
+        option = (preview.get("target_options") or {}).get(target)
+        if not option:
+            raise ValueError("所选训练目标对所有参与者都不可用（已达到或超过目标），请换一个目标")
+        return option
+
     def relationship_training_room_settle(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if FROZEN:
-            raise PermissionError("团队训练结算只在开发版开放")
+        """Manual settle (dev and release): settles as of today's game date."""
         room_id = str(payload.get("room_id") or "")
         if not room_id:
             raise ValueError("缺少房间实例")
+        committed = self._settle_relationship_training_room(room_id)
+        return {
+            "ok": True, "settlement": committed["completed"],
+            "archive": committed["archive"],
+            "rooms": self.relationship_training_rooms_state(),
+        }
+
+    def _settle_due_team_training(self, game_date: str) -> dict[str, Any]:
+        """Auto-settle due team-training sessions through the manual settle code.
+
+        Runs on every game-date advance; the due rule and the 14-day sweep live
+        in ``claim_due_team_training_rooms``. A session already settled by hand
+        is idle and never claimed; a concurrent settle loses the status flip in
+        ``release_relationship_training_room``, so nothing settles twice.
+        """
+        result: dict[str, Any] = {
+            "sweep": False, "settled_room_ids": [], "voided_room_ids": [],
+            "errors": [],
+        }
+        if not game_date:
+            return result
+        claim = claim_due_team_training_rooms(game_date)
+        result["sweep"] = bool(claim.get("sweep"))
+        for row in claim.get("rooms") or []:
+            room_id = str(row.get("room_id") or "")
+            try:
+                self._settle_relationship_training_room(
+                    room_id, completed_on=str(row.get("completed_on") or game_date),
+                )
+                result["settled_room_ids"].append(room_id)
+            except ValueError as error:
+                if isinstance(error, TeamTrainingSessionVoid):
+                    # Equipment has no analogue for an ineligible participant;
+                    # end the session without award so the room is not stuck.
+                    if void_relationship_training_room(room_id, game_date, str(error)):
+                        result["voided_room_ids"].append(room_id)
+                elif "当前未被占用" not in str(error):
+                    result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
+            except Exception as error:
+                result["errors"].append(f"{row.get('room_sku') or room_id}：{error}")
+        return result
+
+    def _settle_relationship_training_room(
+        self, room_id: str, *, completed_on: str | None = None,
+    ) -> dict[str, Any]:
         with self.lock:
             self._bind_current_save()
             game_date = str(self.output.get("game_date") or "")
@@ -11554,7 +11671,9 @@ class LocalOddsState:
             raise ValueError("尚未读取当前游戏日期或账户作用域")
 
         self._ensure_training_task_migration(game_date)
-        session = release_relationship_training_room(room_id, game_date)
+        session = release_relationship_training_room(
+            room_id, min(game_date, completed_on) if completed_on else game_date,
+        )
         attribute_writes: list[dict[str, Any]] = []
         relationship_writes: list[dict[str, Any]] = []
 
@@ -11628,7 +11747,7 @@ class LocalOddsState:
                     )
                     for direction in (detail.get("a_to_b"), detail.get("b_to_a")):
                         if direction and int(direction.get("relation_type", 1)) != 1:
-                            raise ValueError(
+                            raise TeamTrainingSessionVoid(
                                 f"{left.get('name')} 与 {right.get('name')} 已产生负面关系，训练自动终止"
                             )
                     pair_details[(*left_key, *right_key)] = detail
@@ -11640,7 +11759,7 @@ class LocalOddsState:
                 )
                 source = live_people[("player", int(mentor["id"]))]["source"]
                 if not mentor_credible(source):
-                    raise ValueError(MENTOR_NOT_CREDIBLE_MESSAGE)
+                    raise TeamTrainingSessionVoid(MENTOR_NOT_CREDIBLE_MESSAGE)
             coach_source: dict[str, Any] | None = None
             coach_multiplier = 1.0
             if session["room_sku"] == "tactical_room":
@@ -11650,7 +11769,7 @@ class LocalOddsState:
                 coach_source = live_people[("staff", int(coach["id"]))]["source"]
                 license_code = int((coach_source.get("coaching_license") or {}).get("code") or 0)
                 if not tactical_coach_eligible(coach_source):
-                    raise ValueError(TACTICAL_COACH_MESSAGE)
+                    raise TeamTrainingSessionVoid(TACTICAL_COACH_MESSAGE)
                 coach_multiplier = coach_composite_multiplier(
                     license_code, int(coach_source.get("current_reputation") or 0),
                 )
@@ -11775,6 +11894,10 @@ class LocalOddsState:
                     return staff_team_multiplier
                 return coach_multiplier
 
+            raw_target = session.get("target")
+            session_target = (
+                normalize_team_training_target(raw_target) if raw_target else None
+            )
             if int(plan["elapsed_days"]) > 0:
                 for beneficiary in plan["beneficiaries"]:
                     player_id = int(beneficiary["id"])
@@ -11806,8 +11929,21 @@ class LocalOddsState:
                             * (1.0 + partner_bonus(beneficiary))
                             * room_multiplier(beneficiary, key)
                         )
+                        # Session target, like equipment: raise effects stop
+                        # at the chosen value (+1 for until_increase), lower
+                        # effects drop one point; overflow past the goal is
+                        # dropped as equipment caps progress at the target.
+                        # Sessions without a target keep the old open run.
+                        goal = (
+                            team_training_goal(session_target, before, direction)
+                            if session_target is not None else None
+                        )
+                        if session_target is not None and goal is None:
+                            continue
                         after = before
                         while 1 <= after + direction <= 20:
+                            if goal is not None and after == goal:
+                                break
                             if mentor_id and (
                                 direction > 0 and after + direction > int(mentor_value)
                                 or direction < 0 and after + direction < int(mentor_value)
@@ -11818,6 +11954,8 @@ class LocalOddsState:
                                 break
                             points -= required
                             after += direction
+                        if goal is not None and after == goal:
+                            points = 0.0
                         attribute_progress_updates[progress_key] = points
                         amount = after - before
                         if not amount:
@@ -12041,11 +12179,7 @@ class LocalOddsState:
             raise
 
         invalidate_club_profile_cache()
-        return {
-            "ok": True, "settlement": committed["completed"],
-            "archive": committed["archive"],
-            "rooms": self.relationship_training_rooms_state(),
-        }
+        return committed
 
     def public_club_legacy(self, team_id: int = 0) -> dict[str, Any]:
         with self.lock:
@@ -23093,11 +23227,12 @@ def build_api_routes() -> RouteRegistry:
         "POST", "/api/rel3d/screenshot",
         lambda _handler, payload, _query: save_rel3d_screenshot(payload),
     )
+    # Manual team-training settle is available in release builds too.
+    routes.add(
+        "POST", "/api/training/relationship-rooms/settle",
+        _state_payload_route("relationship_training_room_settle"),
+    )
     if not FROZEN:
-        routes.add(
-            "POST", "/api/training/relationship-rooms/settle",
-            _state_payload_route("relationship_training_room_settle"),
-        )
         routes.add(
             "POST", "/api/bank/cheat-hundred-trillion",
             _state_payload_route("grant_temporary_bank_cheat"),

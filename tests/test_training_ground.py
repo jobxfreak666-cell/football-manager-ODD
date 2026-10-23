@@ -1110,6 +1110,26 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(due[0]["id"], focus["id"])
         self.assertEqual(due[0]["progress_points"], 14)
 
+    def test_equipment_settles_exactly_on_the_displayed_day(self) -> None:
+        # Already true before team training changes: settlement is driven by
+        # game-date catch-up in training_ground, with no FROZEN gate.
+        import inspect
+        import tools.training_ground as ground_module
+        self.assertNotIn("FROZEN", inspect.getsource(ground_module))
+        treadmill = _kept_facility("treadmill")
+        focus, _session = record_training_focus(
+            treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
+            "until_increase", 10,
+        )
+        shown = public_training_ground("2026-07-19")["focuses"][0]["estimated_days"]
+        self.assertEqual(shown, 5)
+        self.assertEqual(advance_training_focuses("2026-07-23"), [])
+        self.assertEqual(advance_training_focuses("2026-07-24")[0]["id"], focus["id"])
+        # A repeated or very late advance reports it due again but never
+        # over-credits: progress is capped at the requirement.
+        late = advance_training_focuses("2026-09-30")
+        self.assertEqual(late[0]["progress_points"], late[0]["required_points"])
+
     def test_training_submission_id_is_persisted_for_safe_retry(self) -> None:
         treadmill = _kept_facility("treadmill")
         _placed(treadmill["id"], "indoor", 35, 50)
