@@ -2667,24 +2667,30 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         self.assertNotIn("requestTrainingFloorUnlock", script)
         self.assertIn('"position_training_area"', script)
         self.assertIn('module:"position_training"', script)
-        self.assertIn("TRAINING_FLOOR_LABEL_KEYS", script)
+        # Floors are replaced by the four training modules; team training is the old 8F rooms.
+        self.assertNotIn("TRAINING_FLOOR_LABEL_KEYS", script)
+        modules = script.split("const TRAINING_MODULES = [", 1)[1].split("];", 1)[0]
+        for module in ("player_training", "position_training", "staff_training", "team_training"):
+            self.assertIn(f'key:"{module}"', modules)
 
 
     def test_training_floor_backgrounds_keep_office_separate_from_training_halls(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
+        script = (root / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("stage.dataset.module = app.trainingModule;", script)
 
-        self.assertIn(
-            ".training-stage.indoor_3f,.training-stage.indoor_4f,.training-stage.indoor_5f { background-image:url('/assets/training/indoor_2f.webp'); }",
-            styles,
-        )
-        self.assertIn(
-            ".training-stage.office_3f,.training-stage.office_6f { background-image:url('/assets/training/office_3f.webp'); }",
-            styles,
-        )
-        self.assertTrue(
-            (root / "web" / "assets" / "training" / "office_3f.webp").is_file(),
-        )
+        def background(module: str) -> str:
+            rule = styles.split(f'.training-stage[data-module="{module}"]', 1)[1].split("}", 1)[0]
+            return rule.split("url('", 1)[1].split("')", 1)[0]
+
+        # Staff training (office) keeps its own background, separate from the player training halls.
+        self.assertEqual(background("staff_training"), "/assets/training/office_3f.webp")
+        self.assertNotIn("office", background("player_training"))
+        self.assertNotIn("office", background("position_training"))
+        for module in ("player_training", "position_training", "staff_training", "team_training"):
+            self.assertTrue((root / "web" / background(module).lstrip("/")).is_file(), module)
+        self.assertNotIn(".training-stage.office_3f", styles)
 
 
     def test_staff_training_keeps_coaching_course_and_manager_path(self) -> None:
@@ -2733,14 +2739,22 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
     def test_relationship_room_detail_accepts_dom_string_instance_id(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('const lookupId = String(instanceId ?? "");', script)
-        self.assertIn('String(row.id ?? "") === lookupId', script)
+        # Team rooms are picked by their string SKU straight from the DOM dataset, and
+        # settlement sends the active room_id as a string.
+        self.assertIn("app.teamTrainingRoomSku = button.dataset.teamRoom;", script)
+        self.assertIn("rooms.find((room) => room.sku === app.teamTrainingRoomSku) || rooms[0] || null", script)
+        self.assertIn('const roomId = String(room?.active?.room_id || "");', script)
+        self.assertNotIn("const lookupId", script)
 
     def test_relationship_room_staff_sort_has_chief_classifier(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("function isStaffChief(staff)", script)
-        self.assertIn("[38, 44, 50, 62].includes(jobType)", script)
+        # Staff for a team room come from the backend's eligible_staff_ids; the frontend no
+        # longer classifies chiefs itself, and a player-manager is never offered as staff.
+        candidates = script.split("function teamTrainingCandidates(room, role) {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("room.eligible_staff_ids?.[role.key]", candidates)
+        self.assertIn('staff.training_subject_type !== "player_manager"', candidates)
+        self.assertNotIn("function isStaffChief(staff)", script)
 
     def test_relationship_training_people_include_youth_squads(self) -> None:
         profile = {

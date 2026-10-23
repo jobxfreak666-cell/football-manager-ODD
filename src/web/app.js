@@ -809,6 +809,7 @@ const app = {
   trainingSubmissionRetry: null,
   teamTrainingRoomSku: null,
   teamTrainingSelectionRoom: null,
+  teamTrainingSelectionScope: null,
   teamTrainingSelections: {},
   teamTrainingAttributes: new Set(),
   teamTrainingTarget: "until_increase",
@@ -12202,6 +12203,13 @@ function resetTrainingWorkspaceState() {
   app.trainingRosterLoadPromise = null;
   app._lastRosterSignature = null;
   app._lastDetailSignature = null;
+  app.teamTrainingSelectionRoom = null;
+  app.teamTrainingSelectionScope = null;
+  app.teamTrainingSelections = {};
+  app.teamTrainingEstimates = null;
+  app.teamTrainingPreview = null;
+  app.teamTrainingPreviewSeq = Number(app.teamTrainingPreviewSeq || 0) + 1;
+  app.teamTrainingSubmission = null;
 }
 function trainingRosterStale() {
   if (app.trainingModule === "staff_training") return !managedCoachingRostersAreCurrent();
@@ -12317,13 +12325,15 @@ function trainingPlayerAttributePanel(person) {
   const groups = Object.entries(person?.attributes || {})
     .filter(([, values]) => values && Object.keys(values).length)
     .sort(([left], [right]) => rank(left) - rank(right));
-  if (Object.keys(person?.hidden_attributes || {}).length) groups.push(["隐藏", person.hidden_attributes]);
+  if (app.showHiddenAttributes && Object.keys(person?.hidden_attributes || {}).length) groups.push(["隐藏", person.hidden_attributes]);
   if (!groups.length) {
     return `<div class="training-person-attributes empty">${uiText("world.player_detail.no_reliable_attributes")}</div>`;
   }
   const cell = (group, name, value) => {
     const label = group === "隐藏" && name === "争论" ? "争议性" : name;
-    return `<span class="attribute-value value-${trainingAttributeValueClass(value)}">${escapeHtml(localizedTrainingAttribute(label))}<b>${Number(value)}</b></span>`;
+    // Hidden attributes have no shared "higher is better" direction (high injury proneness is bad).
+    const tone = group === "隐藏" ? "normal" : trainingAttributeValueClass(value);
+    return `<span class="attribute-value value-${tone}">${escapeHtml(localizedTrainingAttribute(label))}<b>${Number(value)}</b></span>`;
   };
   return `<div class="training-person-attributes player-attribute-sections" role="region" aria-label="${escapeHtml(person.name || "")}">${groups.map(([group, values]) =>
     `<section class="player-attribute-group${group === "隐藏" ? " hidden-group" : ""}"><h4>${escapeHtml(localizedTrainingAttributeGroup(group))}</h4><div class="ability-list">${
@@ -12360,6 +12370,7 @@ function renderTrainingRoster() {
       String(person.training_subject_type || ""), trainingStaffEligible(person),
     ]),
     focusRows,
+    showHidden:Boolean(app.showHiddenAttributes),
     expanded:app.trainingPersonKind === kind
       ? (() => { const person = people.find((row) => Number(row.id) === Number(app.trainingPersonId)); return person ? (kind === "staff" ? [person.coaching_license || null] : [person.attributes || null, person.hidden_attributes || null]) : null; })()
       : null,
@@ -12559,8 +12570,11 @@ function teamTrainingCandidates(room, role) {
   return role.key === "mentor" ? players.filter(teamTrainingMentorQualified) : players;
 }
 function teamTrainingSelection(room) {
-  if (app.teamTrainingSelectionRoom !== room.sku) {
+  const scope = trainingScopeKey();
+  if (app.teamTrainingSelectionRoom !== room.sku || app.teamTrainingSelectionScope !== scope) {
     app.teamTrainingSelectionRoom = room.sku;
+    app.teamTrainingSelectionScope = scope;
+    app.teamTrainingSubmission = null;
     app.teamTrainingSelections = Object.fromEntries((room.roles || []).map((role) => [role.key, []]));
     app.teamTrainingAttributes = new Set((room.scope_attributes || []).map((attr) => attr.key));
     app.teamTrainingTarget = "until_increase";
@@ -12579,7 +12593,9 @@ function teamTrainingParticipants(room, selection) {
 }
 function teamTrainingReason(room, selection) {
   for (const role of room.roles || []) {
-    const count = (selection[role.key] || []).length;
+    // Only people on the current roster count; a stale ID from another save must not satisfy the minimum.
+    const candidates = new Set(teamTrainingCandidates(room, role).map((person) => Number(person.id)));
+    const count = (selection[role.key] || []).filter((id) => candidates.has(Number(id))).length;
     if (count < Number(role.min || 0)) {
       const label = teamTrainingRoleLabel(role);
       return Number(role.max) === 1 ? uiText("relationship.room.select_role", {role:label}) : uiText("training.team.reason_min", {role:label, min:Number(role.min)});
@@ -12602,9 +12618,18 @@ function teamTrainingPickTarget() {
     app.teamTrainingTarget = TEAM_TRAINING_TARGETS.find((mode) => !blocked(mode)) || "until_increase";
   }
 }
+function teamTrainingGameDate() {
+  return String(app.gameClock?.date || app.state?.game_clock?.date || output().game_date || "");
+}
+function teamTrainingPreviewKey(room, selection, payload) {
+  // Previews depend on the game day (settle_on), the account/save and each participant's current state.
+  const people = (room.roles || []).flatMap((role) => (selection[role.key] || []).map((id) =>
+    teamTrainingCandidates(room, role).find((row) => Number(row.id) === Number(id)) || null).filter(Boolean));
+  return JSON.stringify([trainingScopeKey(), teamTrainingGameDate(), payload, people]);
+}
 function maybeLoadTeamTrainingPreview(room, selection) {
   const payload = teamTrainingPreviewPayload(room, selection);
-  const key = JSON.stringify(payload);
+  const key = teamTrainingPreviewKey(room, selection, payload);
   if (app.teamTrainingPreview?.key === key) return;
   const token = Number(app.teamTrainingPreviewSeq || 0) + 1;
   app.teamTrainingPreviewSeq = token;
@@ -12772,7 +12797,7 @@ function renderTeamTrainingDetail() {
     <div class="team-effect-line"><em>${uiText("training.team.raise")}</em><div class="room-attr-chips">${inc.map(chip).join("")}</div></div>
     ${dec.length ? `<div class="team-effect-line"><em>${uiText("training.team.lower")}</em><div class="room-attr-chips">${dec.map(chip).join("")}</div></div>` : ""}
     <small class="training-project-description">${uiText("relationship.room.focus_hint")}</small></section>`;
-  const people = Object.values(selection).reduce((sum, ids) => sum + ids.length, 0);
+  const people = teamTrainingParticipants(room, selection).length;
   content.innerHTML = `<section class="training-detail-panel">
     <header class="training-detail-head"><div><strong>${escapeHtml(teamTrainingRoomName(room))}</strong><small>${escapeHtml(uiText(`training.team.need.${room.sku}`))}</small></div><span class="training-detail-ability">${escapeHtml(uiText("training.team.per_session", {amount:trainingFeeLabel(room.session_fee_minor)}))}</span></header>
     <form id="team-training-form" class="training-inline-form">
@@ -12796,6 +12821,8 @@ function rerenderTeamTraining() {
 }
 function applyTeamTrainingRooms(teamRooms) {
   if (!Array.isArray(teamRooms) || !app.state?.training_ground) return;
+  // Same guard as other training writes: an /api/state poll started earlier must not overwrite this.
+  app.trainingMutationRevision = Number(app.trainingMutationRevision || 0) + 1;
   app.state.training_ground = {...app.state.training_ground, team_rooms:teamRooms};
 }
 async function submitTeamTraining() {
@@ -12840,25 +12867,28 @@ async function submitTeamTraining() {
 async function settleTeamTrainingRoom(room) {
   const roomId = String(room?.active?.room_id || "");
   if (app.trainingActionBusy || !roomId) return;
+  const scopeAtStart = trainingScopeKey();
   const confirmed = await fmoddConfirm(
     uiText("relationship.room.settle_confirm"),
     uiText("relationship.room.settle_confirm_action"), uiText("relationship.room.settle_title"),
   );
-  if (!confirmed) return;
+  if (!confirmed || scopeAtStart !== trainingScopeKey()) return;
   const button = $("#training-settle-button");
   app.trainingActionBusy = true;
   button?.setAttribute("aria-busy", "true");
   renderTraining();
   try {
+    if (scopeAtStart !== trainingScopeKey()) return;
     const response = await request("/api/training/relationship-rooms/settle", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({room_id:roomId}),
     });
+    if (scopeAtStart !== trainingScopeKey()) return;
     applyTeamTrainingRooms(response.team_rooms);
     const attributes = response.settlement?.attribute_changes?.length || 0;
     const relationships = response.settlement?.relationship_changes?.length || 0;
     toast(uiText("relationship.room.settle_done", {attributes, relationships}));
-  } catch (error) { toast(error.message); }
+  } catch (error) { if (scopeAtStart === trainingScopeKey()) toast(error.message); }
   finally {
     app.trainingActionBusy = false;
     button?.removeAttribute("aria-busy");

@@ -48,7 +48,7 @@ const escapeHtml = (v) => String(v).replace(/[&<>"]/g, (c) => ({{"&":"&amp;","<"
 {LOCALIZE}
 {LICENCE}
 const PLAYERS = {json.dumps(PLAYERS, ensure_ascii=False)};
-const app = {{ trainingModule: "player_training", trainingPersonKind: null, trainingPersonId: null, trainingPlayerSearch: "" }};
+const app = {{ trainingModule: "player_training", trainingPersonKind: null, trainingPersonId: null, trainingPlayerSearch: "", showHiddenAttributes: false }};
 const roster = {{ dataset: {{}}, innerHTML: "" }};
 const $ = () => roster;
 const trainingRoster = () => PLAYERS;
@@ -67,8 +67,9 @@ const trainingFocusUsage = () => "";
     return result.stdout
 
 
-def rows_after_clicking(person_id, locale="zh-CN", kind="player", module="player_training"):
+def rows_after_clicking(person_id, locale="zh-CN", kind="player", module="player_training", show_hidden=True):
     out = run(locale, f"""
+app.showHiddenAttributes = {json.dumps(show_hidden)};
 app.trainingModule = {json.dumps(module)};
 app.trainingPersonKind = {json.dumps(kind)};
 app.trainingPersonId = {json.dumps(person_id)};
@@ -163,11 +164,61 @@ class TrainingRosterAttributesTest(unittest.TestCase):
         self.assertNotIn("training.no_next_licence", unread)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_staff_licence_name_follows_ui_language_by_code(self):
         row = staff_rows_after_clicking(104)[3]
         self.assertIn("<b>training.licence.national_b</b>", row)
         self.assertIn("training.next_license</span><b>training.licence.national_a</b>", row)
         self.assertNotIn("国家", row)
+
+    def test_hidden_attributes_stay_hidden_when_setting_is_off(self):
+        row = rows_after_clicking(1, show_hidden=False)[0]
+        self.assertIn("training-person-attributes", row)
+        self.assertNotIn("<h4>隐藏</h4>", row)
+        self.assertNotIn("hidden-group", row)
+        for hidden in ("争议性", "左脚", "右脚", "受伤倾向"):
+            self.assertNotIn(hidden, row)
+        self.assertIn("传球<b>16</b>", row)
+
+    def test_hidden_attributes_show_when_setting_is_on(self):
+        row = rows_after_clicking(1, show_hidden=True)[0]
+        self.assertIn("<h4>隐藏</h4>", row)
+        self.assertIn("受伤倾向<b>7</b>", row)
+
+    def test_turning_setting_off_refreshes_the_open_row(self):
+        out = run("zh-CN", """
+app.trainingPersonKind = "player";
+app.trainingPersonId = 1;
+app.showHiddenAttributes = true;
+renderTrainingRoster();
+const on = roster.innerHTML;
+app.showHiddenAttributes = false;
+renderTrainingRoster();
+console.log(JSON.stringify([on, roster.innerHTML]))
+""")
+        on, off = json.loads(out)
+        self.assertIn("受伤倾向", on)
+        self.assertNotIn("受伤倾向", off)
+        self.assertNotIn("hidden-group", off)
+
+    def test_hidden_attribute_cells_use_neutral_tone(self):
+        out = run("zh-CN", """
+app.trainingPersonKind = "player";
+app.trainingPersonId = 1;
+app.showHiddenAttributes = true;
+PLAYERS[0].hidden_attributes = {"受伤倾向": 20, "争论": 3, "左脚": 16};
+renderTrainingRoster();
+console.log(JSON.stringify(roster.innerHTML.split('<article').slice(1)));
+""")
+        row = json.loads(out)[0]
+        hidden = row.split('hidden-group', 1)[1]
+        self.assertIn('value-normal">受伤倾向<b>20</b>', hidden)
+        self.assertIn('value-normal">争议性<b>3</b>', hidden)
+        self.assertIn('value-normal">左脚<b>16</b>', hidden)
+        for tone in ("value-elite", "value-good", "value-weak"):
+            self.assertNotIn(tone, hidden)
+        # Visible attributes keep their colour scale.
+        self.assertIn('value-elite">传球<b>16</b>', row)
+
+
+if __name__ == "__main__":
+    unittest.main()
