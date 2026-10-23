@@ -1,5 +1,7 @@
 import threading
 import base64
+import uuid
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
@@ -777,7 +779,7 @@ def test_team_room_enter_returns_team_rooms_with_active_session(team_room_store)
     value = team_training_state()
     result = _enter(value, _mind_payload())
     rooms = {room["sku"]: room for room in result["team_rooms"]}
-    active = rooms["mind_room"]["active"]
+    active, = rooms["mind_room"]["active"]
     assert active["room_id"] == result["room"]["id"]
     assert active["status"] == "occupied"
     assert active["participants"][0]["id"] == 1
@@ -1202,8 +1204,8 @@ def test_enter_stores_estimated_settle_date_and_payload_shows_it(team_room_store
     with patch("fm_odds_web.public_training_ground", return_value={}):
         ground = value._public_training_ground("2026-08-22")
     rooms_by_sku = {row["sku"]: row for row in ground["team_rooms"]}
-    assert rooms_by_sku["tactical_room"]["active"] is None
-    assert rooms_by_sku["mind_room"]["active"] == {
+    assert rooms_by_sku["tactical_room"]["active"] == []
+    assert rooms_by_sku["mind_room"]["active"] == [{
         "room_id": room["id"], "status": "occupied",
         "started_on": "2026-08-20", "settle_on": "2026-08-24",
         "estimated_total_days": 4, "days_used": 2, "remaining_days": 2,
@@ -1212,8 +1214,91 @@ def test_enter_stores_estimated_settle_date_and_payload_shows_it(team_room_store
             "id": 1, "kind": "player", "role": "player_a", "name": "A",
             "estimated_days": 4, "settle_on": "2026-08-24", "remaining_days": 2,
         }],
-    }
+    }]
     assert ground["eligible_staff_ids"] == {"analyst": [60], "coach": [20], "scientist": [40]}
+
+
+def _legacy_rooms_of_one_type(store, value):
+    """An old save holding two running mind rooms (one per old floor)."""
+    first = _enter(value, _mind_payload("legacy-a", player_id=1), estimate=6)["room"]["id"]
+    second = str(uuid.uuid4())
+    store["relationship_training_rooms"]["rooms"].append({
+        **deepcopy(_team_room(store, first)), "id": second,
+        "client_submission_id": "legacy-b", "estimated_settle_on": "2026-08-23",
+        "participants": [{**_team_room(store, first)["participants"][0], "id": 2, "name": "B"}],
+    })
+    return first, second
+
+
+def test_team_rooms_list_every_running_session_of_a_type_by_settle_date(team_room_store):
+    value = team_training_state()
+    first, second = _legacy_rooms_of_one_type(team_room_store, value)
+    with patch("fm_odds_web.public_training_ground", return_value={}):
+        ground = value._public_training_ground("2026-08-21")
+    rooms_by_sku = {row["sku"]: row for row in ground["team_rooms"]}
+    active = rooms_by_sku["mind_room"]["active"]
+    assert [row["room_id"] for row in active] == [second, first]
+    assert [row["settle_on"] for row in active] == ["2026-08-23", "2026-08-26"]
+    assert [row["participants"][0]["id"] for row in active] == [2, 1]
+    assert {
+        "room_id", "started_on", "settle_on", "fee_minor", "target",
+        "attributes", "participants",
+    } <= set(active[0])
+
+
+def test_settle_endpoint_settles_only_the_room_id_it_was_given(team_room_store):
+    value = team_training_state()
+    first, second = _legacy_rooms_of_one_type(team_room_store, value)
+    settled = []
+    value.output["game_date"] = "2026-08-22"
+    with (
+        patch.object(value, "_settle_relationship_training_room",
+                     side_effect=_fake_settle(value, settled)),
+        patch.object(value, "relationship_training_rooms_state", return_value={}),
+        patch("fm_odds_web.public_training_ground", return_value={}),
+    ):
+        result = value.relationship_training_room_settle({"room_id": first})
+    assert settled == [(first, "2026-08-22")]
+    assert _team_room(team_room_store, first)["status"] == "idle"
+    assert _team_room(team_room_store, second)["status"] == "occupied"
+    mind = next(row for row in result["team_rooms"] if row["sku"] == "mind_room")
+    assert [row["room_id"] for row in mind["active"]] == [second]
+    with pytest.raises(ValueError, match="缺少房间实例"):
+        value.relationship_training_room_settle({})
+
+
+def test_global_manual_settle_leaves_a_not_yet_due_team_room_running(team_room_store):
+    value = team_training_state()
+    due_id = _enter(value, _mind_payload("global-due", player_id=2), estimate=1)["room"]["id"]
+    running_id = _enter(value, _tactical_payload(20, "global-running"), estimate=10)["room"]["id"]
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
+    value.output["game_date"] = "2026-08-22"
+    value.club_profile = None
+    value.attribute_growth_hook = Mock()
+    value.attribute_growth_hook.sync.return_value = {"installed": False}
+    settled = []
+    with (
+        patch.object(value, "_timed_user_memory_operation", return_value=operation_context()),
+        patch.object(value, "_bind_current_save"),
+        patch("fm_odds_web.set_active_save_id"),
+        patch.object(value, "_ensure_training_task_migration", return_value=False),
+        patch.object(value, "_settle_relationship_training_room",
+                     side_effect=_fake_settle(value, settled)),
+        patch("fm_odds_web.borrow_game_operation", side_effect=lambda: operation_context()),
+        patch("fm_odds_web.persons_relation_negative", return_value=False),
+        patch("fm_odds_web.active_training_focuses", return_value=[]),
+        patch("fm_odds_web.advance_training_focuses", return_value=[]),
+        patch("fm_odds_web.due_coaching_license_focuses", return_value=[]),
+        patch("fm_odds_web.public_training_ground", return_value={}),
+    ):
+        result = value.training_settle({})
+    assert settled == [(due_id, "2026-08-21")]
+    assert result["settlement"]["team_training"]["settled_room_ids"] == [due_id]
+    assert _team_room(team_room_store, running_id)["status"] == "occupied"
+    tactical = next(
+        row for row in result["training_ground"]["team_rooms"] if row["sku"] == "tactical_room"
+    )
+    assert [row["room_id"] for row in tactical["active"]] == [running_id]
 
 
 def test_enter_uses_the_chosen_target_option_and_per_person_days(team_room_store):

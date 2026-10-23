@@ -10952,10 +10952,18 @@ class LocalOddsState:
                     })
                     for role in staff_roles
                 },
-                # One session per room at a time; None when the room is free.
-                "active": next((
-                    row["active"] for row in active_sessions if row.get("sku") == sku
-                ), None),
+                # Every running session of this room type, earliest settle
+                # date first (no date last); [] when the room is free. New
+                # sessions are one per type, old saves can hold several.
+                "active": sorted(
+                    (row["active"] for row in active_sessions if row.get("sku") == sku),
+                    key=lambda active: (
+                        active.get("settle_on") is None,
+                        str(active.get("settle_on") or ""),
+                        str(active.get("started_on") or ""),
+                        str(active.get("room_id") or ""),
+                    ),
+                ),
             })
         return rooms
 
