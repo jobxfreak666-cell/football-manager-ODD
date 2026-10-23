@@ -1248,14 +1248,25 @@ def test_sweep_catches_a_missed_session(team_room_store):
     busy = Mock(side_effect=RuntimeError("游戏忙"))
     failed = _advance(value, "2026-08-24", settled, settle=busy)
     assert failed["errors"] and failed["sweep"] is False
-    # Same game date again: the due check already tried today, no retry.
+    # The failed attempt is not recorded as done: the next sync the same game
+    # date retries and settles it once.
+    assert _team_room(team_room_store, room_id)["status"] == "occupied"
+    retried = _advance(value, "2026-08-24", settled)
+    assert retried["settled_room_ids"] == [room_id]
+    assert settled == [(room_id, "2026-08-24")]
     assert _advance(value, "2026-08-24", settled)["settled_room_ids"] == []
-    # The game date then jumps back (another save loaded) and the sweep runs.
-    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-10"
+    assert settled == [(room_id, "2026-08-24")]
+
+
+def test_sweep_runs_when_the_game_date_moves_back(team_room_store):
+    value = team_training_state()
+    room_id = _enter(value, _mind_payload("back"), estimate=4)["room"]["id"]
+    _team_room(team_room_store, room_id)["estimated_settle_on"] = None
+    team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-30"
+    settled = []
     swept = _advance(value, "2026-08-24", settled)
     assert swept["sweep"] is True
     assert swept["settled_room_ids"] == [room_id]
-    assert settled == [(room_id, "2026-08-24")]
     assert team_room_store["relationship_training_rooms"]["last_sweep_on"] == "2026-08-24"
 
 
@@ -1589,7 +1600,7 @@ def test_left_participant_detected_on_game_day_settles_once_on_every_path(team_r
     assert _team_room(team_room_store, room_id)["status"] == "idle"
 
 
-def test_left_participant_found_by_the_sweep_settles_once(team_room_store):
+def test_left_participant_retried_after_a_failed_settle_settles_once(team_room_store):
     value = team_training_state()
     room_id = _enter(value, _tactical_payload(20, "left-sweep"), estimate=30)["room"]["id"]
     team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-20"
@@ -1597,10 +1608,12 @@ def test_left_participant_found_by_the_sweep_settles_once(team_room_store):
     settled = []
     busy = Mock(side_effect=RuntimeError("游戏忙"))
     assert _advance(value, "2026-08-21", settled, settle=busy)["errors"]
-    assert _advance(value, "2026-08-21", settled)["settled_room_ids"] == []
+    retried = _advance(value, "2026-08-21", settled)
+    assert retried["early_settled_room_ids"] == [room_id]
+    assert settled == [(room_id, "2026-08-21")]
     team_room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-08-01"
     swept = _advance(value, "2026-08-21", settled)
-    assert swept["sweep"] is True and swept["early_settled_room_ids"] == [room_id]
+    assert swept["sweep"] is True and swept["settled_room_ids"] == []
     assert settled == [(room_id, "2026-08-21")]
 
 

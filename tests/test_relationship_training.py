@@ -569,18 +569,25 @@ def test_target_options_fall_back_to_intimacy_for_height_only():
     assert options["20"]["days"] == 5
 
 
-def test_claim_marks_each_due_room_once_per_game_date(room_store):
+def test_claim_returns_a_due_room_until_it_is_settled(room_store):
     entered = rooms.enter_relationship_training_room(
         "mind_room", [_player(1, "player_a")], ["精神:意志力"], "2026-07-19",
         client_submission_id="claim", estimated_days=2,
     )
+    room_id = entered["room"]["id"]
     room_store["relationship_training_rooms"]["last_sweep_on"] = "2026-07-19"
     assert rooms.claim_due_team_training_rooms("2026-07-20")["rooms"] == []
-    claim = rooms.claim_due_team_training_rooms("2026-07-25")
-    assert claim["rooms"] == [{
-        "room_id": entered["room"]["id"], "room_sku": "mind_room",
+    expected = [{
+        "room_id": room_id, "room_sku": "mind_room",
         "completed_on": "2026-07-21", "early_reason": "",
     }]
+    assert rooms.claim_due_team_training_rooms("2026-07-25")["rooms"] == expected
+    # A claim whose settle failed is not burned: the same date claims it again.
+    assert rooms.claim_due_team_training_rooms("2026-07-25")["rooms"] == expected
+    stored = room_store["relationship_training_rooms"]["rooms"][0]
+    assert stored["status"] == "occupied" and not stored.get("auto_settle_attempted_on")
+    session = rooms.release_relationship_training_room(room_id, "2026-07-21")
+    rooms.finalize_relationship_training_room(room_id, session["id"], {})
     assert rooms.claim_due_team_training_rooms("2026-07-25")["rooms"] == []
 
 
@@ -598,9 +605,10 @@ def test_claim_settles_an_early_room_today_once(room_store):
         "room_id": room_id, "room_sku": "mind_room",
         "completed_on": "2026-07-22", "early_reason": "x",
     }]
-    assert rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})["rooms"] == []
     session = rooms.release_relationship_training_room(room_id, "2026-07-22")
     assert session["captured_multipliers"] == {"coach": 1.5}
+    # Settling: a repeated claim the same day finds nothing to release twice.
+    assert rooms.claim_due_team_training_rooms("2026-07-22", {room_id: "x"})["rooms"] == []
 
 
 # ---- 断电/被杀进程后重试：扣钱、房间、提交编号必须一起落盘 ----

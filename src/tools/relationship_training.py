@@ -1067,11 +1067,13 @@ def claim_due_team_training_rooms(
     """The single due check for team-training sessions; change cadence here.
 
     On every game-date advance a session is due once its game date reaches
-    ``estimated_settle_on``; it is tried at most once per game date. Every
-    ``TEAM_TRAINING_SWEEP_INTERVAL_DAYS`` a sweep also retries due sessions
-    already tried today and picks up sessions with no estimate. Claims are
-    recorded atomically, so repeated runs on one date do not retry. Settling
-    itself stays exactly-once through ``release_relationship_training_room``.
+    ``estimated_settle_on``. Every ``TEAM_TRAINING_SWEEP_INTERVAL_DAYS`` a
+    sweep also picks up sessions with no estimate. Claiming writes nothing to
+    the room: a settle that fails (game busy, unreadable roster) leaves the
+    room occupied and due, so the next sync retries it, even on the same game
+    date. A successful settle resets the room, so a settled session is never
+    claimed again. Settling itself stays exactly-once through
+    ``release_relationship_training_room``.
 
     ``early_room_ids`` maps a not-yet-due room to the reason a participant
     stopped qualifying; such a room is claimed today and settles early with
@@ -1092,8 +1094,6 @@ def claim_due_team_training_rooms(
             due = _parse_date(room.get("estimated_settle_on"))
             early_reason = early.get(str(room.get("id") or ""))
             if early_reason and (due is None or due > today):
-                if room.get("auto_settle_attempted_on") == game_date and not sweep:
-                    continue
                 settle_on = game_date
             elif due is None:
                 if not sweep:
@@ -1102,10 +1102,7 @@ def claim_due_team_training_rooms(
             else:
                 if due > today:
                     continue
-                if room.get("auto_settle_attempted_on") == game_date and not sweep:
-                    continue
                 settle_on = due.isoformat()
-            room["auto_settle_attempted_on"] = game_date
             claimed.append({
                 "room_id": str(room.get("id") or ""), "room_sku": str(room.get("sku") or ""),
                 "completed_on": settle_on,
