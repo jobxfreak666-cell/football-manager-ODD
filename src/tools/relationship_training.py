@@ -533,6 +533,11 @@ def team_training_target_options(
     return options
 
 
+def _days_until(settle_on: Any, today: Any) -> int | None:
+    due = _parse_date(settle_on)
+    return max(0, (due - today).days) if today and due else None
+
+
 def public_team_training_session(room: dict[str, Any], game_date: str = "") -> dict[str, Any]:
     """Room record plus the 预计时间 fields the frontend shows."""
     result = dict(room)
@@ -555,8 +560,10 @@ def public_team_training_session(room: dict[str, Any], game_date: str = "") -> d
             {
                 "id": int(row.get("id") or 0), "kind": str(row.get("kind") or ""),
                 "role": str(row.get("role") or ""), "name": str(row.get("name") or ""),
+                # Total days from started_on; remaining_days counts from today.
                 "estimated_days": row.get("estimated_days"),
                 "settle_on": row.get("settle_on"),
+                "remaining_days": _days_until(row.get("settle_on"), today),
             }
             for row in room.get("participants") or []
         ],

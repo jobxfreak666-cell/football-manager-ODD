@@ -11622,6 +11622,7 @@ class LocalOddsState:
             "replayed": bool(result.get("replayed")),
             "session_fee_minor": fee_minor,
             "rooms": self.relationship_training_rooms_state(),
+            "team_rooms": self._team_training_rooms(game_date),
             "economy": public_economy(),
         }
 
@@ -11643,10 +11644,13 @@ class LocalOddsState:
         if not room_id:
             raise ValueError("缺少房间实例")
         committed = self._settle_relationship_training_room(room_id)
+        with self.lock:
+            game_date = str(self.output.get("game_date") or "")
         return {
             "ok": True, "settlement": committed["completed"],
             "archive": committed["archive"],
             "rooms": self.relationship_training_rooms_state(),
+            "team_rooms": self._team_training_rooms(game_date),
         }
 
     def _team_training_participant_left(

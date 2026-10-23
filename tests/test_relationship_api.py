@@ -734,6 +734,33 @@ def test_team_room_enter_needs_no_unlock_and_charges_half_price_once(team_room_s
     assert again["payment"] == result["payment"]
 
 
+def test_team_room_enter_returns_team_rooms_with_active_session(team_room_store):
+    value = team_training_state()
+    result = _enter(value, _mind_payload())
+    rooms = {room["sku"]: room for room in result["team_rooms"]}
+    active = rooms["mind_room"]["active"]
+    assert active["room_id"] == result["room"]["id"]
+    assert active["status"] == "occupied"
+    assert active["participants"][0]["id"] == 1
+
+
+def test_team_session_participant_remaining_days_counts_from_today():
+    from tools.relationship_training import public_team_training_session
+    room = {
+        "id": "r1", "status": "occupied", "started_on": "2026-07-01",
+        "estimated_settle_on": "2026-07-15", "estimated_total_days": 14,
+        "participants": [
+            {"id": 1, "kind": "player", "estimated_days": 14, "settle_on": "2026-07-15"},
+            {"id": 2, "kind": "player", "estimated_days": 6, "settle_on": "2026-07-07"},
+        ],
+    }
+    people = public_team_training_session(room, "2026-07-05")["active"]["participants"]
+    assert [row["estimated_days"] for row in people] == [14, 6]
+    assert [row["remaining_days"] for row in people] == [10, 2]
+    late = public_team_training_session(room, "2026-07-10")["active"]["participants"]
+    assert late[1]["remaining_days"] == 0
+
+
 def test_team_room_enter_requires_request_id_before_charging(team_room_store):
     value = team_training_state()
     charges = []
@@ -834,6 +861,7 @@ def _settle_tactical(value, coach_id, *, frozen=False):
         "beneficiaries": [player], "attributes": [], "pairs": [],
     }
     with (
+        patch.object(value, "_team_training_rooms", return_value=[]),
         patch("fm_odds_web.FROZEN", frozen),
         patch.object(value, "_bind_current_save"),
         patch.object(value, "_data_scope_id", return_value="account-1"),
@@ -906,6 +934,7 @@ def test_manual_team_settle_works_in_release_build():
 
 def _settle_with_attribute(value, session, plan, values, *, relation=None, required=100):
     with (
+        patch.object(value, "_team_training_rooms", return_value=[]),
         patch.object(value, "_bind_current_save"),
         patch.object(value, "_data_scope_id", return_value="account-1"),
         patch.object(value, "_ensure_training_task_migration", return_value=False),
@@ -1089,7 +1118,7 @@ def test_enter_stores_estimated_settle_date_and_payload_shows_it(team_room_store
         "fee_minor": 250_000_000, "attributes": ["精神:意志力"], "target": "16",
         "participants": [{
             "id": 1, "kind": "player", "role": "player_a", "name": "A",
-            "estimated_days": 4, "settle_on": "2026-08-24",
+            "estimated_days": 4, "settle_on": "2026-08-24", "remaining_days": 2,
         }],
     }
     assert ground["eligible_staff_ids"] == {"analyst": [60], "coach": [20], "scientist": [40]}
@@ -1340,6 +1369,7 @@ def _settle_mind(target, *, direction="inc", before=10, points=9.0):
         "pairs": [],
     }
     with (
+        patch.object(value, "_team_training_rooms", return_value=[]),
         patch("fm_odds_web.FROZEN", True),
         patch.object(value, "_bind_current_save"),
         patch.object(value, "_ensure_training_task_migration", return_value=False),
