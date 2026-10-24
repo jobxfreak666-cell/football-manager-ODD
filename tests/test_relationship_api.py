@@ -1712,6 +1712,154 @@ def test_settle_records_once_that_game_writes_began(native_write_marker):
     native_write_marker.assert_not_called()
 
 
+@pytest.fixture()
+def sports_science_settlement(team_room_store, monkeypatch):
+    from tools import relationship_training as rooms
+
+    value = team_training_state()
+    value.output["game_date"] = "2026-08-21"
+    value.club_profiles[10]["players"][0]["height_cm"] = 180
+    value.club_profiles[10]["staff"][-1]["abilities"] = {"运动科学": 10}
+    native = {"height": 180, "bravery": 12, "condition": 9000}
+    read_targets = []
+    options = {"roll": 0.0, "fail_condition": False}
+
+    def update_documents(defaults, mutator, scope_id):
+        assert scope_id == "account-1"
+        documents = {
+            key: deepcopy(team_room_store.get(key, default))
+            for key, default in defaults.items()
+        }
+        result = mutator(documents)
+        team_room_store.update(documents)
+        return deepcopy(result)
+
+    def read_attributes(targets):
+        read_targets.extend(targets)
+        return {row["id"]: native["bravery"] for row in targets}
+
+    def write_height(player_id, address, key, before, direction):
+        assert (player_id, address, key, before, direction) == (
+            1, "0x1000", "physical:height", native["height"], 1,
+        )
+        native["height"] += direction
+        return {"_original_raw": before, "_updated_raw": native["height"]}
+
+    def write_bravery(player_id, address, key, before, operation, amount):
+        assert (player_id, address, key, before, operation, amount) == (
+            1, "0x1000", "精神:勇敢", native["bravery"], "training", 1,
+        )
+        native["bravery"] += amount
+        return {"_original_raw": before, "_original_ca": 120, "_original_pa": 160}
+
+    def write_condition(*_args):
+        if options["fail_condition"]:
+            raise RuntimeError("condition write failed")
+        before = native["condition"]
+        native["condition"] += 100
+        return {"before": before, "after": native["condition"],
+                "_original": before, "_updated": native["condition"]}
+
+    def restore_height(_player_id, _address, key, original, updated):
+        assert key == "physical:height" and native["height"] == updated
+        native["height"] = original
+
+    def restore_bravery(_player_id, _address, original, *_args, **_kwargs):
+        native["bravery"] = original
+
+    monkeypatch.setattr(rooms, "update_documents", update_documents)
+    monkeypatch.setattr(value, "_bind_current_save", lambda: None)
+    monkeypatch.setattr(value, "_data_scope_id", lambda _output: "account-1")
+    monkeypatch.setattr(value, "_ensure_training_task_migration", lambda _date: False)
+    monkeypatch.setattr(fm_odds_web, "borrow_game_operation", lambda **_kw: operation_context())
+    monkeypatch.setattr(fm_odds_web, "resolve_public_person_address",
+                        lambda _reader, person, _kind: int(person["address"], 16))
+    monkeypatch.setattr(fm_odds_web, "read_person_public_profile",
+                        lambda _reader, address: {"uid": {0x1000: 1, 0x4000: 40}[address]})
+    monkeypatch.setattr(fm_odds_web, "read_relationship_pair", lambda *_args: {})
+    monkeypatch.setattr(fm_odds_web, "read_player_training_attributes", read_attributes)
+    monkeypatch.setattr(fm_odds_web, "deterministic_settlement_roll", lambda *_args: options["roll"])
+    monkeypatch.setattr(fm_odds_web, "develop_player_hidden_attribute", write_height)
+    monkeypatch.setattr(fm_odds_web, "develop_player", write_bravery)
+    monkeypatch.setattr(fm_odds_web, "adjust_player_training_condition", write_condition)
+    monkeypatch.setattr(fm_odds_web, "restore_player_hidden_attribute", restore_height)
+    monkeypatch.setattr(fm_odds_web, "restore_player_development", restore_bravery)
+    monkeypatch.setattr(fm_odds_web, "mark_relationship_training_native_writes",
+                        rooms.mark_relationship_training_native_writes)
+    monkeypatch.setattr(fm_odds_web, "invalidate_club_profile_cache", lambda: None)
+
+    def start(attributes):
+        entered = rooms.enter_relationship_training_room(
+            "sports_science_room", [
+                {"kind": "staff", "id": 40, "name": "科学职员", "role": "scientist", "team_id": 10},
+                {"kind": "player", "id": 1, "name": "A", "role": "player", "team_id": 10},
+            ], attributes, "2026-08-20", client_submission_id="height-session",
+            target="until_increase", captured_multipliers={
+                "daily_points": {"1:精神:勇敢": 1000.0},
+            },
+        )
+        return entered["room"]["id"]
+
+    return SimpleNamespace(
+        state=value, documents=team_room_store, native=native,
+        read_targets=read_targets, options=options, start=start,
+    )
+
+
+@pytest.mark.parametrize("attributes", [
+    ["physical:height"],
+    ["精神:勇敢", "physical:height"],
+    ["physical:height", "精神:勇敢"],
+])
+@pytest.mark.parametrize("roll, expected_height", [(0.0, 181), (0.99, 180)])
+def test_sports_science_settles_height_separately_from_ordinary_attributes(
+    sports_science_settlement, attributes, roll, expected_height,
+):
+    case = sports_science_settlement
+    case.options["roll"] = roll
+    room_id = case.start(attributes)
+    result = case.state._settle_relationship_training_room(room_id)
+
+    completed = result["completed"]
+    assert completed["status"] == "completed" and completed["elapsed_days"] == 1
+    assert case.native == {
+        "height": expected_height,
+        "bravery": 13 if "精神:勇敢" in attributes else 12,
+        "condition": 9100,
+    }
+    changes = {row["attribute"]: row for row in completed["attribute_changes"]}
+    assert ("physical:height" in changes) == (expected_height == 181)
+    if expected_height == 181:
+        assert (changes["physical:height"]["before"], changes["physical:height"]["after"]) == (180, 181)
+    if "精神:勇敢" in attributes:
+        assert (changes["精神:勇敢"]["before"], changes["精神:勇敢"]["after"]) == (12, 13)
+    assert [row["attribute_key"] for row in case.read_targets] == (
+        ["精神:勇敢"] if "精神:勇敢" in attributes else []
+    )
+    document = case.documents["relationship_training_rooms"]
+    assert document["height_baselines"] == {"1": 180}
+    assert document["rooms"][0]["status"] == "idle"
+    assert document["rooms"][0]["last_session"] == completed
+    assert len(case.documents["training_archive"]["events"]) == 1
+
+
+def test_sports_science_rolls_back_height_and_other_effects_if_later_write_fails(
+    sports_science_settlement,
+):
+    case = sports_science_settlement
+    case.options["fail_condition"] = True
+    room_id = case.start(["精神:勇敢", "physical:height"])
+
+    with pytest.raises(RuntimeError, match="condition write failed"):
+        case.state._settle_relationship_training_room(room_id)
+
+    assert case.native == {"height": 180, "bravery": 12, "condition": 9000}
+    document = case.documents["relationship_training_rooms"]
+    assert document["rooms"][0]["status"] == "occupied"
+    assert document["height_baselines"] == {}
+    assert "training_archive" not in case.documents
+
+
 # ---- 团队训练：参与者离队 → 当天提前结算，跳过此人 ----
 
 def _without(value, kind, person_id):

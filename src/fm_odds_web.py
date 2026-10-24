@@ -4246,6 +4246,9 @@ class TeamTrainingSettlement:
                 player_id = int(beneficiary["id"])
                 live = live_people[("player", player_id)]
                 for attribute in plan["attributes"]:
+                    # Height uses the centimetre/probability path below.
+                    if str(attribute.get("kind")) == "height":
+                        continue
                     key = str(attribute["key"])
                     direction = -1 if attribute.get("direction") == "dec" else 1
                     before = int(current_values[f"{player_id}:{key}"])
