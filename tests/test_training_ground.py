@@ -2740,10 +2740,19 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         # Team rooms are picked by their string SKU straight from the DOM dataset, and
-        # settlement sends the active room_id as a string.
+        # "end early" settles only the selected session, sending its room_id as a string.
         self.assertIn("app.teamTrainingRoomSku = button.dataset.teamRoom;", script)
         self.assertIn("rooms.find((room) => room.sku === app.teamTrainingRoomSku) || rooms[0] || null", script)
-        self.assertIn('const roomId = String(room?.active?.room_id || "");', script)
+        self.assertIn("endTeamTrainingEarly(teamTrainingRoom(), endEarly.dataset.teamEndEarly);", script)
+        settle = script.split("async function endTeamTrainingEarly(room, roomId) {", 1)[1].split(
+            "\nfunction bindTeamTrainingEvents()", 1,
+        )[0]
+        self.assertIn('roomId = String(roomId || "");', settle)
+        self.assertIn(
+            "if (!teamTrainingSessions(room).some((row) => String(row.room_id) === roomId)) return;",
+            settle,
+        )
+        self.assertIn("body:JSON.stringify({room_id:roomId})", settle)
         self.assertNotIn("const lookupId", script)
 
     def test_relationship_room_staff_sort_has_chief_classifier(self) -> None:
