@@ -1535,6 +1535,37 @@ def test_room_stuck_settling_after_writing_completes_without_reapplying(team_roo
     assert team_room_store["relationship_training_rooms"]["attribute_progress"] == {}
 
 
+def test_legacy_settling_record_after_old_crash_is_never_settled_again(team_room_store, monkeypatch):
+    value = team_training_state()
+    room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "legacy-old", wrote=False)
+    # The old version wrote effects, then crashed; its record has no marker.
+    pending = _team_room(team_room_store, room_id)["pending_session"]
+    pending.pop("settle_owner")
+    pending.pop("native_writes_started")
+    settled = []
+    listing, commit = _recovering(team_room_store)
+    with (
+        listing, commit as committed,
+        patch("fm_odds_web.develop_player") as develop,
+        patch("fm_odds_web.develop_player_hidden_attribute") as develop_hidden,
+        patch("fm_odds_web.adjust_player_training_condition") as condition,
+        patch("fm_odds_web.write_bidirectional_intimacy") as intimacy,
+    ):
+        result = _advance(value, "2026-08-25", settled)
+        assert result["recovered_room_ids"] == [room_id] and result["errors"] == []
+        for day in ("2026-08-26", "2026-09-30"):
+            assert _advance(value, day, settled)["settled_room_ids"] == []
+    assert settled == [] and result["settled_room_ids"] == []
+    for native in (develop, develop_hidden, condition, intimacy):
+        native.assert_not_called()
+    committed.assert_called_once()
+    room = _team_room(team_room_store, room_id)
+    assert room["status"] == "idle"
+    marker = room["last_session"]["effects"]["interrupted_settlement"]
+    assert marker["native_writes_unverified"] is True
+    assert team_room_store["relationship_training_rooms"]["attribute_progress"] == {}
+
+
 def test_manual_settle_frees_a_room_stuck_settling_first(team_room_store, monkeypatch):
     value = team_training_state()
     room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "stuck-manual", wrote=False)

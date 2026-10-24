@@ -840,3 +840,32 @@ def test_submission_history_keeps_far_more_ids_than_receipts(room_store):
     normalized = rooms._normalize_state(deepcopy(state))
     assert len(normalized["submissions"]) == rooms.SUBMISSION_HISTORY_LIMIT
     assert rooms.SUBMISSION_HISTORY_LIMIT > rooms.SESSION_RECEIPT_LIMIT
+
+
+def test_legacy_settling_record_without_marker_is_completed_not_resettled(room_store, monkeypatch):
+    from datetime import datetime, timedelta
+
+    room_id, session = _settling_room(room_store, "legacy-crash")
+    # Written by the old code: no settle owner and no native-write marker.
+    pending = room_store["relationship_training_rooms"]["rooms"][0]["pending_session"]
+    pending.pop("settle_owner")
+    pending.pop("native_writes_started")
+    _crash_process(monkeypatch)
+    later = datetime.now() + timedelta(seconds=rooms.TEAM_TRAINING_SETTLE_STALE_SECONDS + 1)
+    assert [row["room_id"] for row in rooms.interrupted_team_training_rooms(later)] == [room_id]
+    outcome = rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    assert outcome["action"] == "complete"
+    room = room_store["relationship_training_rooms"]["rooms"][0]
+    assert room["status"] == "settling"  # never back to occupied
+    assert rooms.claim_due_team_training_rooms("2026-08-24")["rooms"] == []
+
+
+@pytest.mark.parametrize("marker", [None, "yes", 0, True])
+def test_only_an_explicit_false_marker_is_put_back_to_occupied(room_store, monkeypatch, marker):
+    room_id, session = _settling_room(room_store, f"marker-{marker}")
+    room_store["relationship_training_rooms"]["rooms"][0]["pending_session"][
+        "native_writes_started"
+    ] = marker
+    _crash_process(monkeypatch)
+    outcome = rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    assert outcome["action"] == "complete"
