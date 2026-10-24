@@ -49,4 +49,44 @@ jobs:
           tests/test_i18n_dynamic_enums.py
           tests/test_settings_frontend_optimization.py
           tests/test_frontend_font_sizes.py
+          tests/test_relationship_training_frontend.py
+          tests/test_training_roster_attributes_frontend.py
+          -q
+
+  native-regressions:
+    name: Native cores and training API regressions
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install isolated test tools
+        run: python -m pip install --disable-pip-version-check pytest tomli
+
+      - name: Build Rust native core
+        run: python scripts/build_rust_native.py
+
+      - name: Build C++ Hook core
+        run: python scripts/build_cpp_hook_core.py
+
+      - name: Run native and training regressions
+        run: >-
+          python -m pytest
+          tests/test_rust_native_core.py
+          tests/test_native_write_dispatch.py
+          tests/test_training_ground.py
+          tests/test_relationship_api.py
           -q

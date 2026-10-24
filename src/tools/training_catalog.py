@@ -7,14 +7,24 @@ from tools.money import to_minor
 
 
 TRAINING_MODULES = ("player_training", "position_training", "staff_training")
+# The fourth training-ground module is served by relationship_training rooms,
+# not by FACILITIES projects, so it is kept out of the project catalog modules.
+TEAM_TRAINING_MODULE = "team_training"
+TRAINING_GROUND_MODULES = (*TRAINING_MODULES, TEAM_TRAINING_MODULE)
 TASK_PRICE_RATIO = 0.5
+POSITION_TRAINING_SKUS = frozenset({"position_training_area"})
+# Lab projects whose hidden-attribute training lets the player pick a direction.
+LAB_PROJECT_SKUS = frozenset({
+    "adaptation_pod", "career_terminal", "club_culture_screen",
+    "decisive_match_console", "brainwave_chair",
+})
 
 
 def training_module_for_product(sku: str, product: dict[str, Any]) -> str:
     """Return the stable three-module key for one original facility definition."""
     if product.get("staff_training"):
         return "staff_training"
-    if str(product.get("scene") or "") == "position_training":
+    if sku in POSITION_TRAINING_SKUS:
         return "position_training"
     return "player_training"
 

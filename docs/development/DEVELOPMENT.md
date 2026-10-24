@@ -112,12 +112,23 @@ git diff --check
 
 ### 4.5 前端与双语回归
 
-GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上使用 Windows、Node.js 24 和 Python 3.10。它只运行集团出售确认、货币缩写、球员卡片、前端视觉、本地化及字号回归，不构建或安装原生核心，也不启动产品或连接 FM。可在仓库根目录复现：
+GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上并行运行两个独立 job，使用 Windows、Node.js 24 和 Python 3.10。`frontend-regressions` 运行集团出售确认、货币缩写、球员卡片、前端视觉、训练交互、本地化及字号回归。该 job 不依赖原生核心，可在仓库根目录复现：
 
 ```powershell
 python -m pip install pytest tomli
-python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py -q
+python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py tests/test_relationship_training_frontend.py tests/test_training_roster_attributes_frontend.py -q
 ```
+
+`native-regressions` 使用 runner 的 Rust MSVC 工具链与 Visual C++ Build Tools，从当前提交源码构建 Rust、C++ 两个核心，再运行原生、训练场及关系训练 API 回归。构建结果只留在 runner 的 `src/build/` 中；测试使用隔离账户文档和测试进程内存，不启动产品或连接 FM，也不依赖游戏或编辑器的专有二进制。复现前先按 4.0 节准备原生工具链，然后执行：
+
+```powershell
+python -m pip install pytest tomli
+python scripts/build_rust_native.py
+python scripts/build_cpp_hook_core.py
+python -m pytest tests/test_rust_native_core.py tests/test_native_write_dispatch.py tests/test_training_ground.py tests/test_relationship_api.py -q
+```
+
+两个 job 均通过才表示本 workflow 通过；这些静态、模拟和进程内测试不替代真实 FM build 的实机验证。
 
 此 lane 是隔离的源码回归，不证明实时 FM 行为。
 

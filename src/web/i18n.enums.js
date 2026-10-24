@@ -1179,6 +1179,11 @@
     anticipation:["预判","Anticipation","预判"],
     leadership:["领导力","Leadership","领导力"],
     determination:["意志力","Determination","意志力"],
+    one_on_ones:["一对一","One on Ones","一对一"],
+    eccentricity:["意外性","Eccentricity","意外性"],
+    left_foot:["左脚","Left Foot","左脚"],
+    right_foot:["右脚","Right Foot","右脚"],
+    injury_proneness:["受伤倾向","Injury Proneness","受伤倾向"],
   });
   const trainingAttributeGroupRows = Object.freeze({
     technical:["技术","Technical","技术"],

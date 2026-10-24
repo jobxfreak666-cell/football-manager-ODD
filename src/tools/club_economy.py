@@ -8,13 +8,14 @@ import uuid
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from copy import deepcopy
 from typing import Any, Callable
 
-from tools.account_store import load_document, save_document, update_document
+from tools.account_store import load_container, load_document, save_document, update_document
 from tools.app_paths import save_data_root
 from tools.app_settings import load_settings, local_purchase_price
 from tools.betting_account import (
-    available_balance, commit_documents_with_wallet_adjustments,
+    account_transaction, available_balance, commit_documents_with_wallet_adjustments,
     grant_bankruptcy_relief as grant_wallet_bankruptcy_relief,
     load_wallet,
 )
@@ -3863,6 +3864,51 @@ def charge_combined_funds(
             "amount": -payment["wallet"], "type": kind, "metadata": details,
         }])
         return payment
+
+
+def commit_documents_with_combined_charge(
+    defaults: dict[str, Any],
+    mutator: Callable[[dict[str, Any], Callable[[], dict[str, Any]]], Any],
+    amount: float, kind: str, **details: Any,
+) -> Any:
+    """Mutate account documents and optionally charge, committed as one write.
+
+    ``mutator(documents, charge)`` edits the documents in place and calls
+    ``charge()`` at most once when money should move. Bank, wallet and the
+    documents are saved in one account-container write, so an interruption
+    leaves either everything or nothing on disk. A mutator that raises leaves
+    nothing changed.
+    """
+    with _LOCK, account_transaction():
+        payload = load_economy()
+        stored = load_container(key="economy", legacy_path=economy_path())["documents"]
+        documents: dict[str, Any] = {}
+        for key, default in defaults.items():
+            document = deepcopy(stored.get(key, default))
+            if default is not None and not isinstance(document, type(default)):
+                document = deepcopy(default)
+            documents[key] = document
+        original = deepcopy(documents)
+        legs: list[dict[str, Any]] = []
+        payments: list[dict[str, Any]] = []
+
+        def charge() -> dict[str, Any]:
+            if payments:
+                raise RuntimeError("one commit may charge only once")
+            payment = _collect_combined_funds(payload, amount, kind, **details)
+            payments.append(payment)
+            if _money(payment["wallet"]) != 0:
+                legs.append({"amount": -payment["wallet"], "type": kind, "metadata": details})
+            return payment
+
+        result = mutator(documents, charge)
+        if not payments and documents == original:
+            return result
+        _normalize_economy_money(payload)
+        commit_documents_with_wallet_adjustments(
+            {"economy": payload, **documents}, legs, legacy_path=economy_path(),
+        )
+        return result
 
 
 def refund_combined_funds(
