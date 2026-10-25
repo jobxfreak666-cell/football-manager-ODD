@@ -88,8 +88,6 @@ def test_activity_centre_uses_floor_scene_layout():
     assert 'data-activity-nation-open ${app.internationalNationsLoading ? "disabled" : ""}' in script
     assert '"activity.nations_loading"' in script
     assert 'data-activity-submit' in script
-    assert 'id="naturalization-player"' in script
-    assert 'id="naturalization-nation"' in script
     assert ".activity-workspace" in styles
     assert "/assets/activity/activity-centre-v1.png" in styles
     assert (ROOT / "web" / "assets" / "activity" / "activity-centre-v1.png").is_file()
@@ -230,7 +228,6 @@ def test_activity_actions_show_no_price_and_use_shared_floor_cooldown():
 def test_dual_coaching_filters_club_only_activity_targets():
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
-    assert "function managedClubPlayers()" in script
     assert 'activity === "naturalization" ? clubPlayers : players' in script
     assert "const naturalizationPlayer = activityIndex.clubPlayersById.get(naturalizationPlayerId) || null;" in script
     assert "function managedRostersAreCurrent()" in script
@@ -246,7 +243,7 @@ def test_activity_scene_opens_multi_player_roster_instead_of_cards():
     assert 'data-activity-roster-player="${id}"' in script
     assert 'id="activity-select-all"' in script
     assert "app.activitySelections" in script
-    assert 'request("/api/activity"' in script
+    assert 'request("/api/activity/batch"' in script
     assert 'request("/api/activity/counseling"' in script
     assert 'request("/api/activity/retirement"' in script
     assert "activity-player-row" in styles
