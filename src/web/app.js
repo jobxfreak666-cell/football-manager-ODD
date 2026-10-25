@@ -11772,10 +11772,10 @@ function trainingUsePanel(facility) {
       : "");
   const restrictedPositionLabel = product.position_group === "goalkeepers" ? uiText("training.position_group.goalkeepers")
     : product.position_group === "defenders" ? uiText("training.position_group.defenders") : "";
-  const playerPicker = `<div class="training-player-field"><span>${uiText("training.player_label")}</span><input type="hidden" id="training-inline-player" value="${Number(selectedPlayer?.id || 0)}"><button class="training-player-trigger" type="button" data-training-player-toggle aria-expanded="${app.trainingPlayerPickerOpen}" ${disabled ? "disabled" : ""}><span>${selectedPlayer ? `<strong>${escapeHtml(selectedPlayer.name)}</strong><small>${escapeHtml(selectedPlayer.training_team_type === "national" ? (selectedPlayer.training_team_name || uiText("training.national_team")) : uiText("training.club"))}${selectedTargetSummary}</small>` : `<strong>${app.trainingRosterLoading ? uiText("training.team_loading") : restrictedPositionLabel ? uiText("training.no_available_position_players", {position:restrictedPositionLabel}) : uiText("training.no_available_players")}</strong>`}</span><i data-lucide="chevron-down"></i></button></div>`;
   const playerPickerCard = app.trainingPlayerPickerOpen
-    ? `<div class="training-player-picker-layer" data-training-player-picker-layer><section class="training-player-picker-card" role="dialog" aria-modal="true" aria-labelledby="training-player-picker-title"><header><div><small>${uiText("training.personnel")}</small><h3 id="training-player-picker-title">${uiText("training.choose_player")}</h3><span>${selectedTargetKey ? uiText("training.current_target", {target:escapeHtml(localizedTrainingAttribute(selectedTargetKey))}) : uiText("training.choose_trainable_player")}</span></div><button class="icon-button" type="button" data-training-player-close aria-label="${uiText("common.close")}" title="${uiText("common.close")}"><i data-lucide="x"></i></button></header><label class="training-player-search"><i data-lucide="search"></i><input id="training-player-search" type="search" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.search_players")}" autocomplete="off"></label><div class="training-player-picker-filters" role="tablist" aria-label="${uiText("training.position_filter")}">${positionFilters.map(([key,label]) => `<button type="button" role="tab" aria-selected="${playerPositionFilter === key}" class="${playerPositionFilter === key ? "active" : ""}" data-training-player-position="${key}">${label}</button>`).join("")}</div><div class="training-player-picker-meta"><span>${uiText("training.shown_people", {count:filteredPlayers.length})}</span><span>${uiText("training.idle_people", {count:idleCount})}</span></div><div class="training-player-picker-list" role="listbox" aria-label="${uiText("training.personnel")}">${playerRows || `<div class="training-player-empty">${uiText("training.no_matching_players")}</div>`}</div></section></div>`
+    ? `<div class="training-player-picker-layer" data-training-player-picker-layer><section class="training-player-picker-card" role="dialog" aria-labelledby="training-player-picker-title"><header><div><small>${uiText("training.personnel")}</small><h3 id="training-player-picker-title">${uiText("training.choose_player")}</h3><span>${selectedTargetKey ? uiText("training.current_target", {target:escapeHtml(localizedTrainingAttribute(selectedTargetKey))}) : uiText("training.choose_trainable_player")}</span></div><button class="icon-button" type="button" data-training-player-close aria-label="${uiText("common.close")}" title="${uiText("common.close")}"><i data-lucide="x"></i></button></header><label class="training-player-search"><i data-lucide="search"></i><input id="training-player-search" type="search" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.search_players")}" autocomplete="off"></label><div class="training-player-picker-filters" role="tablist" aria-label="${uiText("training.position_filter")}">${positionFilters.map(([key,label]) => `<button type="button" role="tab" aria-selected="${playerPositionFilter === key}" class="${playerPositionFilter === key ? "active" : ""}" data-training-player-position="${key}">${label}</button>`).join("")}</div><div class="training-player-picker-meta"><span>${uiText("training.shown_people", {count:filteredPlayers.length})}</span><span>${uiText("training.idle_people", {count:idleCount})}</span></div><div class="training-player-picker-list" role="listbox" aria-label="${uiText("training.personnel")}">${playerRows || `<div class="training-player-empty">${uiText("training.no_matching_players")}</div>`}</div></section></div>`
     : "";
+  const playerPicker = `<div class="training-player-field"><span>${uiText("training.player_label")}</span><input type="hidden" id="training-inline-player" value="${Number(selectedPlayer?.id || 0)}"><button class="training-player-trigger" type="button" data-training-player-toggle aria-expanded="${app.trainingPlayerPickerOpen}" ${disabled ? "disabled" : ""}><span>${selectedPlayer ? `<strong>${escapeHtml(selectedPlayer.name)}</strong><small>${escapeHtml(selectedPlayer.training_team_type === "national" ? (selectedPlayer.training_team_name || uiText("training.national_team")) : uiText("training.club"))}${selectedTargetSummary}</small>` : `<strong>${app.trainingRosterLoading ? uiText("training.team_loading") : restrictedPositionLabel ? uiText("training.no_available_position_players", {position:restrictedPositionLabel}) : uiText("training.no_available_players")}</strong>`}</span><i data-lucide="chevron-down"></i></button>${playerPickerCard}</div>`;
   const durationOptions = habit ? `<option value="week">${uiText("training.week")}</option>` : "";
   const membersSection = `<section class="training-use-members"><h3>${uiText("training.personnel")}</h3>${trainingMemberRows(focuses, facility.id)}</section>`;
   const operationToggle = `<div class="training-operation-toggle" id="training-inline-operation" ${habit ? "" : "hidden"}><button class="${app.trainingOperation === "learn" ? "active" : ""}" type="button" data-training-operation="learn" ${disabled ? "disabled" : ""}>${uiText("training.learn")}</button><button class="${app.trainingOperation === "unlearn" ? "active" : ""}" type="button" data-training-operation="unlearn" ${disabled ? "disabled" : ""}>${uiText("training.unlearn")}</button></div>`;
@@ -11786,7 +11786,7 @@ function trainingUsePanel(facility) {
     : "";
   const attributeFormFields = `${targetField}${directionField}${membersSection}${playerPicker}`;
   const habitFormFields = `${membersSection}${playerPicker}${operationToggle}${targetField}`;
-  return `<div class="training-use-panel ${product.built_in ? "built-in-area-panel" : ""}"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_training")}" title="${uiText("training.back_training")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${usageLabel}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</div></div></div><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}">${habit ? habitFormFields : attributeFormFields}<label id="training-inline-duration-field">${uiText("training.duration_label")}<select id="training-inline-duration" ${disabled ? "disabled" : ""}>${durationOptions}</select></label><div class="training-focus-status" id="training-inline-status" hidden></div><div class="training-current-moves" id="training-inline-current-moves" hidden></div><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : habit ? uiText("training.start_habit") : uiText("training.start_specialist")}</button></form>${playerPickerCard}</div>`;
+  return `<div class="training-use-panel ${product.built_in ? "built-in-area-panel" : ""}"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_training")}" title="${uiText("training.back_training")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${usageLabel}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</div></div></div><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}">${habit ? habitFormFields : attributeFormFields}<label id="training-inline-duration-field">${uiText("training.duration_label")}<select id="training-inline-duration" ${disabled ? "disabled" : ""}>${durationOptions}</select></label><div class="training-focus-status" id="training-inline-status" hidden></div><div class="training-current-moves" id="training-inline-current-moves" hidden></div><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : habit ? uiText("training.start_habit") : uiText("training.start_specialist")}</button></form></div>`;
 }
 
 function selectedGameIsFm26() {
@@ -29117,13 +29117,27 @@ function bindEvents() {
   });
   $("#world-player-editor-form")?.addEventListener("submit", saveWorldPlayerEditor);
   $("[data-close-world-player-editor]")?.addEventListener("click", () => $("#world-player-editor-dialog")?.close());
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !app.trainingPlayerPickerOpen) return;
-    event.preventDefault();
+  function closeTrainingPlayerPicker({restoreFocus = false} = {}) {
+    if (!app.trainingPlayerPickerOpen) return;
     app.trainingPlayerPickerOpen = false;
     app.trainingPlayerSearch = "";
     app.trainingPlayerPositionFilter = "all";
-    renderTraining({skipStage:true});
+    const field = $("#training-dock-content")?.querySelector(".training-player-field");
+    field?.querySelector("[data-training-player-picker-layer]")?.remove();
+    const trigger = field?.querySelector("[data-training-player-toggle]");
+    trigger?.setAttribute("aria-expanded", "false");
+    app._lastDockHash = null;
+    if (restoreFocus) trigger?.focus();
+  }
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !app.trainingPlayerPickerOpen) return;
+    event.preventDefault();
+    closeTrainingPlayerPicker({restoreFocus:true});
+  });
+  document.addEventListener("click", (event) => {
+    if (!app.trainingPlayerPickerOpen) return;
+    if (event.target.closest?.(".training-player-field")) return;
+    closeTrainingPlayerPicker();
   });
   document.addEventListener("pointerdown", (event) => {
     const surface = event.target.closest?.("#training-dock-content,#activity-content");
@@ -29467,7 +29481,6 @@ function bindEvents() {
     const playerOption=event.target.closest("[data-training-player-option]");
     const playerClose=event.target.closest("[data-training-player-close]");
     const playerPosition=event.target.closest("[data-training-player-position]");
-    const playerPickerLayer=event.target.closest("[data-training-player-picker-layer]");
     const playerGroupToggle=event.target.closest("[data-training-player-group-toggle]");
     const equipmentToggle=event.target.closest("[data-training-equipment-toggle]");
     if (floorUnlock) {
@@ -29486,7 +29499,7 @@ function bindEvents() {
       renderTraining({skipStage:true});
       return;
     }
-    if(playerClose || (playerPickerLayer && event.target === playerPickerLayer)){
+    if(playerClose){
       app.trainingPlayerPickerOpen=false;
       app.trainingPlayerSearch="";
       app.trainingPlayerPositionFilter="all";
@@ -29629,6 +29642,10 @@ function bindEvents() {
       input.focus();
       input.setSelectionRange(input.value.length,input.value.length);
     });
+  });
+  $("#training-dock-content").addEventListener("keydown",(event)=>{
+    if(event.key!=="Enter" || !event.target.matches("#training-player-search")) return;
+    event.preventDefault();
   });
   $("#training-dock-content").addEventListener("change",(event)=>{
     if(event.target.matches("[data-position-training-slot-position]")){

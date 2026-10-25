@@ -80,7 +80,7 @@ JSON 业务分派只经过上述注册表；HTTP 修改响应来源契约在 [st
 | 层 | 定位与关系 |
 | --- | --- |
 | 界面与样式 | `#page-training`、`#training-scene-tabs`、`#training-stage`、`#training-archive-dialog`；[app.css](../src/web/app.css) 的 `.training-stage`、`.training-header` |
-| 渲染与事件 | `renderTraining`、`initializeTrainingDrag`；位置训练用 `startPositionTrainingAssignments`；档案用 `loadTrainingArchive` → `renderTrainingArchive` |
+| 渲染与事件 | `renderTraining`、`initializeTrainingDrag`；位置训练用 `startPositionTrainingAssignments`；档案用 `loadTrainingArchive` → `renderTrainingArchive`。器材训练的球员选择器由 `trainingUsePanel` 的 `playerPicker` 渲染成锚定在 `.training-player-field` 内展开的下拉，再次点击 `[data-training-player-toggle]` 收起，点面板外或 Escape 关闭；下拉位于 `#training-inline-form` 内，其搜索框的 Enter 必须被吞掉，否则会隐式提交训练表单 |
 | 安排与设施 | `POST /api/training/run` → `LocalOddsState.training_run`；`purchase` / `place` / `cancel` 路由分别进入 `training_purchase` / `training_place` / `training_cancel`。普通任务记录与投影由 `training_ground` 负责 |
 | 结算 | 自动入口为 `LocalOddsState._request_training_settlement`、`_training_settlement_worker`；页头手动入口 `POST /api/training/settle` → `training_settle` 使用前台优先内存事务，两者共用 `_sync_training_focuses`。人员回绑看 `training_runtime`，属性/位置完成记录看 `training_ground`。不能只改前端天数而遗漏实际积累/结算 |
 | 档案与关系 | `GET /api/training/archive/summary`、`POST /api/training/archive/page`；归档由 `training_archive` 负责。综训再看 [relationship_training.py](../src/tools/relationship_training.py)、[person_relationships.py](../src/tools/person_relationships.py)，保留当前开发/冻结门禁 |
