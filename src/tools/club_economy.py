@@ -37,15 +37,10 @@ PLAYER_ACTIVITIES = {
     "hot_spring": {"name": "和球员泡温泉", "price": 0.0, "intimacy": 0.4, "centre": "entertainment"},
     "football_game": {"name": "玩电子足球游戏", "price": 0.0, "intimacy": 0.2, "centre": "entertainment"},
     "massage": {"name": "请球员按摩", "price": 0.0, "intimacy": 1.0, "centre": "entertainment"},
-    "media_interview": {"name": "球员媒体采访", "price": 0.0, "intimacy": 0.0, "centre": "media"},
 }
 ACTIVITY_CENTRES = {
     "entertainment": {"name": "娱乐中心", "floor": "1F", "price": 2_000_000.0, "available": True},
     "talk_room": {"name": "人员谈话室", "floor": "2F", "price": 2_000_000.0, "available": True},
-    "media": {
-        "name": "媒体中心", "floor": "3F", "price": 0.0,
-        "available": False, "unavailable_reason": "暂未开启",
-    },
     "international": {
         "name": "国际事务中心", "floor": "4F", "price": 10_000_000.0,
         "available": True,

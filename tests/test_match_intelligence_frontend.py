@@ -89,7 +89,7 @@ def test_activity_centre_exposes_seventh_floor_intelligence_flow():
     assert "今日情报价格已锁定" not in script
     assert 'class="intelligence-price-lock' not in script
     obtained_start = script.index("const obtained = activityIndex.obtainedCandidates;")
-    obtained_end = script.index('if (selectedActivity.kind === "club_media")', obtained_start)
+    obtained_end = script.index('if (selectedActivity.kind === "salary_policy")', obtained_start)
     assert "priceLock" not in script[obtained_start:obtained_end]
     assert 'pricing.pricing_source === "single_betting_limit"' not in script
     assert '"单关投注上限" : "银行与钱包合计资金"' not in script
@@ -135,7 +135,10 @@ def test_activity_centre_exposes_seventh_floor_intelligence_flow():
     assert ".intelligence-purchase-card" in styles
     assert 'classList.toggle("has-intelligence-alert", view.intelligenceAvailable)' in script
     assert ".has-intelligence-alert::after" in styles
-    assert "grid-template-columns:repeat(5,minmax(0,1fr))" in styles
+    assert ".activity-floor-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}" in styles
+    assert "data-intelligence-search" in script
+    assert '"activity.get_intelligence"' in script
+    assert 'request("/api/activity/intelligence/refresh"' in script
 
 
 def test_private_future_results_are_removed_before_snapshot_persistence():

@@ -14003,6 +14003,47 @@ async function loadActivityNationalityWorldPlayers({page = app.activityNationali
   }
 }
 
+async function refreshMatchIntelligence() {
+  if (app.matchIntelligenceLoading || app.activityActionBusy) return;
+  const scope = String(app.state?.data_scope_id || "");
+  app.matchIntelligenceLoading = true;
+  app.matchIntelligenceError = "";
+  renderActivity();
+  try {
+    const response = await request("/api/activity/intelligence/refresh", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({data_scope_id:scope}),
+    });
+    if (scope !== String(app.state?.data_scope_id || "") || response.data_scope_id !== scope) return;
+    app.matchIntelligence = response.intelligence;
+    toast(uiText("activity.intelligence_candidates_updated"));
+  } catch (error) {
+    if (scope !== String(app.state?.data_scope_id || "")) return;
+    const errorMessageKeys = {
+      match_intelligence_busy:"activity.intelligence_search_busy",
+      match_intelligence_scope_changed:"activity.intelligence_context_changed",
+      match_intelligence_context_changed:"activity.intelligence_context_changed",
+      match_intelligence_save_pending:"activity.intelligence_context_changed",
+      match_intelligence_save_required:"activity.intelligence_context_changed",
+      match_intelligence_scope_required:"activity.intelligence_context_changed",
+      match_intelligence_clock_unavailable:"activity.intelligence_clock_unavailable",
+      match_intelligence_probe_failed:"activity.intelligence_search_failed",
+      match_intelligence_projection_failed:"activity.intelligence_search_failed",
+      activity_centre_locked:"activity.floor_locked",
+    };
+    const errorMessageKey = Object.prototype.hasOwnProperty.call(errorMessageKeys, error.code)
+      ? errorMessageKeys[error.code]
+      : "";
+    app.matchIntelligenceError = errorMessageKey
+      ? uiText(errorMessageKey)
+      : error.message || uiText("activity.intelligence_search_failed");
+    toast(app.matchIntelligenceError);
+  } finally {
+    app.matchIntelligenceLoading = false;
+    if (app.page === "activity" && app.activityFloor === "intelligence") renderActivity();
+  }
+}
+
 async function loadMatchIntelligence(force = false) {
   if (app.matchIntelligenceLoading || (app.matchIntelligence && !force)) return;
   app.matchIntelligenceLoading = true;
@@ -14432,21 +14473,19 @@ function renderActivityLegacy() {
     hot_spring:{name:uiText("activity.hot_spring"),price:20000,intimacy:0.4,centre:"entertainment"},
     football_game:{name:uiText("activity.football_game"),price:5000,intimacy:0.2,centre:"entertainment"},
     massage:{name:uiText("activity.massage"),price:50000,intimacy:1,centre:"entertainment"},
-    media_interview:{name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"},
   };
-  const icons = {drinks:"wine", hot_spring:"waves", football_game:"gamepad-2", massage:"hand-heart", media_interview:"mic-2"};
+  const icons = {drinks:"wine", hot_spring:"waves", football_game:"gamepad-2", massage:"hand-heart"};
   const descriptions = {
     drinks:uiText("activity.description_drinks"),
     hot_spring:uiText("activity.description_hot_spring"),
     football_game:uiText("activity.description_football_game"),
     massage:uiText("activity.description_massage"),
-    media_interview:uiText("activity.description_media_interview"),
   };
   const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
   const gameDate = String(app.gameClock?.date || output().game_date || "");
   const dailyUsage = app.state?.welfare?.activity_daily_usage || {};
   const playerOptions = (activity) => {
-    const choices = ["player_feature", "naturalization"].includes(activity) ? clubPlayers : players;
+    const choices = activity === "naturalization" ? clubPlayers : players;
     const eligibleIds = new Set(choices.map((player) => Number(player.id)));
     let selectedPlayerId = Number(app.activityPlayerIds.get(activity) || 0);
     if (!eligibleIds.has(selectedPlayerId)) {
@@ -14493,7 +14532,6 @@ function renderActivityLegacy() {
   const mediaActivity = activities.media_interview || {name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"};
   const clubProfile = app.clubProfiles.find((profile) => String(profile.team?.team_type || "club") === "club") || null;
   const clubTeam = clubProfile?.team || {};
-  const mediaCards = `<article class="feature-card activity-card media-activity-card" data-activity-card="media_interview"><div class="item-hero"><div class="item-icon"><i data-lucide="mic-2"></i></div><div><h3>${escapeHtml(mediaActivity.name)}</h3><span class="item-status">${uiText("activity.media_status")}</span></div></div><p>${descriptions.media_interview}</p><label>${uiText("activity.choose_player")}<select data-activity-player="media_interview">${playerOptions("media_interview")}</select></label><footer><strong>${uiText("activity.media_daily")}</strong><button type="button" data-player-activity="media_interview" data-activity-price="0">${uiText("activity.arrange_interview")}</button></footer></article><article class="feature-card activity-card media-activity-card" data-activity-card="club_press_conference"><div class="item-hero"><div class="item-icon"><i data-lucide="podium"></i></div><div><h3>${uiText("activity.club_press_conference")}</h3><span class="item-status">${uiText("activity.public_release")}</span></div></div><p>${uiText("activity.club_reputation_social")}</p><label>${uiText("activity.person_team")}<select disabled><option>${escapeHtml(clubTeam.name || uiText("activity.managed_club"))}</option></select></label><footer><strong>${uiText("activity.media_daily")}</strong><button type="button" data-media-activity="club_press_conference" data-media-target="${Number(clubTeam.id || 0)}">${uiText("activity.publish_press_conference")}</button></footer></article><article class="feature-card activity-card media-activity-card" data-activity-card="player_feature"><div class="item-hero"><div class="item-icon"><i data-lucide="newspaper"></i></div><div><h3>${uiText("activity.media_player")}</h3><span class="item-status">${uiText("activity.media_reputation_activity")}</span></div></div><p>${uiText("activity.feature_description")}</p><label>${uiText("activity.choose_player")}<select data-media-player="player_feature">${playerOptions("player_feature")}</select></label><footer><strong>${uiText("activity.media_daily")}</strong><button type="button" data-media-activity="player_feature">${uiText("activity.publish_feature")}</button></footer></article>`;
   let naturalizationPlayerId = Number(app.activityPlayerIds.get("naturalization") || 0);
   if (!clubPlayers.some((row) => Number(row.id) === naturalizationPlayerId)) {
     naturalizationPlayerId = Number(clubPlayers[0]?.id || 0);
@@ -14510,10 +14548,13 @@ function renderActivityLegacy() {
   const floors = {
     entertainment:{floor:"1F",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),icon:"gamepad-2",unlocked:centreState.entertainment?.owned !== false,available:true,price:0,summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.drinks"),uiText("activity.hot_spring"),uiText("activity.football_game"),uiText("activity.massage")],nodes:[{key:"drinks",label:uiText("activity.node_social_bar"),icon:"wine"},{key:"hot_spring",label:uiText("activity.node_recovery_spring"),icon:"waves"},{key:"football_game",label:uiText("activity.node_esports"),icon:"gamepad-2"},{key:"massage",label:uiText("activity.node_massage"),icon:"hand-heart"}]},
     talk_room:{floor:"2F",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),icon:"messages-square",unlocked:centreState.talk_room?.owned !== false,available:true,price:0,summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.counselling"),uiText("activity.retirement_talk")],nodes:[{key:"psychological_counseling",label:uiText("activity.node_counselling"),icon:"heart-handshake"},{key:"retirement",label:uiText("activity.node_retirement"),icon:"messages-square"}]},
-    media:{floor:"3F",name:uiText("activity.floor_media"),eyebrow:uiText("activity.floor_media_eyebrow"),icon:"radio-tower",unlocked:Boolean(centreState.media?.owned),available:centreState.media?.available !== false,price:Number(centreState.media?.price ?? 20000000),summary:uiText("activity.floor_media_summary"),features:[uiText("activity.media_status"),uiText("activity.club_press_conference"),uiText("activity.media_player")],nodes:[{key:"media_interview",label:uiText("activity.node_interview"),icon:"mic-2"},{key:"club_press_conference",label:uiText("activity.node_press"),icon:"podium"},{key:"player_feature",label:uiText("activity.node_feature"),icon:"newspaper"}]},
     international:{floor:"4F",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),icon:"globe-2",unlocked:Boolean(centreState.international?.owned),available:Boolean(centreState.international?.available),unavailableReason:String(centreState.international?.unavailable_reason || uiText("activity.version_unverified")),price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.node_naturalization"),uiText("activity.node_review")],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag"},{key:"nationality_review",label:uiText("activity.node_review"),icon:"file-check-2"}],recommended:true},
   };
-  if (!floors[app.activityFloor]) app.activityFloor = "entertainment";
+  if (!floors[app.activityFloor]) {
+    app.activityFloor = "entertainment";
+    app.activityNode = null;
+    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
+  }
   const selectedFloor = floors[app.activityFloor];
   const floorTabs = Object.entries(floors).map(([key, floor]) => `<button type="button" class="${key === app.activityFloor ? "active" : ""} ${floor.unlocked ? "" : "locked"}" data-activity-floor="${key}"><span>${floor.floor}</span><strong>${floor.name}</strong>${floor.unlocked ? "" : '<i data-lucide="lock-keyhole"></i>'}</button>`).join("");
   const stageFeatures = (selectedFloor.nodes || []).map((node, index) => `<button type="button" class="activity-scene-node node-${index + 1} ${selectedFloor.unlocked ? "available" : "locked"}" data-activity-node="${escapeHtml(node.key)}" title="${escapeHtml(selectedFloor.unlocked ? `${uiText("activity.room_use")} ${node.label}` : `${uiText("activity.room_buy")} ${selectedFloor.name}`)}"><i data-lucide="${selectedFloor.unlocked ? node.icon : "lock-keyhole"}"></i><span>${escapeHtml(node.label)}</span><b>${selectedFloor.unlocked ? uiText("activity.room_use") : uiText("activity.room_buy")}</b></button>`).join("");
@@ -14521,8 +14562,6 @@ function renderActivityLegacy() {
     ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:entertainmentActivities.length})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${activityCards}</div></div>`
     : app.activityFloor === "talk_room"
       ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:retirementCard ? 2 : 1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${talkCards}</div></div>`
-      : app.activityFloor === "media" && selectedFloor.unlocked
-        ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:3})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${mediaCards}</div></div>`
         : app.activityFloor === "international" && selectedFloor.unlocked
           ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.core_activity_count", {count:1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${internationalCards}</div></div>`
         : `<div class="activity-panel-head locked"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.floor_locked")}</span></div><div class="activity-locked-plan"><div class="activity-plan-price"><i data-lucide="building-2"></i><span>${uiText("activity.floor_build_budget")}<strong>${formatPounds(selectedFloor.price)}</strong></span></div><div class="activity-plan-list">${selectedFloor.features.map((feature) => `<div><i data-lucide="circle-dashed"></i><span>${escapeHtml(feature)}</span></div>`).join("")}</div><button type="button" data-activity-unlock="${app.activityFloor}" ${selectedFloor.available ? "" : "disabled"}><i data-lucide="lock-keyhole"></i><span>${selectedFloor.available ? uiText("activity.floor_unlock_build") : uiText("activity.floor_awaiting_validation")}</span></button><small>${selectedFloor.available ? uiText("activity.floor_open_after_build") : escapeHtml(selectedFloor.unavailableReason)}</small></div>`;
@@ -14668,41 +14707,6 @@ function renderActivityLegacy() {
       renderActivity();
     }
   }));
-  document.querySelectorAll("[data-media-player]").forEach((select) => select.addEventListener("change", () => {
-    app.activityPlayerIds.set(String(select.dataset.mediaPlayer || "player_feature"), Number(select.value || 0));
-    renderActivity();
-  }));
-  const mediaUsage = app.state?.welfare?.media_activity_daily_usage || {};
-  document.querySelectorAll("[data-media-activity]").forEach((button) => {
-    const activity = String(button.dataset.mediaActivity || "");
-    const targetId = activity === "player_feature"
-      ? Number(document.querySelector('[data-media-player="player_feature"]')?.value || 0)
-      : Number(button.dataset.mediaTarget || 0);
-    const usedToday = String(mediaUsage[`${activity}:${targetId}`] || "") === gameDate;
-    button.disabled = usedToday || !targetId;
-    if (usedToday) button.textContent = uiText("activity.today_executed");
-    button.addEventListener("click", async () => {
-      const selectedTarget = activity === "player_feature"
-        ? Number(document.querySelector('[data-media-player="player_feature"]')?.value || 0)
-        : Number(button.dataset.mediaTarget || 0);
-      const label = activity === "club_press_conference" ? uiText("activity.club_press_conference") : uiText("activity.media_player");
-      if (!await fmoddConfirm(uiText("activity.media_confirm", {label}), uiText("activity.confirm_execute"))) return;
-      button.disabled = true;
-      try {
-        const response = await request("/api/activity/media", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({activity,target_id:selectedTarget,...(activity === "player_feature" ? {team_id:managedPlayerTeamId(selectedTarget)} : {})})});
-        applyEconomySnapshot(response.economy);
-        app.state.welfare = response.welfare;
-        if (activity === "player_feature") updateManagedPlayer(selectedTarget, {world_reputation:response.result.after,international_reputation:response.result.after});
-        else if (clubProfile?.team) clubProfile.team.reputation = response.result.after;
-        renderActivity();
-        const followerGain = Number(response.result.publicity?.social_media_followers?.applied || 0);
-        toast(activity === "club_press_conference" ? uiText("activity.media_followers_gain", {name:response.media_activity.target_name, points:response.result.applied, followers:followerGain}) : uiText("activity.media_reputation_gain", {name:response.media_activity.target_name, points:response.result.applied}));
-      } catch (error) {
-        toast(error.message);
-        renderActivity();
-      }
-    });
-  });
   $("#naturalization-player")?.addEventListener("change", (event) => {
     app.activityPlayerIds.set("naturalization", Number(event.target.value || 0));
     renderActivity();
@@ -15056,15 +15060,13 @@ function renderActivity() {
     hot_spring:{name:uiText("activity.hot_spring"),price:0,intimacy:0.4,centre:"entertainment"},
     football_game:{name:uiText("activity.football_game"),price:0,intimacy:0.2,centre:"entertainment"},
     massage:{name:uiText("activity.massage"),price:0,intimacy:1,centre:"entertainment"},
-    media_interview:{name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"},
   };
-  const icons = {drinks:"wine",hot_spring:"waves",football_game:"gamepad-2",massage:"hand-heart",media_interview:"mic-2"};
-  const descriptions = {drinks:uiText("activity.description_drinks"),hot_spring:uiText("activity.description_hot_spring"),football_game:uiText("activity.description_football_game"),massage:uiText("activity.description_massage"),media_interview:uiText("activity.description_media_interview")};
-  const activityNameKeys = {drinks:"activity.drinks",hot_spring:"activity.hot_spring",football_game:"activity.football_game",massage:"activity.massage",media_interview:"activity.media_interview"};
+  const icons = {drinks:"wine",hot_spring:"waves",football_game:"gamepad-2",massage:"hand-heart"};
+  const descriptions = {drinks:uiText("activity.description_drinks"),hot_spring:uiText("activity.description_hot_spring"),football_game:uiText("activity.description_football_game"),massage:uiText("activity.description_massage")};
+  const activityNameKeys = {drinks:"activity.drinks",hot_spring:"activity.hot_spring",football_game:"activity.football_game",massage:"activity.massage"};
   const activityName = (key, fallback = "activity.player_activity") => uiText(activityNameKeys[key] || fallback);
   const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
   const gameDate = String(app.gameClock?.date || output().game_date || "");
-  const mediaUsage = app.state?.welfare?.media_activity_daily_usage || {};
   const centreState = app.state?.welfare?.activity_centres || {};
   const facilityState = app.state?.welfare?.activity_facilities || {};
   const floorCooldowns = app.state?.welfare?.activity_floor_cooldowns || {};
@@ -15088,7 +15090,7 @@ function renderActivity() {
     && !app.matchIntelligenceLoading
     && (!app.matchIntelligence || (gameDate && intelligencePricingDate !== gameDate))
   ) setTimeout(() => loadMatchIntelligence(true), 0);
-  const activityPlayers = (activity) => ["player_feature", "naturalization"].includes(activity) ? clubPlayers : players;
+  const activityPlayers = (activity) => activity === "naturalization" ? clubPlayers : players;
   let naturalizationPlayerId = Number(app.activityPlayerIds.get("naturalization") || 0);
   if (!activityIndex.clubPlayersById.has(naturalizationPlayerId)) {
     naturalizationPlayerId = Number(clubPlayers[0]?.id || 0);
@@ -15157,8 +15159,6 @@ function renderActivity() {
   const nationalityWorldPrice = Number(nationalityPricing.world_price ?? toPurchaseInternalMoney(100000000));
   const nationalityUnitPrice = app.activityNationalityScope === "world" ? nationalityWorldPrice : nationalityClubPrice;
   const entertainmentActivities = Object.entries(activities).filter(([, option]) => String(option.centre || "entertainment") === "entertainment");
-  const clubProfile = activityIndex.clubProfile;
-  const clubTeam = clubProfile?.team || {};
   const activityMeta = {};
   entertainmentActivities.forEach(([key, option]) => { activityMeta[key] = {key,name:activityName(key),icon:icons[key] || "calendar-heart",description:descriptions[key] || uiText("activity.fallback_description", {intimacy:Number(option.intimacy || 0).toFixed(1)}),kind:"player",players:activityPlayers(key),price:Number(option.price || 0),centre:"entertainment",action:uiText("activity.participate_activity")}; });
   activityMeta.psychological_counseling = {key:"psychological_counseling",name:uiText("activity.counselling"),icon:"heart-handshake",description:uiText("activity.counselling_roster_description", {count:counselingPlayers.length}),kind:"counseling",centre:"talk_room",players:counselingPlayers,action:uiText("activity.start_counselling")};
@@ -15167,9 +15167,6 @@ function renderActivity() {
   activityMeta.language_classroom = {key:languagePersonKind === "staff" ? "language_classroom:staff" : "language_classroom",name:uiText("activity.language_training"),icon:"languages",description:"",kind:"language",centre:"talk_room",players:languagePeople,action:uiText("activity.manual_learning")};
   activityMeta.player_departure = {key:"player_departure",name:uiText("departure.title"),description:"",kind:"player_departure",centre:"talk_room",players:[]};
   activityMeta.salary_committee_room = {key:"salary_committee_room",name:uiText("activity.node_salary"),icon:"landmark",description:uiText("activity.salary_description"),kind:"salary_policy",centre:"talk_room",players:[],action:uiText("activity.start_salary_meeting")};
-  activityMeta.media_interview = {key:"media_interview",name:activityName("media_interview"),icon:"mic-2",description:descriptions.media_interview,kind:"player",players,price:0,centre:"media",action:uiText("activity.arrange_interview")};
-  activityMeta.club_press_conference = {key:"club_press_conference",name:uiText("activity.club_press_conference"),icon:"podium",description:uiText("activity.club_reputation_social"),kind:"club_media",players:[],action:uiText("activity.publish_press_conference")};
-  activityMeta.player_feature = {key:"player_feature",name:uiText("activity.media_player"),icon:"newspaper",description:uiText("activity.feature_description"),kind:"media_player",players:activityPlayers("player_feature"),action:uiText("activity.publish_feature")};
   activityMeta.naturalization = {key:"naturalization",name:uiText("activity.node_naturalization"),icon:"flag",description:"",kind:"naturalization",players:app.activityNationalityScope === "world" ? app.activityNationalityWorldPlayers : clubPlayers,action:uiText("activity.nationality_processing")};
   activityMeta.nationality_review = {key:"nationality_review",name:uiText("activity.node_review"),icon:"file-check-2",description:uiText("activity.activity_unavailable"),kind:"unavailable",players:[],action:uiText("activity.floor_unavailable")};
   activityMeta.match_intelligence = {key:"match_intelligence",name:uiText("activity.floor_intelligence"),icon:"scan-eye",description:"",kind:"match_intelligence",players:[],action:uiText("activity.confirm_intelligence")};
@@ -15177,11 +15174,14 @@ function renderActivity() {
   const floors = {
      entertainment:{floor:"1F",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),unlocked:Boolean(centreState.entertainment?.owned),available:true,price:Number(centreState.entertainment?.price ?? 2000000),summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_social_bar")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_recovery_spring")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_esports")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_massage")})],nodes:[facilityNode("drinks",uiText("activity.node_social_bar"),"wine"),facilityNode("hot_spring",uiText("activity.node_recovery_spring"),"waves"),facilityNode("football_game",uiText("activity.node_esports"),"gamepad-2"),facilityNode("massage",uiText("activity.node_massage"),"hand-heart")]},
      talk_room:{floor:"2F",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),unlocked:Boolean(centreState.talk_room?.owned),available:true,price:Number(centreState.talk_room?.price ?? 2000000),summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_counselling")}),uiText("activity.floor_feature_builtin", {name:uiText("activity.node_salary")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_retirement")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_black_room")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_language")})],nodes:[facilityNode("psychological_counseling",uiText("activity.node_counselling"),"heart-handshake"),facilityNode("salary_committee_room",uiText("activity.node_salary"),"landmark"),facilityNode("retirement",uiText("activity.node_retirement"),"messages-square"),facilityNode("black_room",uiText("activity.node_black_room"),"door-closed"),facilityNode("language_classroom",uiText("activity.node_language"),"languages"),{key:"player_departure",label:uiText("departure.title"),icon:"log-out",owned:true}]},
-     media:{floor:"3F",name:uiText("activity.floor_media"),eyebrow:uiText("activity.floor_media_eyebrow"),unlocked:false,available:false,unavailableReason:uiText("activity.floor_unavailable"),price:0,summary:uiText("activity.floor_media_summary"),features:[],nodes:[{key:"media_interview",label:uiText("activity.node_interview"),icon:"mic-2",owned:false},{key:"club_press_conference",label:uiText("activity.node_press"),icon:"podium",owned:false},{key:"player_feature",label:uiText("activity.node_feature"),icon:"newspaper",owned:false}]},
      international:{floor:"4F",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),unlocked:Boolean(centreState.international?.owned),available:true,price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_naturalization")}),uiText("activity.node_review")],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag",owned:Boolean(facilityState.naturalization?.owned)},{key:"nationality_review",label:uiText("activity.node_review"),icon:"file-check-2",owned:false}]},
      intelligence:{floor:"5F",name:uiText("activity.floor_intelligence"),eyebrow:uiText("activity.floor_intelligence_eyebrow"),unlocked:Boolean(centreState.intelligence?.owned),available:true,price:Number(centreState.intelligence?.price ?? 50000000),summary:uiText("activity.floor_intelligence_summary"),features:[uiText("activity.intelligence_outcome"),uiText("activity.intelligence_total_goals"),uiText("activity.intelligence_score")],nodes:[{key:"match_intelligence",label:uiText("activity.node_match_intelligence"),icon:"scan-eye",owned:Boolean(centreState.intelligence?.owned)}]},
   };
-  if (!floors[app.activityFloor]) app.activityFloor = "entertainment";
+  if (!floors[app.activityFloor]) {
+    app.activityFloor = "entertainment";
+    app.activityNode = null;
+    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
+  }
   const selectedFloor = floors[app.activityFloor];
   if (app.activityFloor === "intelligence" && selectedFloor.unlocked && !app.activityNode) app.activityNode = "match_intelligence";
   const selectedNode = selectedFloor.nodes.find((node) => node.key === app.activityNode);
@@ -15229,7 +15229,6 @@ function renderActivity() {
     }
     const cooldownUntil = activityCooldownUntil(meta, playerId);
     if (cooldownUntil) return Boolean(gameDate && gameDate < cooldownUntil);
-    if (meta.kind === "media_player") return String(mediaUsage[`player_feature:${playerId}`] || "") === gameDate;
     if (meta.kind === "naturalization" && app.internationalNationId) { const player = (meta.players || []).find((row) => Number(row.id) === Number(playerId)); return activityPlayerHasPrimaryNationality(player, app.internationalNationId) || activityPlayerHasSecondaryNationality(player, app.internationalNationId); }
     return false;
   };
@@ -15294,13 +15293,14 @@ function renderActivity() {
       const randomTierAvailable = (tierKey) => activityIndex.randomAvailableTiers.has(String(tierKey));
       const tierChoiceButtons = (candidate, randomPurchase = false) => (candidate?.tiers || []).map((tier) => {
         const price = Number(randomPurchase ? tier.random_price : (tier.specific_price ?? tier.price ?? 0));
-        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${uiText("activity.intelligence_fixed_price")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : formatPounds(price)}</strong></span></button>`;
+        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || app.matchIntelligenceLoading || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${uiText("activity.intelligence_fixed_price")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : formatPounds(price)}</strong></span></button>`;
       }).join("");
-      const refreshAction = `<button type="button" class="intelligence-refresh-button" data-intelligence-refresh ${app.matchIntelligenceLoading ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${app.matchIntelligenceLoading ? uiText("activity.intelligence_refreshing") : uiText("activity.refresh_intelligence")}</span></button>`;
+      const intelligenceBusy = app.matchIntelligenceLoading || app.activityActionBusy;
+      const refreshAction = `<button type="button" class="intelligence-refresh-button intelligence-search-button" data-intelligence-search ${intelligenceBusy ? "disabled" : ""}><i data-lucide="scan-search"></i><span>${app.matchIntelligenceLoading ? uiText("activity.intelligence_searching") : uiText("activity.get_intelligence")}</span></button><button type="button" class="intelligence-refresh-button" data-intelligence-refresh ${intelligenceBusy ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${uiText("activity.refresh_intelligence")}</span></button>${app.matchIntelligenceError && app.matchIntelligence ? `<small class="intelligence-search-error" role="alert">${escapeHtml(app.matchIntelligenceError)}</small>` : ""}`;
       if (intelligenceMode === "random") {
-        const randomBody = app.matchIntelligenceLoading
+        const randomBody = app.matchIntelligenceLoading && !app.matchIntelligence
           ? `<div class="activity-select-prompt"><i data-lucide="loader-circle"></i><strong>${uiText("activity.intelligence_preparing_random")}</strong></div>`
-          : app.matchIntelligenceError
+          : app.matchIntelligenceError && !app.matchIntelligence
           ? `<div class="activity-select-prompt"><i data-lucide="triangle-alert"></i><strong>${escapeHtml(app.matchIntelligenceError)}</strong></div>`
           : referenceCandidate
           ? `<div class="intelligence-purchase-card"><div class="intelligence-tier-list">${tierChoiceButtons(referenceCandidate, true)}</div></div>`
@@ -15370,14 +15370,13 @@ function renderActivity() {
         groupedCandidates.set(date, rows);
       });
       const groupedRows = [...groupedCandidates.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, rows]) => `<section class="intelligence-date-group"><header><span>${escapeHtml(date)}</span><small>${uiText("activity.intelligence_matches_count", {count:rows.length})}</small></header><div>${rows.map((candidate) => card(candidate)).join("")}</div></section>`).join("");
-      const body = app.matchIntelligenceLoading ? `<div class="activity-select-prompt"><i data-lucide="loader-circle"></i><strong>${uiText("activity.intelligence_refreshing")}</strong></div>` : app.matchIntelligenceError ? `<div class="activity-select-prompt"><i data-lucide="triangle-alert"></i><strong>${uiText("activity.intelligence_unavailable")}</strong><span>${escapeHtml(app.matchIntelligenceError)}</span><button type="button" data-intelligence-refresh>${uiText("activity.intelligence_reload")}</button></div>` : groupedRows || empty;
+      const body = app.matchIntelligenceLoading && !app.matchIntelligence ? `<div class="activity-select-prompt"><i data-lucide="loader-circle"></i><strong>${uiText("activity.intelligence_refreshing")}</strong></div>` : app.matchIntelligenceError && !app.matchIntelligence ? `<div class="activity-select-prompt"><i data-lucide="triangle-alert"></i><strong>${uiText("activity.intelligence_unavailable")}</strong><span>${escapeHtml(app.matchIntelligenceError)}</span><button type="button" data-intelligence-refresh>${uiText("activity.intelligence_reload")}</button></div>` : groupedRows || empty;
       const viewTitle = activeHistoryGroup === "today" ? uiText("activity.intelligence_today") : uiText("activity.intelligence_previous");
       const search = `<label class="intelligence-search"><i data-lucide="search"></i><input id="intelligence-search" type="search" value="${escapeHtml(app.intelligenceSearch || "")}" placeholder="${uiText("activity.intelligence_search_placeholder")}" autocomplete="off" aria-label="${uiText("activity.intelligence_search_aria")}">${app.intelligenceSearch ? `<button type="button" data-intelligence-search-clear aria-label="${uiText("activity.intelligence_clear_search")}"><i data-lucide="x"></i></button>` : ""}</label>`;
       const historyTabs = `<nav class="intelligence-history-tabs" aria-label="${uiText("activity.intelligence_date_filter")}"><button type="button" class="${activeHistoryGroup === "today" ? "active" : ""}" data-intelligence-history-group="today"><i data-lucide="calendar-check"></i><span>${uiText("activity.intelligence_today")}</span><small>${todayObtained.length}</small></button><button type="button" class="${activeHistoryGroup === "previous" ? "active" : ""}" data-intelligence-history-group="previous"><i data-lucide="history"></i><span>${uiText("activity.intelligence_previous")}</span><small>${previousObtained.length}</small></button></nav>`;
       const historyFilters = `<div class="intelligence-history-filters"><label><span>${uiText("activity.intelligence_competition_filter")}</span><select id="intelligence-history-competition">${competitionOptions}</select></label>${search}</div>`;
       return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.intelligence_purchased_count", {count:obtained.length}), "", refreshAction)}<div class="intelligence-panel"><div class="intelligence-history-toolbar">${historyTabs}${historyFilters}</div><section class="intelligence-results"><header><div><small>PURCHASED</small><strong>${viewTitle}</strong></div><span>${uiText("activity.intelligence_matches_count", {count:visibleCandidates.length})}</span></header><div class="activity-panel-scroll intelligence-list">${body}</div></section></div>`;
     }
-    if (selectedActivity.kind === "club_media") return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.club_activity"))}<div class="activity-club-action"><div><i data-lucide="podium"></i><strong>${escapeHtml(clubTeam.name || uiText("activity.managed_club"))}</strong><span>${uiText("activity.club_media_no_player")}</span></div><button type="button" data-activity-submit ${app.activityActionBusy ? "disabled" : ""}><i data-lucide="megaphone"></i><span>${selectedActivity.action}</span></button></div>`;
     if (selectedActivity.kind === "salary_policy") {
       const active = Boolean(salaryPolicy.enabled && departureHook.salary_active);
       const pending = Boolean(salaryPolicy.enabled && !departureHook.salary_active);
@@ -15501,7 +15500,7 @@ function renderActivity() {
   }
   renderIntimacyRanking();
   const updateRosterControls = () => {
-    if (!selectedActivity || ["club_media","unavailable"].includes(selectedActivity.kind)) return;
+    if (!selectedActivity || selectedActivity.kind === "unavailable") return;
     const current = app.activitySelections.get(selectedActivity.key) || new Set();
     const visiblePlayers = selectedActivity.kind === "retirement"
       ? selectedActivity.players.filter((player) => {
@@ -15675,7 +15674,9 @@ function renderActivity() {
     else app.intelligenceExpandedFixtures.add(fixtureId);
     renderActivity();
   }));
+  document.querySelectorAll("[data-intelligence-search]").forEach((button) => button.addEventListener("click", refreshMatchIntelligence));
   document.querySelectorAll("[data-intelligence-purchase],[data-intelligence-random]").forEach((button) => button.addEventListener("click", async () => {
+    if (app.activityActionBusy || app.matchIntelligenceLoading) return;
     const fixtureId = String(button.dataset.intelligencePurchase || "");
     const randomPurchase = button.hasAttribute("data-intelligence-random");
     const tier = String(button.dataset.intelligenceTier || "");
@@ -15924,8 +15925,6 @@ function renderActivity() {
      if (selectedActivity.kind === "retirement" && !retirementActionName) { toast(uiText("activity.no_activity_selection")); return; }
     const nation = activityIndex.nationsById.get(nationId); if (selectedActivity.kind === "naturalization" && (!nation || !internationalNations.length)) return;
     if (selectedActivity.kind === "naturalization" && !app.activityNationalitySlot) { $("#activity-nationality-slot-dialog")?.showModal(); return; }
-     if (selectedActivity.kind === "club_media" && !await fmoddConfirm(uiText("activity.confirm_club_media"), uiText("activity.confirm_execute"))) return;
-     if (selectedActivity.kind === "media_player" && !await fmoddConfirm(uiText("activity.confirm_player_activity", {count:targetPlayers.length, activity:selectedActivity.name}), uiText("activity.confirm_execute"))) return;
      if (selectedActivity.kind === "retirement" && !await fmoddConfirm(uiText("activity.confirm_player_activity", {count:targetPlayers.length, activity:`“${retirementActionName}”`}), uiText("activity.confirm_discussion"))) return;
      if (selectedActivity.kind === "black_room" && !await fmoddConfirm(uiText("activity.confirm_black_room", {count:targetPlayers.length}), uiText("activity.confirm_execute"))) return;
     if (selectedActivity.kind === "counseling") { openCounselingWheels(targetPlayers); return; }
@@ -15933,8 +15932,7 @@ function renderActivity() {
     app.activityActionBusy = true;
     renderActivity(); const completed = []; const failed = [];
     try {
-      if (selectedActivity.kind === "club_media") { try { const response = await request("/api/activity/media", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({activity:"club_press_conference",target_id:Number(clubTeam.id || 0)})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; if (clubProfile?.team) clubProfile.team.reputation = response.result.after; completed.push(response.media_activity?.target_name || clubTeam.name); } catch (error) { failed.push(error.message); }
-      } else if (selectedActivity.kind === "player" && targetPlayers.length) {
+      if (selectedActivity.kind === "player" && targetPlayers.length) {
         const response = await request("/api/activity/batch", {
           method:"POST", headers:{"Content-Type":"application/json"},
           body:JSON.stringify({items:targetPlayers.map((player) => ({
@@ -15958,7 +15956,6 @@ function renderActivity() {
          if (selectedActivity.kind === "staff_entertainment") { const activityKey = selectedActivity.key.replace(/:staff$/, ""); const response = await request("/api/activity/staff", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({staff_id:playerId,team_id:teamId,activity:activityKey,data_version:Number(app.state?.data_version || 0)})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; updateManagedStaff(playerId, {manager_intimacy:Number(response.staff?.manager_intimacy ?? response.activity?.intimacy_after ?? 0),manager_relation_reason:response.staff?.manager_relation_reason ?? player.manager_relation_reason}); completionLabel = uiText("activity.staff_relation_summary", {name:player.name, forward:Number(response.activity?.intimacy || 0).toFixed(1), reverse:Number(response.activity?.reverse_intimacy || 0).toFixed(1)}); }
         else if (selectedActivity.kind === "retirement") { const response = await request("/api/activity/retirement", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:playerId,team_id:teamId,scope:app.retirementScope,action:retirementAction})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; updateManagedPlayer(playerId, {retirement:response.retirement}); app.retirementReply = {playerId,message:response.reply}; }
          else if (selectedActivity.kind === "black_room") { const response = await request("/api/activity/black-room", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:playerId,team_id:teamId})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; const result = response.black_room || {}; updateManagedPlayer(playerId, {availability:{...(player.availability || {}),injury_count:(result.injuries || []).length,injuries:[...(result.injuries || [])]}}); completionLabel = `${player.name} · ${uiText("activity.black_room_injury")} ${Number(result.minimum_days || 7)}–${Number(result.maximum_days || 30)}${uiText("activity.days")}`; }
-        else if (selectedActivity.kind === "media_player") { const response = await request("/api/activity/media", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({activity:"player_feature",target_id:playerId,team_id:teamId})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; updateManagedPlayer(playerId, {world_reputation:response.result.after,international_reputation:response.result.after}); }
         else if (selectedActivity.kind === "naturalization") { const response = await request("/api/activity/international", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:playerId,team_id:teamId,nation_id:nationId,scope:app.activityNationalityScope,slot:app.activityNationalitySlot,expected_nation_id:Number(player.nationality_id || 0)})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; if (app.activityNationalityScope === "club") { if (app.activityNationalitySlot === "primary") updateManagedPlayer(playerId, {nationality_id:nationId,nationality:nation.name}); else { const otherNationalities = [...(player.other_nationalities || [])]; if (!otherNationalities.some((row) => Number(row.id) === nationId)) otherNationalities.push({id:nationId,name:nation.name,eligible_for_nation:true}); updateManagedPlayer(playerId, {other_nationalities:otherNationalities}); } } }
         completed.push(completionLabel);
       } catch (error) { failed.push(`${player.name}：${error.message}`); } }
@@ -29012,6 +29009,10 @@ function bindEvents() {
       const node=document.querySelector(`[data-position-training-slot="${CSS.escape(slot.id)}"]`);
       if(node){node.style.left=`${slot.x}%`;node.style.top=`${slot.y}%`;}
     }
+  });
+  $("#training-dock-content").addEventListener("keydown",(event)=>{
+    if(event.key!=="Enter" || !event.target.matches("#training-player-search")) return;
+    event.preventDefault();
   });
   $("#training-dock-content").addEventListener("change",(event)=>{
     if(event.target.matches("[data-position-training-slot-position]")){

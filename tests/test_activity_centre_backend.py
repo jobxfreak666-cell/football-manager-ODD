@@ -35,7 +35,6 @@ def test_development_runtime_unlocks_all_activity_content_without_changing_save(
             patch.object(club_economy, "load_settings", return_value={}),
         ):
             status = club_economy.welfare_status()
-            media = club_economy.assert_activity_centre_unlocked("media")
             language_room = club_economy.assert_activity_facility_unlocked(
                 "language_classroom"
             )
@@ -46,7 +45,8 @@ def test_development_runtime_unlocks_all_activity_content_without_changing_save(
     assert all(row["available"] for row in status["activity_centres"].values())
     assert all(row["owned"] for row in status["activity_centres"].values())
     assert all(row["owned"] for row in status["activity_facilities"].values())
-    assert media["name"] == "媒体中心"
+    assert "media" not in status["activity_centres"]
+    assert "media_interview" not in status["activities"]
     assert language_room["name"] == "语言教室"
     assert intelligence["unlocked"] is True
     assert state["owned_activity_centres"] == []
@@ -106,14 +106,14 @@ def test_fifth_floor_is_intelligence_centre_and_costs_50m():
 
 
 @pytest.mark.parametrize("centre", ["media"])
-def test_third_floor_is_unavailable_and_never_charge(centre):
+def test_removed_media_floor_is_invalid_and_never_charged(centre):
     state = economy_state(balance=100_000_000)
     with (
         patch.object(club_economy, "load_economy", return_value=state),
         patch.object(club_economy, "save_economy") as save,
         patch.object(club_economy, "available_balance", return_value=0.0),
     ):
-        with pytest.raises(ValueError, match="暂未开启"):
+        with pytest.raises(ValueError, match="活动中心楼层无效"):
             club_economy.purchase_activity_centre(centre)
 
     assert state["general_balance"] == 100_000_000
