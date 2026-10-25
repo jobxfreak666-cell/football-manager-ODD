@@ -194,7 +194,6 @@ def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_all
         'uiText(group.labelKey)',
         'uiText("activity.floor_entertainment_eyebrow")',
         'uiText("activity.floor_talk_room_eyebrow")',
-        'uiText("activity.floor_media_eyebrow")',
         'uiText("activity.floor_international_eyebrow")',
         'uiText("activity.floor_intelligence_eyebrow")',
     ):

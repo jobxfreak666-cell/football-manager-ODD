@@ -203,6 +203,13 @@
     "training.not_eligible":["Not eligible", "不符合资格"],
     "training.idle":["No active task", "空闲"],
     "training.active_summary":["{speed} {action} {attribute}{range}{guidance} · {status}", "{speed}{action}{attribute}{range}{guidance} · {status}"],
+    "activity.get_intelligence":["Get intelligence", "获取情报"],
+    "activity.intelligence_searching":["Searching for intelligence…", "正在获取情报…"],
+    "activity.intelligence_candidates_updated":["Intelligence candidates updated", "情报候选比赛已更新"],
+    "activity.intelligence_search_busy":["Another intelligence search is in progress. Try again shortly.", "情报搜索正在进行，请稍后重试。"],
+    "activity.intelligence_context_changed":["The save or account state changed or is not ready. Refresh and try again.", "存档或账户状态已变化或尚未准备好，请刷新后重试。"],
+    "activity.intelligence_clock_unavailable":["Could not read the in-game time. Reconnect to the save and try again.", "无法获取游戏时间，请重新连接后重试。"],
+    "activity.intelligence_search_failed":["Could not search for intelligence", "获取情报失败"],
   });
   Object.assign(entries, {
     "training.licence_busy":["Starting {person}'s licence course…", "正在安排{person}考证"],
