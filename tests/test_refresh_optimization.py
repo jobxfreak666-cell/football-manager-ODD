@@ -6,7 +6,7 @@ import textwrap
 import unittest
 import inspect
 import struct
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
@@ -2116,39 +2116,67 @@ class RefreshOptimizationTests(unittest.TestCase):
             current["championship_markets"] = markets
             return markets, False
 
-        with (
-            patch.object(state, "_due_existing_result_keys", return_value=set()),
-            patch.object(state, "_merge_light_results", return_value=(updated, 1)),
-            patch.object(state, "_finalize_settlement"),
-            patch("fm_odds_web.read_game_clock", return_value={"date": "2028-06-06", "minutes": 0}),
-            patch("fm_odds_web.pending_due_result_keys", return_value=set()),
-            patch("fm_odds_web.settled_missing_half_score_keys", return_value=set()),
-            patch(
+        with ExitStack() as patches:
+            patches.enter_context(patch.object(
+                state, "_due_existing_result_keys", return_value=set(),
+            ))
+            patches.enter_context(patch.object(
+                state, "_merge_light_results", return_value=(updated, 1),
+            ))
+            patches.enter_context(patch.object(state, "_finalize_settlement"))
+            patches.enter_context(patch(
+                "fm_odds_web.read_game_clock",
+                return_value={"date": "2028-06-06", "minutes": 0},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.pending_due_result_keys", return_value=set(),
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.settled_missing_half_score_keys", return_value=set(),
+            ))
+            patches.enter_context(patch(
                 "fm_odds_web.pending_cup_final_result_keys",
                 return_value={final_key},
-            ),
-            patch("fm_odds_web.pending_result_fixture_hints", return_value={}),
-            patch("fm_odds_web.probe_live_completed_results", return_value={"results": []}),
-            patch(
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.pending_result_fixture_hints", return_value={},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.probe_live_completed_results",
+                return_value={"results": []},
+            ))
+            recover_mock = patches.enter_context(patch(
                 "fm_odds_web.read_completed_results", return_value=[final_result],
-            ) as recover_mock,
-            patch("fm_odds_web.settle_pending_bets", return_value={
+            ))
+            patches.enter_context(patch("fm_odds_web.settle_pending_bets", return_value={
                 "settled": 0, "returned": 0.0, "settled_records": [],
-            }),
-            patch("fm_odds_web.load_settings", return_value={"championship_enabled": False}),
-            patch("fm_odds_web.has_pending_championship_bets", return_value=True),
-            patch("fm_odds_web.publish_championship_markets", side_effect=publish) as publish_mock,
-            patch("fm_odds_web.settle_championship_bets", return_value={
-                "settled": 1, "returned": 400.0,
-                "settled_records": [championship_record],
-            }) as settle_mock,
-            patch("fm_odds_web.archive_winning_mail") as archive_mock,
-            patch("fm_odds_web.attach_historical_market_snapshots") as attach_snapshots,
-            patch("fm_odds_web.save_odds"),
-            patch("fm_odds_web.cache_data_root", return_value=Path("cache")),
-            patch("fm_odds_web.set_active_save_id"),
-            patch("fm_odds_web.sleep"),
-        ):
+            }))
+            patches.enter_context(patch(
+                "fm_odds_web.load_settings",
+                return_value={"championship_enabled": False},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.has_pending_championship_bets", return_value=True,
+            ))
+            publish_mock = patches.enter_context(patch(
+                "fm_odds_web.publish_championship_markets", side_effect=publish,
+            ))
+            settle_mock = patches.enter_context(patch(
+                "fm_odds_web.settle_championship_bets", return_value={
+                    "settled": 1, "returned": 400.0,
+                    "settled_records": [championship_record],
+                },
+            ))
+            archive_mock = patches.enter_context(patch("fm_odds_web.archive_winning_mail"))
+            attach_snapshots = patches.enter_context(patch(
+                "fm_odds_web.attach_historical_market_snapshots",
+            ))
+            patches.enter_context(patch("fm_odds_web.save_odds"))
+            patches.enter_context(patch(
+                "fm_odds_web.cache_data_root", return_value=Path("cache"),
+            ))
+            patches.enter_context(patch("fm_odds_web.set_active_save_id"))
+            patches.enter_context(patch("fm_odds_web.sleep"))
             state._result_refresh_worker(cancel_event, "test")
 
         publish_mock.assert_called_once()
