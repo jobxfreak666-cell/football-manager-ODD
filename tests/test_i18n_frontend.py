@@ -134,7 +134,7 @@ def test_support_author_uses_qr_for_simplified_chinese_and_external_links_elsewh
 def test_usage_notice_can_be_suppressed_for_seven_days_without_explaining_the_period() -> None:
     _i18n, _static, script, html, css = sources()
     notice_html = html.split('<dialog id="usage-notice-dialog"', 1)[1].split("</dialog>", 1)[0]
-    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function lotteryData", 1)[0]
+    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function leagueData()", 1)[0]
     confirm_notice = script.split('$("#usage-notice-confirm").addEventListener', 1)[1].split(
         '$("#manager-select")', 1,
     )[0]
@@ -170,7 +170,7 @@ def test_usage_notice_can_be_suppressed_for_seven_days_without_explaining_the_pe
 def test_first_launch_offers_language_selection_inside_the_usage_notice() -> None:
     _i18n, _static, script, html, css = sources()
     notice_html = html.split('<dialog id="usage-notice-dialog"', 1)[1].split("</dialog>", 1)[0]
-    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function lotteryData", 1)[0]
+    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function leagueData()", 1)[0]
     locale_saver = script.split("async function saveUiLocaleSelection", 1)[1].split(
         "function ensureProfitLossColorControl", 1,
     )[0]
@@ -230,7 +230,7 @@ def test_locale_switch_is_in_place_and_plural_categories_are_not_collapsed() -> 
 def test_page_headings_are_semantic_and_do_not_repeat_the_screenshot_label() -> None:
     i18n, _static, _script, html, css = sources()
     page_keys = (
-        "shop", "car_lottery", "inventory", "bank", "activity", "hospital",
+        "shop", "inventory", "bank", "activity", "hospital",
         "training", "canteen", "club", "hall_of_fame", "relations",
         "world_clubs", "world_players", "world_nations", "my_clubs",
     )
