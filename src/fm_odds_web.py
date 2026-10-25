@@ -48,12 +48,8 @@ from tools.canteen_application import (
 from tools.sponsorship_payment import SponsorshipPaymentIO, credit_sponsorship_payment
 
 from tools.club_operation_quotes import (
-    OWNED_CLUB_FACILITY_BASE_PRICE,
-    OWNED_CLUB_FACILITY_LEVEL_PRICE,
     OWNED_CLUB_FACILITY_UPGRADE_DAYS,
     OWNED_CLUB_SALE_PERCENT,
-    OWNED_BRAND_CAMPAIGN_DELTAS,
-    OWNED_BRAND_PRICE_BANDS,
     owned_club_facility_upgrade_price,
     owned_club_facility_upgrade_quote,
     owned_club_sale_price,
@@ -65,11 +61,9 @@ from tools.club_operation_quotes import (
 from tools.betting_account import (
     LIVE_SETTLEMENT_MINIMUM_MATCH_MINUTES,
     RESULT_SEARCH_WAIT_DAYS,
-    add_funds,
     account_transaction,
     adjust_balance,
     available_balance,
-    cheat_balance,
     betting_profit_analysis,
     commit_documents_with_wallet_adjustments,
     credit_effective_bet_count,
@@ -79,7 +73,6 @@ from tools.betting_account import (
     has_pending_championship_bets,
     manual_refund_options,
     manual_refund_pending_bets,
-    migrate_settlement_balance_snapshots,
     missing_result_detail_fields,
     pending_bet_result_search,
     pending_detail_capture_keys,
@@ -103,9 +96,9 @@ from tools.club_economy import (
     PLAYER_ACTIVITIES,
     NATIONALITY_PROCESSING_PRICES,
     active_doping_items, active_effect_skus, active_flu_items, active_goalkeeper_bribes, active_player_ids,
-    active_referee_level, activate_scheduled_referee_item, activate_toggle_item,
+    activate_scheduled_referee_item, activate_toggle_item,
     pending_match_item_consequences, mark_match_item_consequence,
-    assign_fixture_item, assign_item, assign_team_item, buy_item, buy_items, cancel_item_use,
+    assign_fixture_item, assign_item, assign_team_item, cancel_item_use,
     account_statement_page,
     canteen_plan, destroy_item, destroy_items, load_economy, public_economy,
     reconcile_inventory, referee_hook_candidate, refund_active_sku,
@@ -114,13 +107,12 @@ from tools.club_economy import (
     grant_bankruptcy_relief,
     consume_instant_item, consume_instant_items, process_salary_payments,
     clawback_rewound_transfer_budget, rewound_transfer_budget_withdrawals,
-    salary_status, set_salary_schedule, transfer_wallet, credit_status,
+    salary_status, set_salary_schedule, credit_status,
     adjust_bank_balance,
     charge_combined_funds, commit_documents_with_combined_charge, refund_combined_funds, collect_match_integrity_penalty,
     economy_path,
     _collect_combined_funds,
     borrow_credit, repay_credit, process_credit_due,
-    clear_credit_cheat,
     record_credit_default_notice, acknowledge_credit_default_notice,
     apply_default_medical_treatments,
     configure_activity_centre_development_unlocks,
@@ -154,7 +146,7 @@ from tools.match_integrity import (
     audit_legacy_bets,
     assert_bets_allowed as assert_integrity_bets_allowed,
     integrity_snapshot, process_settled_bets as process_match_integrity,
-    public_integrity_status, enforce_fourth_penalties,
+    public_integrity_status,
 )
 from tools.league_standings import (
     add_points_adjustment, public_league_standings,
@@ -286,11 +278,9 @@ from tools.transfer_budget import (
 from tools.player_portraits import clear_portrait_cache, portrait_path
 from tools.club_balance import read_club_balance, write_club_balance
 from tools.club_sponsorship import (
-    MAX_OFFERS as SPONSORSHIP_MAX_OFFERS,
     accept_offer as accept_sponsorship_offer,
     continue_search as continue_sponsorship_search,
     league_quote_annual,
-    load_sponsorships,
     mark_payment as mark_sponsorship_payment,
     public_sponsorship_state,
     rollback_acceptance as rollback_sponsorship_acceptance,
@@ -449,7 +439,6 @@ from tools.account_store import (
 from tools.preview_cup_odds import (
     MODEL_VERSION,
     apply_competition_reputation_delta,
-    decimal_odds,
     exact_score_divisor,
     exact_score_grid_mass,
     ensure_match_market_catalog,
@@ -636,7 +625,6 @@ def current_match_intelligence_candidates(
 
 TRAVEL_CHANGE_WINDOW_SECONDS = 10.0
 TRAVEL_CHANGE_THRESHOLD = 3
-TRAVEL_STABLE_SECONDS = 5.0
 CLUB_DEFERRED_REFRESH_REASONS = {
     "game_clock_stable", "schedule_change", "schedule_rollover",
     "travel_complete", "settings_changed",
@@ -1660,10 +1648,6 @@ def load_favorite_team_ids() -> list[int]:
     return list(load_favorites()["team_ids"])
 
 
-def load_favorite_competition_ids() -> list[int]:
-    return list(load_favorites()["competition_ids"])
-
-
 def load_hidden_competition_ids() -> list[int]:
     return [
         int(item["id"]) for item in load_favorites()["hidden_competitions"]
@@ -2247,72 +2231,6 @@ def archive_referee_debt_mail(
         "manager_name": manager_name,
         "weekly_salary": float(fixture.get("weekly_salary") or 0),
         "paid": False, "read": False, "closed": False, "enforced": False,
-    }
-    records.append(mail)
-    save_mail(records)
-    return mail
-
-
-def archive_referee_integrity_mail(
-    fixture: dict[str, Any], game_date: str, manager_name: str, weekly_salary: float,
-    *, source_id: str | None = None,
-) -> dict[str, Any]:
-    manager_name = _integrity_manager_name(fixture, manager_name)
-    source_id = str(source_id or f"referee_integrity:{fixture.get('fixture_identity') or fixture.get('key')}:{game_date}")
-    records = load_mail()
-    existing = next((row for row in records if row.get("source_id") == source_id), None)
-    if existing:
-        return existing
-    standard_fine = scaled_money(weekly_salary, 2)
-    fixture_date = str(fixture.get("date") or game_date)
-    try:
-        available_after_game_date = (date.fromisoformat(fixture_date) + timedelta(days=7)).isoformat()
-    except ValueError:
-        available_after_game_date = str(game_date)
-    notice_game_date = available_after_game_date
-    home = str(fixture.get("home_name") or "主队")
-    away = str(fixture.get("away_name") or "客队")
-    penalty_line = "二、扣除您执教俱乐部当前联赛积分三分，俱乐部声望下降50点。" if fixture.get("competition_kind") == "league" else "二、俱乐部声望下降50点。"
-    effective_line = (
-        "上述罚款、联赛扣分及俱乐部声望处罚均在本决定送达时立即执行，不提供缴款豁免。"
-        if fixture.get("competition_kind") == "league" else
-        "上述罚款及俱乐部声望处罚均在本决定送达时立即执行，不提供缴款豁免。"
-    )
-    body = (
-        f"尊敬的{manager_name}：\n\n"
-        "足协纪律委员会此前收到举报，指控您在"
-        f"{fixture_date}进行的{home}对阵{away}比赛中，通过违规收买裁判的方式干预比赛进程。\n\n"
-        "经纪律委员会调查，并结合相关人员证词、比赛记录及资金往来信息，现已确认上述违规行为属实。该行为严重违背足球竞赛的公平原则，并对赛事公信力造成了恶劣影响。\n\n"
-        "为维护正常的竞赛秩序，足协纪律委员会现作出如下处罚决定：\n"
-        f"一、处以相当于两周工资的罚款，应扣除金额为 £{standard_fine:,.0f}；处罚送达时按可用资金实际扣除。\n"
-        f"{penalty_line}\n\n"
-        f"{effective_line}\n\n"
-        "鉴于您此前的执教记录，足协决定给予您和俱乐部最后一次主动改正的机会。请您立即停止一切可能影响比赛公平性的行为，并确保类似事件不再发生。\n\n"
-        "比赛诚信是足球竞赛得以存在的基本原则。任何通过收买裁判、操纵比赛或其他不正当手段控制比赛结果的行为，都将受到足协的严肃调查与处罚。\n\n"
-        "本决定自送达之日起生效。\n\n足协纪律委员会\n"
-        f"通知日期：{notice_game_date}"
-    )
-    notice = {
-        "id": str(uuid.uuid4()), "title": "足协纪律委员会：关于违规收买裁判行为的处罚决定",
-        "body": body, "game_date": notice_game_date, "type": "referee_integrity",
-    }
-    mail = {
-        "id": notice["id"], "source_id": source_id, "type": "referee_integrity",
-        **mail_template_fields("referee_integrity", {
-            "manager": manager_name, "amount": standard_fine,
-            "date": notice_game_date,
-        }),
-        "created_at": datetime.now().isoformat(timespec="seconds"), "game_date": notice_game_date,
-        "title": "足协纪律委员会：关于违规收买裁判行为的处罚决定",
-        "message": "已收到针对您的举报。", "body": body, "notice": notice,
-        "amount": standard_fine,
-        "available_after_game_date": available_after_game_date, "read": False, "closed": False,
-        "team_id": int(fixture.get("managed_team_id") or 0),
-        "team_address": str(fixture.get("managed_team_address") or ""),
-        "competition_id": int(fixture.get("competition_id") or 0),
-        "competition_kind": fixture.get("competition_kind"),
-        "manager_name": manager_name,
-        "paid": False, "closed": False,
     }
     records.append(mail)
     save_mail(records)
