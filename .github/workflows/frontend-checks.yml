@@ -51,12 +51,17 @@ jobs:
           tests/test_frontend_font_sizes.py
           tests/test_relationship_training_frontend.py
           tests/test_training_roster_attributes_frontend.py
+          tests/test_relationship_frontend.py
+          tests/test_training_task_frontend.py
+          tests/test_i18n_relationship.py
           -q
 
   native-regressions:
     name: Native cores and training API regressions
     runs-on: windows-2022
     timeout-minutes: 20
+    env:
+      FMODD_DATA_ROOT: ${{ runner.temp }}/fmodd-native-tests
 
     steps:
       - name: Check out source
@@ -89,4 +94,9 @@ jobs:
           tests/test_native_write_dispatch.py
           tests/test_training_ground.py
           tests/test_relationship_api.py
+          tests/test_relationship_training.py
+          tests/test_training_archive.py
+          tests/test_training_task_rules.py
+          tests/test_training_task_application.py
+          tests/test_refresh_optimization.py
           -q
