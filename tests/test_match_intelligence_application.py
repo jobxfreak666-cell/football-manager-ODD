@@ -96,7 +96,7 @@ def harness(facade_code):
         "Any": Any, "deepcopy": deepcopy, "json": json, "secrets": secrets,
         "MATCH_INTELLIGENCE_POLL_SECONDS": 5.0, "monotonic": lambda: 100.0,
         "set_active_save_id": lambda value: events.append(("bind_scope", value)),
-        "probe_match_intelligence_candidates": lambda *args: {"candidates": [fixture_row()]},
+        "probe_match_intelligence_candidates": lambda *args, **kwargs: {"candidates": [fixture_row()]},
         "open_match_intelligence_status": lambda rows, day: {"unlocked": True, "candidates": rows},
         "match_intelligence_status": lambda rows, **kwargs: {"unlocked": True, "candidates": rows},
         "read_game_clock": lambda: {"date": "2028-06-10", "minutes": 900},
@@ -181,7 +181,7 @@ def test_probe_memory_contention_returns_without_reading_or_releasing_unowned_lo
 
 
 def test_probe_failure_releases_memory_and_records_error_without_publishing(harness):
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise RuntimeError("probe failed")
 
     harness.globals["probe_match_intelligence_candidates"] = fail

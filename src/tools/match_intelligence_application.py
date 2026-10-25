@@ -47,6 +47,7 @@ class MatchIntelligenceRuntime(Protocol):
     memory_lock: Any
     match_intelligence_last_probe_at: float
     match_intelligence_last_error: str | None
+    match_intelligence_probe_in_flight: bool
     match_intelligence_public_cache_scope_id: str
     match_intelligence_public_cache: dict[str, Any]
     match_intelligence_results: list[dict[str, Any]]
@@ -81,6 +82,7 @@ class MatchIntelligenceApplicationService:
                 or runtime.refreshing
                 or runtime.reconciling
                 or runtime.save_change_pending
+                or getattr(runtime, "match_intelligence_probe_in_flight", False)
             ):
                 return False
             if (
@@ -95,71 +97,112 @@ class MatchIntelligenceApplicationService:
             ]
             clock = dict(runtime.last_connection_clock or {})
             scope_id = runtime._data_scope_id(runtime.output)
+            save_instance_id = str(runtime.output.get("save_instance_id") or "")
             runtime.match_intelligence_last_probe_at = now
-        game_date = str(clock.get("date") or output.get("game_date") or "")
+            runtime.match_intelligence_probe_in_flight = True
+            runtime.match_intelligence_last_error = None
         try:
-            game_minutes = int(clock.get("minutes"))
-        except (TypeError, ValueError):
-            return False
-        if not game_date or not scope_id:
-            return False
-        io.set_active_save_id(scope_id)
-        with runtime.lock:
-            intelligence_unlocked = bool(
-                runtime.match_intelligence_public_cache_scope_id == scope_id
-                and runtime.match_intelligence_public_cache.get("unlocked")
-            )
-        if not intelligence_unlocked:
-            return False
-        if not runtime.memory_lock.acquire(blocking=False):
-            return False
-        try:
-            probe = io.probe_candidates(
-                output.get("matches", []), game_date, game_minutes,
-            )
-        except Exception as error:
+            game_date = str(clock.get("date") or output.get("game_date") or "")
+            try:
+                game_minutes = int(clock.get("minutes"))
+            except (TypeError, ValueError):
+                with runtime.lock:
+                    runtime.match_intelligence_last_error = "无法确认当前游戏时间"
+                return False
+            if not game_date or not scope_id or not save_instance_id:
+                with runtime.lock:
+                    runtime.match_intelligence_last_error = "尚未识别当前存档或游戏日期"
+                return False
+            io.set_active_save_id(scope_id)
             with runtime.lock:
-                runtime.match_intelligence_last_error = (
-                    str(error).strip() or type(error).__name__
+                intelligence_unlocked = bool(
+                    runtime.match_intelligence_public_cache_scope_id == scope_id
+                    and runtime.match_intelligence_public_cache.get("unlocked")
                 )
-            return False
-        finally:
-            runtime.memory_lock.release()
-        discovered = {
-            str(item.get("fixture_id") or ""): dict(item)
-            for item in (probe.get("candidates") or [])
-            if item.get("fixture_id")
-        }
-        with runtime.lock:
-            merged = {
+            if not intelligence_unlocked:
+                with runtime.lock:
+                    runtime.match_intelligence_last_error = "情报中心尚未解锁"
+                return False
+            if not runtime.memory_lock.acquire(blocking=False):
+                return False
+            try:
+                probe = io.probe_candidates(
+                    output.get("matches", []), game_date, game_minutes,
+                    force_bounded_rescan=force,
+                )
+            except Exception as error:
+                with runtime.lock:
+                    runtime.match_intelligence_last_error = (
+                        str(error).strip() or type(error).__name__
+                    )
+                return False
+            finally:
+                runtime.memory_lock.release()
+            discovered = {
                 str(item.get("fixture_id") or ""): dict(item)
-                for item in runtime.match_intelligence_results
+                for item in (probe.get("candidates") or [])
                 if item.get("fixture_id")
             }
-            merged.update(discovered)
-            current_candidates = io.current_candidates(
-                list(merged.values()), output.get("matches", []),
-                game_date, game_minutes,
-            )
-            candidates = sorted(current_candidates, key=lambda item: (
-                str(item.get("fixture_date") or ""),
-                int(item.get("kickoff_minutes") or 24 * 60),
-                str(item.get("competition_name") or ""),
-                str((item.get("home") or {}).get("name") or ""),
-            ))
-            before = json.dumps(
-                runtime.match_intelligence_results,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            after = json.dumps(
-                candidates,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            runtime.match_intelligence_results = candidates
-            runtime.match_intelligence_last_error = None
-            if before != after:
-                runtime.data_version += 1
-        return True
+            with runtime.lock:
+                # The scan ran without the state lock; publish only if the
+                # save, account scope and unlock it was taken for still hold.
+                current_output = runtime.output
+                if (
+                    not runtime._has_verified_save()
+                    or runtime.refreshing
+                    or runtime.reconciling
+                    or runtime.save_change_pending
+                    or str(current_output.get("save_instance_id") or "")
+                    != save_instance_id
+                    or runtime._data_scope_id(current_output) != scope_id
+                    or runtime.match_intelligence_public_cache_scope_id != scope_id
+                    or not runtime.match_intelligence_public_cache.get("unlocked")
+                ):
+                    runtime.match_intelligence_last_error = (
+                        "存档或情报中心状态已变化，请重新尝试"
+                    )
+                    return False
+                current_clock = dict(runtime.last_connection_clock or {})
+                current_date = str(
+                    current_clock.get("date") or current_output.get("game_date") or ""
+                )
+                try:
+                    current_minutes = int(current_clock.get("minutes"))
+                except (TypeError, ValueError):
+                    runtime.match_intelligence_last_error = "无法确认当前游戏时间"
+                    return False
+                if not current_date:
+                    runtime.match_intelligence_last_error = "无法确认当前游戏日期"
+                    return False
+                # A successful probe replaces earlier rows so candidates whose
+                # live score no longer verifies are dropped, not kept stale.
+                current_candidates = io.current_candidates(
+                    list(discovered.values()),
+                    [dict(match) for match in current_output.get("matches", [])],
+                    current_date, current_minutes,
+                )
+                candidates = sorted(current_candidates, key=lambda item: (
+                    str(item.get("fixture_date") or ""),
+                    int(item.get("kickoff_minutes") or 24 * 60),
+                    str(item.get("competition_name") or ""),
+                    str((item.get("home") or {}).get("name") or ""),
+                ))
+                before = json.dumps(
+                    runtime.match_intelligence_results,
+                    ensure_ascii=False, sort_keys=True, default=str,
+                )
+                after = json.dumps(
+                    candidates,
+                    ensure_ascii=False, sort_keys=True, default=str,
+                )
+                runtime.match_intelligence_results = candidates
+                runtime.match_intelligence_last_error = None
+                if before != after:
+                    runtime.data_version += 1
+            return True
+        finally:
+            with runtime.lock:
+                runtime.match_intelligence_probe_in_flight = False
 
     def public_status(self) -> dict[str, Any]:
         runtime = self._runtime
