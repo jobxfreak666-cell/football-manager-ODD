@@ -2551,6 +2551,7 @@ def probe_live_completed_results_with_reader(
     required_keys: set[tuple[str, int, int, int]],
     *,
     allow_expensive_rescan: bool = True,
+    force_bounded_rescan: bool = False,
     fixture_hints: dict[tuple[str, int, int, int], int] | None = None,
 ) -> dict[str, Any]:
     """Reader-reusing variant for the high-frequency FM24 capture loop."""
@@ -2594,11 +2595,18 @@ def probe_live_completed_results_with_reader(
         RESULT_POOL_RESCAN_SECONDS
         if allow_expensive_rescan else LIVE_RESULT_POOL_RESCAN_SECONDS
     )
+    if force_bounded_rescan and not spans:
+        # A manual intelligence refresh may query the current fixture pool,
+        # but it must never turn an empty bounded cache into a heap scan.
+        allow_expensive_rescan = False
     if not spans:
         # FM may not have created its result pool when FMODD first starts.
         # Re-discover the pool after the normal rescan interval instead of
         # keeping an empty region cache for the lifetime of the process.
-        if monotonic() - last_pool_rescan < pool_rescan_seconds:
+        if (
+            not force_bounded_rescan
+            and monotonic() - last_pool_rescan < pool_rescan_seconds
+        ):
             return {
                 "results": settlement_matches(cached_matches),
                 "changed_objects": 0,
@@ -2648,10 +2656,15 @@ def probe_live_completed_results_with_reader(
             "region_count": len(spans),
         }
     full_pool_rescan = (
-        not known_addresses
+        (force_bounded_rescan and bool(spans))
+        or not known_addresses
         or monotonic() - last_pool_rescan >= pool_rescan_seconds
     )
-    if full_pool_rescan and allow_expensive_rescan:
+    if force_bounded_rescan and spans:
+        fingerprints, bytes_scanned = scan_result_fingerprints_in_spans(
+            reader, spans,
+        )
+    elif full_pool_rescan and allow_expensive_rescan:
         fingerprints, bytes_scanned = scan_result_fingerprints_in_spans(reader, spans)
     elif full_pool_rescan:
         pooled = read_fixture_pool_addresses(reader)
@@ -6581,14 +6594,15 @@ def probe_match_intelligence_candidates(
     matches: list[dict[str, Any]],
     game_date_text: str,
     game_minutes: int,
+    *,
+    force_bounded_rescan: bool = False,
 ) -> dict[str, Any]:
     """Probe pre-generated results without rebuilding odds or scanning the heap.
 
     This reuses the verified result-address cache, bounded fingerprints and
-    fixture-result pointers maintained by the normal refresh pipeline.  Once
-    bounded result regions are known, their normal ten-second rescan can find
-    archive-only slots that are absent from the native fixture pool.  An empty
-    cache still avoids starting a new whole-heap scan from this worker.
+    fixture-result pointers maintained by the normal refresh pipeline. A
+    manual refresh can immediately rescan known result regions for new slots;
+    an empty region cache still cannot start a whole-heap scan from this worker.
     """
     eligible, required_keys, fixture_hints = open_match_intelligence_targets(
         matches, game_date_text, game_minutes,
@@ -6608,6 +6622,7 @@ def probe_match_intelligence_candidates(
             reader,
             required_keys,
             allow_expensive_rescan=allow_bounded_region_rescan,
+            force_bounded_rescan=bool(force_bounded_rescan),
             fixture_hints=fixture_hints,
         )
         candidates = hidden_future_result_candidates(

@@ -3,6 +3,13 @@
   "use strict";
   const messages = Object.freeze(
 {
+  "activity.get_intelligence":"Obtener información",
+  "activity.intelligence_searching":"Buscando información…",
+  "activity.intelligence_candidates_updated":"Lista de partidos con información actualizada",
+  "activity.intelligence_search_busy":"Ya hay una búsqueda de información en curso. Inténtalo de nuevo en breve.",
+  "activity.intelligence_context_changed":"El estado de la partida o de la cuenta ha cambiado o aún no está listo. Actualiza y vuelve a intentarlo.",
+  "activity.intelligence_clock_unavailable":"No se pudo obtener la hora del juego. Vuelve a conectar con la partida e inténtalo de nuevo.",
+  "activity.intelligence_search_failed":"No se pudo buscar información",
   "facilities.view.aria": "Vista de página",
   "facilities.view.compact": "Vista compacta",
   "facilities.view.visual": "Visual",

@@ -2,6 +2,13 @@
 (() => {
   "use strict";
   const messages = Object.freeze({
+    "activity.get_intelligence":"Obtenir des renseignements",
+    "activity.intelligence_searching":"Recherche de renseignements…",
+    "activity.intelligence_candidates_updated":"Liste des matchs avec renseignements actualisée",
+    "activity.intelligence_search_busy":"Une recherche de renseignements est déjà en cours. Réessayez dans un instant.",
+    "activity.intelligence_context_changed":"L’état de la sauvegarde ou du compte a changé ou n’est pas prêt. Actualisez, puis réessayez.",
+    "activity.intelligence_clock_unavailable":"Impossible de lire l’heure du jeu. Reconnectez-vous à la sauvegarde, puis réessayez.",
+    "activity.intelligence_search_failed":"Impossible de rechercher des renseignements",
     "facilities.view.aria": "Mode d’affichage",
     "facilities.view.compact": "Vue simplifiée",
     "facilities.view.visual": "Visuel",

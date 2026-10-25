@@ -63,17 +63,17 @@ def test_activity_centre_uses_floor_scene_layout():
     assert '"activity.floor_entertainment"' in script
     assert '"activity.floor_talk_room"' in script
     assert '"activity.node_salary"' in script
-    assert 'name:"媒体中心"' in script
+    assert 'name:"媒体中心"' not in script
     assert '"activity.floor_international"' in script
     assert 'request("/api/activity/centre/purchase"' in script
-    assert 'request("/api/activity/media"' in script
+    assert 'request("/api/activity/media"' not in script
     assert 'request("/api/activity/batch"' in script
     assert 'selectedActivity.kind === "player"' in script
     assert 'request("/api/activity/international"' in script
     assert 'request("/api/activity/international/nations"' in script
-    assert '"activity.media_interview"' in script
-    assert '"activity.club_press_conference"' in script
-    assert '"activity.media_player"' in script
+    assert "activityMeta.media_interview" not in script
+    assert "activityMeta.club_press_conference" not in script
+    assert "activityMeta.player_feature" not in script
     assert '"activity.node_naturalization"' in script
     assert 'description:"",kind:"naturalization"' in script
     assert '"activity.club_players"' in script
@@ -194,7 +194,7 @@ def test_floor_and_room_unlock_rules_match_activity_centre_contract():
     assert '"activity.node_black_room"' in script
     assert 'request("/api/activity/black-room"' in script
     assert '"activity.node_retirement"' in script
-    assert 'media:{floor:"3F"' in script
+    assert 'media:{floor:"3F"' not in script
     assert '"relations3d.tune.on"' in script
     assert 'international:{floor:"4F"' in script
     assert '"activity.floor_international"' in script
@@ -231,7 +231,7 @@ def test_dual_coaching_filters_club_only_activity_targets():
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
     assert "function managedClubPlayers()" in script
-    assert '["player_feature", "naturalization"].includes(activity) ? clubPlayers : players' in script
+    assert 'activity === "naturalization" ? clubPlayers : players' in script
     assert "const naturalizationPlayer = activityIndex.clubPlayersById.get(naturalizationPlayerId) || null;" in script
     assert "function managedRostersAreCurrent()" in script
     assert "ensureManagedRostersLoaded(false)" in script
@@ -300,7 +300,6 @@ def test_activity_player_requests_include_managed_team_identity():
     assert 'team_id:Number(activityIndex.teamIdByPlayerId.get(Number(player.id)) || 0)' in renderer
     assert 'activity:selectedActivity.key,' in renderer
     assert "player_id:playerId,team_id:teamId" in script
-    assert "target_id:playerId,team_id:teamId" in script
     assert "player_id:playerId,team_id:teamId,nation_id:nationId" in script
     assert "player_id:Number(player.id),\n    team_id:managedPlayerTeamId(player.id)," in script
     assert "player_id:playerId,team_id:index.teamIdByPlayerId.get(playerId) || 0,mode" in script

@@ -233,7 +233,7 @@ def test_shop_item_metadata_is_complete_in_every_locale() -> None:
     assert output["missingItemKeys"] == {
         locale: [] for locale in ("en-GB", "zh-CN", "ko-KR", *PACK_LOCALES)
     }
-    architecture = (ROOT / "docs" / "I18N_ARCHITECTURE.md").read_text(encoding="utf-8")
+    architecture = (ROOT.parent / "docs" / "I18N_ARCHITECTURE.md").read_text(encoding="utf-8")
     assert "物品以稳定 SKU 识别" in architecture
     assert "物品的名称、描述、等级和效果提示" in architecture
 

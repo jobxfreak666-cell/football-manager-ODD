@@ -1,10 +1,14 @@
 from contextlib import nullcontext
-from unittest.mock import patch
+from http import HTTPStatus
+from threading import Event, RLock, Thread
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pytest
 
 import fm_odds_web
 from tools import club_economy, preview_cup_odds
+from tools.domain_errors import ConflictError, UnavailableError, ValidationError
 
 
 @pytest.fixture(autouse=True)
@@ -350,6 +354,299 @@ def test_public_intelligence_projection_excludes_fixture_before_current_time():
     assert result["candidates"] == []
 
 
+def _refreshable_intelligence_state():
+    state = object.__new__(fm_odds_web.LocalOddsState)
+    state.lock = RLock()
+    state.memory_lock = fm_odds_web.ForegroundPriorityLock()
+    state.output = {
+        "save_instance_id": "save-1",
+        "game_date": "2028-06-10",
+        "matches": [candidate()],
+    }
+    state.cache_verified = True
+    state.refreshing = False
+    state.reconciling = False
+    state.save_change_pending = False
+    state.last_connection_clock = {"date": "2028-06-10", "minutes": 900}
+    state.match_intelligence_results = []
+    state.match_intelligence_last_probe_at = 0.0
+    state.match_intelligence_last_error = None
+    state.match_intelligence_probe_in_flight = False
+    state.match_intelligence_public_cache_scope_id = "scope-save-1"
+    state.match_intelligence_public_cache = {"unlocked": True}
+    state.data_version = 1
+    state._data_scope_id = lambda output: f"scope-{output['save_instance_id']}"
+    return state
+
+
+def test_refresh_match_intelligence_forces_probe_and_returns_fresh_projection():
+    state = _refreshable_intelligence_state()
+    state.match_intelligence_last_probe_at = 10**12
+    projection = {"unlocked": True, "candidates": [{"fixture_id": "fresh"}]}
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            return_value={"candidates": [candidate()]},
+        ) as probe,
+        patch.object(
+            fm_odds_web, "open_match_intelligence_status",
+            return_value=projection,
+        ),
+    ):
+        result = state.refresh_match_intelligence({})
+
+    assert result == {
+        "intelligence": projection,
+        "data_scope_id": "scope-save-1",
+    }
+    probe.assert_called_once_with(
+        [candidate()], "2028-06-10", 900, force_bounded_rescan=True,
+    )
+    assert state.match_intelligence_results == [candidate()]
+
+
+def test_refresh_match_intelligence_reports_busy_memory_reader():
+    state = _refreshable_intelligence_state()
+    assert state.memory_lock.acquire()
+    try:
+        with patch.object(fm_odds_web, "probe_match_intelligence_candidates") as probe:
+            with pytest.raises(ConflictError, match="忙"):
+                state.refresh_match_intelligence({})
+    finally:
+        state.memory_lock.release()
+
+    probe.assert_not_called()
+
+
+def test_refresh_match_intelligence_reports_probe_errors_instead_of_success():
+    state = _refreshable_intelligence_state()
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            side_effect=RuntimeError("reader unavailable"),
+        ),
+    ):
+        with pytest.raises(UnavailableError, match="获取情报失败"):
+            state.refresh_match_intelligence({})
+
+
+def test_refresh_match_intelligence_does_not_publish_across_save_change():
+    state = _refreshable_intelligence_state()
+    other_candidate = {**candidate(), "fixture_id": "other-save-fixture"}
+
+    def switch_save_during_probe(*_args, **_kwargs):
+        state.output = {
+            "save_instance_id": "save-2",
+            "game_date": "2028-06-10",
+            "matches": [other_candidate],
+        }
+        return {"candidates": [candidate()]}
+
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            side_effect=switch_save_during_probe,
+        ),
+    ):
+        with pytest.raises(ConflictError, match="存档"):
+            state.refresh_match_intelligence({})
+
+    assert state.match_intelligence_results == []
+
+
+def test_match_intelligence_refresh_post_route_is_registered():
+    route = fm_odds_web.build_api_routes().resolve(
+        "POST", "/api/activity/intelligence/refresh",
+    )
+
+    assert route is not None
+    assert route.name == "refresh_match_intelligence"
+
+
+def test_match_intelligence_refresh_route_forwards_request_body_scope():
+    projection = {"unlocked": True, "candidates": [{"fixture_id": "fresh"}]}
+    refresh = Mock(return_value={
+        "intelligence": projection,
+        "data_scope_id": "scope-save-1",
+    })
+    handler = SimpleNamespace(state=SimpleNamespace(refresh_match_intelligence=refresh))
+
+    result = fm_odds_web.build_api_routes().dispatch(
+        "POST", "/api/activity/intelligence/refresh", handler,
+        {"data_scope_id": "scope-save-1"}, {},
+    )
+
+    assert result is not None
+    assert result.status == HTTPStatus.OK
+    assert result.payload == {
+        "intelligence": projection,
+        "data_scope_id": "scope-save-1",
+    }
+    refresh.assert_called_once_with({"data_scope_id": "scope-save-1"})
+
+
+def test_refresh_match_intelligence_rejects_locked_centre_before_scanning():
+    state = _refreshable_intelligence_state()
+    state.match_intelligence_public_cache["unlocked"] = False
+    with patch.object(fm_odds_web, "probe_match_intelligence_candidates") as probe:
+        with pytest.raises(ValidationError, match="尚未解锁") as error:
+            state.refresh_match_intelligence({})
+
+    assert error.value.message_key == "error.invalid_request"
+    probe.assert_not_called()
+
+
+def test_refresh_match_intelligence_rejects_stale_request_scope():
+    state = _refreshable_intelligence_state()
+    with patch.object(fm_odds_web, "probe_match_intelligence_candidates") as probe:
+        with pytest.raises(ConflictError, match="存档已变化"):
+            state.refresh_match_intelligence({"data_scope_id": "old-scope"})
+
+    probe.assert_not_called()
+
+
+def test_background_intelligence_probe_keeps_bounded_rescan_off():
+    state = _refreshable_intelligence_state()
+    state.match_intelligence_last_probe_at = 0.0
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            return_value={"candidates": [candidate()]},
+        ) as probe,
+    ):
+        assert state._probe_match_intelligence_if_idle() is True
+
+    probe.assert_called_once_with(
+        [candidate()], "2028-06-10", 900, force_bounded_rescan=False,
+    )
+
+
+def test_successful_probe_removes_old_candidate_with_conflicting_live_scores():
+    state = _refreshable_intelligence_state()
+    state.match_intelligence_results = [candidate()]
+    match_result = {
+        "date": "2028-06-10",
+        "competition": {"id": 7, "name": "测试联赛"},
+        "home_team": {"id": 10, "name": "主队"},
+        "away_team": {"id": 20, "name": "客队"},
+        "result_source": "basic_scoreline",
+    }
+    conflicting_candidates = preview_cup_odds.hidden_future_result_candidates(
+        object(),
+        [
+            {**match_result, "home_goals": 2, "away_goals": 1},
+            {**match_result, "home_goals": 1, "away_goals": 0},
+        ],
+        [candidate()],
+        "2028-06-10",
+    )
+    assert conflicting_candidates == []
+
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            return_value={"candidates": conflicting_candidates},
+        ),
+    ):
+        assert state._probe_match_intelligence_if_idle(force=True) is True
+
+    assert state.match_intelligence_results == []
+
+
+def test_successful_probe_keeps_other_candidate_and_purchased_history():
+    state = _refreshable_intelligence_state()
+    conflicted = candidate()
+    retained = {
+        **candidate(),
+        "fixture_id": "2028-06-10|7|30|40",
+        "home": {"id": 30, "name": "另一主队"},
+        "away": {"id": 40, "name": "另一客队"},
+    }
+    state.output["matches"].append(retained)
+    state.match_intelligence_results = [conflicted]
+    purchased_history = {
+        "fixture_id": conflicted["fixture_id"],
+        "fixture_date": conflicted["fixture_date"],
+        "kickoff_time": conflicted["kickoff_time"],
+        "competition_id": conflicted["competition_id"],
+        "competition_name": conflicted["competition_name"],
+        "home": conflicted["home"],
+        "away": conflicted["away"],
+        "tier": "outcome",
+        "reveal": {"outcome": "home", "outcome_label": "主队获胜"},
+    }
+    economy = economy_state()
+    economy["match_intelligence_purchases"] = {
+        conflicted["fixture_id"]: purchased_history,
+    }
+
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            return_value={"candidates": [retained]},
+        ),
+    ):
+        assert state._probe_match_intelligence_if_idle(force=True) is True
+
+    assert state.match_intelligence_results == [retained]
+    assert economy["match_intelligence_purchases"] == {
+        conflicted["fixture_id"]: purchased_history,
+    }
+    with (
+        patch.object(club_economy, "load_economy", return_value=economy),
+        patch.object(club_economy, "available_balance", return_value=0.0),
+    ):
+        status = club_economy.match_intelligence_status([], pricing_date="2028-06-10")
+    history = next(
+        row for row in status["candidates"]
+        if row["fixture_id"] == conflicted["fixture_id"]
+    )
+    assert history["available"] is False
+    assert history["purchased_tiers"] == ["outcome"]
+
+
+def test_concurrent_intelligence_probes_do_not_scan_twice():
+    state = _refreshable_intelligence_state()
+    entered_probe = Event()
+    release_probe = Event()
+    results = []
+
+    def slow_probe(*_args, **_kwargs):
+        entered_probe.set()
+        assert release_probe.wait(timeout=3)
+        return {"candidates": [candidate()]}
+
+    with (
+        patch.object(fm_odds_web, "set_active_save_id"),
+        patch.object(
+            fm_odds_web, "probe_match_intelligence_candidates",
+            side_effect=slow_probe,
+        ) as probe,
+    ):
+        worker = Thread(
+            target=lambda: results.append(
+                state._probe_match_intelligence_if_idle(force=True)
+            ),
+        )
+        worker.start()
+        try:
+            assert entered_probe.wait(timeout=3)
+            assert state._probe_match_intelligence_if_idle(force=True) is False
+        finally:
+            release_probe.set()
+            worker.join(timeout=3)
+
+    assert not worker.is_alive()
+    assert results == [True]
+    probe.assert_called_once()
+
+
 def test_intelligence_purchase_fails_closed_when_live_clock_is_unavailable():
     state = object.__new__(fm_odds_web.LocalOddsState)
     state.memory_lock = nullcontext()
@@ -455,10 +752,145 @@ def test_live_intelligence_probe_reuses_bounded_result_pool_reader():
         reader,
         {("2028-06-10", 7, 10, 20)},
         allow_expensive_rescan=True,
+        force_bounded_rescan=False,
         fixture_hints={("2028-06-10", 7, 10, 20): 0x1234},
     )
     assert response["candidates"][0]["fixture_id"] == "2028-06-10|7|10|20"
     assert response["candidates"][0]["away_goals"] == 2
+
+
+def test_manual_match_intelligence_probe_requests_bounded_rescan():
+    matches = [{
+        "fixture_date": "2028-06-10", "kickoff_minutes": 900,
+        "kickoff_time": "15:00", "competition_id": 7,
+        "competition_name": "Test League", "fixture_address": "0x1234",
+        "home": {"id": 10, "name": "Home"},
+        "away": {"id": 20, "name": "Away"},
+    }]
+    result = {
+        "date": "2028-06-10",
+        "competition": {"id": 7, "name": "Test League"},
+        "home_team": {"id": 10, "name": "Home"},
+        "away_team": {"id": 20, "name": "Away"},
+        "home_goals": 1, "away_goals": 2,
+        "result_source": "basic_scoreline",
+    }
+    reader = object()
+    with (
+        patch.object(
+            preview_cup_odds, "open_supported_reader",
+            return_value=nullcontext(("fm.exe", object(), object(), reader)),
+        ),
+        patch.object(
+            preview_cup_odds, "_runtime_state",
+            return_value={"result_region_spans": [(0x1000, 0x1000)]},
+        ),
+        patch.object(
+            preview_cup_odds, "probe_live_completed_results_with_reader",
+            return_value={"results": [result]},
+        ) as probe,
+    ):
+        response = preview_cup_odds.probe_match_intelligence_candidates(
+            matches, "2028-06-10", 900, force_bounded_rescan=True,
+        )
+
+    probe.assert_called_once_with(
+        reader,
+        {("2028-06-10", 7, 10, 20)},
+        allow_expensive_rescan=True,
+        force_bounded_rescan=True,
+        fixture_hints={("2028-06-10", 7, 10, 20): 0x1234},
+    )
+    assert response["candidates"][0]["fixture_id"] == "2028-06-10|7|10|20"
+
+
+def test_manual_match_intelligence_probe_scans_known_slots_before_rescan_interval():
+    fixture_key = ("2028-06-10", 7, 10, 20)
+    known_address = 0x1100
+    discovered_address = 0x1120
+    spans = [(0x1000, 0x1000)]
+    new_result = {"fixture_id": "2028-06-10|7|10|20"}
+    state = {
+        "result_region_spans": spans,
+        "result_addresses": [known_address],
+        "result_fingerprints": {known_address: b"unchanged"},
+        "generic_results": [],
+        "result_pool_rescanned_at": 95.0,
+    }
+    reader = object()
+    with (
+        patch.object(preview_cup_odds, "_runtime_state", return_value=state),
+        patch.object(
+            preview_cup_odds, "normalize_two_legged_results_from_fixture_hints",
+            side_effect=lambda _reader, rows, _hints: list(rows),
+        ),
+        patch.object(
+            preview_cup_odds, "enrich_halftime_results",
+            side_effect=lambda _reader, rows, _keys: list(rows),
+        ),
+        patch.object(
+            preview_cup_odds, "scan_result_fingerprints_in_spans",
+            return_value=(
+                {known_address: b"unchanged", discovered_address: b"new"}, 128,
+            ),
+        ) as scan,
+        patch.object(
+            preview_cup_odds, "parse_completed_result_from_raw",
+            return_value=new_result,
+        ),
+        patch.object(preview_cup_odds, "deduplicate_results", side_effect=list),
+        patch.object(
+            preview_cup_odds, "result_region_spans", return_value=spans,
+        ),
+        patch.object(preview_cup_odds, "_result_identity", return_value=fixture_key),
+        patch.object(preview_cup_odds, "monotonic", return_value=100.0),
+    ):
+        response = preview_cup_odds.probe_live_completed_results_with_reader(
+            reader, {fixture_key}, allow_expensive_rescan=True,
+            force_bounded_rescan=True,
+        )
+
+    scan.assert_called_once_with(reader, spans)
+    assert response["results"] == [new_result]
+    assert response["changed_objects"] == 1
+    assert discovered_address in state["result_addresses"]
+
+
+def test_manual_match_intelligence_probe_with_empty_spans_avoids_heap_scan():
+    state = {
+        "result_region_spans": [],
+        "result_addresses": [],
+        "result_fingerprints": {},
+        "generic_results": [],
+        "result_pool_rescanned_at": 95.0,
+    }
+    reader = object()
+    with (
+        patch.object(preview_cup_odds, "_runtime_state", return_value=state),
+        patch.object(
+            preview_cup_odds, "normalize_two_legged_results_from_fixture_hints",
+            side_effect=lambda _reader, rows, _hints: list(rows),
+        ),
+        patch.object(
+            preview_cup_odds, "enrich_halftime_results",
+            side_effect=lambda _reader, rows, _keys: list(rows),
+        ),
+        patch.object(
+            preview_cup_odds, "read_fixture_pool_addresses",
+            return_value=(None, [], 64),
+        ) as read_pool,
+        patch.object(preview_cup_odds, "scan_result_addresses") as heap_scan,
+        patch.object(preview_cup_odds, "monotonic", return_value=100.0),
+    ):
+        response = preview_cup_odds.probe_live_completed_results_with_reader(
+            reader, {("2028-06-10", 7, 10, 20)},
+            allow_expensive_rescan=True, force_bounded_rescan=True,
+        )
+
+    read_pool.assert_called_once_with(reader)
+    heap_scan.assert_not_called()
+    assert response["results"] == []
+    assert response["region_count"] == 0
 
 
 def test_public_status_withholds_every_unpaid_result_field():
