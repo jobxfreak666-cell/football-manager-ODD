@@ -20,8 +20,7 @@ from tools.money import read_minor, to_minor, write_minor
 from tools.training_catalog import training_task_fee_minor
 from tools.training_ground import (
     POSITION_TRAINING_AREA_ID, FACILITIES, active_training_focuses,
-    load_training_ground, place_facility, purchase_facility,
-    record_position_training_focus, save_training_ground,
+    load_training_ground, record_position_training_focus, save_training_ground,
 )
 
 
@@ -617,8 +616,11 @@ class TrainingTaskApplicationTests(unittest.TestCase):
     def test_legacy_paid_facility_request_requires_submission_id(self) -> None:
         state = self.state()
         self.player_target(state)
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 40, 50)
+        # A facility record kept from an old save (buying/placing is retired).
+        payload = load_training_ground()
+        facility = {"id": "kept-treadmill", "sku": "treadmill", "status": "placed"}
+        payload["facilities"].append(dict(facility))
+        save_training_ground(payload)
         wallet_before = self.wallet_minor()
         with (
             patch(
@@ -803,7 +805,6 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         wallet_before = self.wallet_minor()
         with (
             patch("fm_odds_web.FROZEN", False),
-            patch("fm_odds_web.assert_training_floor_unlocked"),
             patch("fm_odds_web.borrow_game_operation", side_effect=AssertionError("old effects")) as native,
         ):
             with self.assertRaisesRegex(ValueError, "当前未被占用"):
@@ -828,19 +829,19 @@ class TrainingTaskApplicationTests(unittest.TestCase):
                 if entry == "read":
                     state.relationship_training_rooms_state()
                 else:
-                    with patch("fm_odds_web.assert_training_floor_unlocked"):
-                        with self.assertRaisesRegex(ValueError, "参与者已不属于当前执教球队"):
-                            state.relationship_training_room_enter({
-                                "room_id": "old-room", "attributes": ["精神:领导力"],
-                                "participants": [{"id": 10, "team_id": 1, "kind": "player"}],
-                            })
+                    with self.assertRaisesRegex(ValueError, "参与者已不属于当前执教球队"):
+                        state.relationship_training_room_enter({
+                            "room_id": "old-room", "attributes": ["精神:领导力"],
+                            "participants": [{"id": 10, "team_id": 1, "kind": "player"}],
+                        })
                 room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
                 self.assertEqual(room["status"], "idle")
                 # The same room can now take a new task; later migration must preserve it.
-                enter_relationship_training_room("old-room", [
+                enter_relationship_training_room("mentoring_room", [
                     {"id": 10, "kind": "player", "name": "A", "role": "mentor"},
                     {"id": 11, "kind": "player", "name": "B", "role": "student"},
-                ], ["精神:领导力"], "2026-01-01", client_submission_id=f"new-{entry}")
+                ], ["精神:领导力"], "2026-01-01", client_submission_id=f"new-{entry}",
+                    room_id="old-room")
                 self.assertFalse(state._ensure_training_task_migration("2026-01-02"))
                 room = account_store.load_document("relationship_training_rooms", {})["rooms"][0]
                 self.assertEqual(room["status"], "occupied")
@@ -921,7 +922,7 @@ class TrainingTaskApplicationTests(unittest.TestCase):
         archived = account_store.load_document("training_archive", {})
         event = archived["events"][-1]
         self.assertEqual(event["details"]["facility_sku"], "strength_rack")
-        self.assertEqual(event["details"]["floor"], "1F")
+        self.assertNotIn("floor", event["details"])
         self.assertEqual(event["details"]["training_content"], "身体:强壮")
         self.assertEqual(
             len([

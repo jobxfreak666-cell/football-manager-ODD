@@ -1557,24 +1557,12 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .training-toolbar-actions .icon-button:disabled { cursor:not-allowed; opacity:.42; }
 .training-toolbar button:focus-visible,.training-dock-tabs button:focus-visible,.training-available-head:focus-visible,.training-facility:focus-visible { position:relative; z-index:6; outline:3px solid #f0c94f; outline-offset:2px; }
 .training-stage { position:relative; min-height:540px; overflow:hidden; background-color:#dfe5e2; background-position:center; background-size:cover; user-select:none; touch-action:none; }
-.training-stage.indoor { background-image:url('/assets/training/indoor.webp'); }
-.training-stage.indoor_2f { background-image:url('/assets/training/indoor_2f.webp'); }
-.training-stage.indoor_3f,.training-stage.indoor_4f,.training-stage.indoor_5f { background-image:url('/assets/training/indoor_2f.webp'); }
-.training-stage.comprehensive_7f { background-image:url('/assets/training/comprehensive_7f.webp'); }
-.training-stage.relationship_8f { background-image:url('/assets/training/office_4f.webp'); }
-.training-stage.office_3f,.training-stage.office_6f { background-image:url('/assets/training/office_3f.webp'); }
-.training-stage.outdoor,.training-stage.outdoor_2 { background-image:url('/assets/training/outdoor.webp'); }
 .training-stage::after { content:""; position:absolute; inset:0; pointer-events:none; box-shadow:inset 0 0 45px #08130d2b; }
 .training-stage.editing::before { content:""; position:absolute; z-index:1; inset:0; pointer-events:none; background-image:linear-gradient(#ffffff1a 1px,transparent 1px),linear-gradient(90deg,#ffffff1a 1px,transparent 1px); background-size:5% 5%; }
 .training-stage-items { position:absolute; z-index:2; inset:0; }
 .training-empty { position:absolute; z-index:3; left:50%; bottom:18px; display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:5px; background:#17251fd6; color:#fff; font-size:13px; transform:translateX(-50%); }
 .training-empty[hidden] { display:none; }
 .training-empty svg { width:17px; }
-.training-floor-lock { position:absolute; z-index:5; inset:0; display:grid; place-content:center; justify-items:center; gap:10px; background:#102019b8; color:#fff; text-align:center; backdrop-filter:blur(2px); }
-.training-floor-lock[hidden] { display:none; }
-.training-floor-lock strong { font-size:24px; }
-.training-floor-lock span { color:#d4dfd9; font-size:13px; }
-.training-floor-lock button { min-height:38px; padding:0 15px; border:1px solid #d8e4de; border-radius:5px; background:#f5f8f6; color:#1d4938; font-size:13px; font-weight:900; }
 .training-facility { position:absolute; width:var(--facility-width); min-width:84px; aspect-ratio:1.2; display:grid; place-items:end center; padding:0 2px 2px; border:0; outline:0; background:transparent; transform:translate(-50%,-52%); touch-action:none; }
 .training-facility img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; filter:drop-shadow(0 7px 5px #06110b4f); transform:scaleX(var(--facility-rotation)); pointer-events:none; }
 .training-facility.indoor-equipment img { inset:12.5%; width:75%; height:75%; }
@@ -1601,12 +1589,6 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .training-dock-item > button:disabled { border-color:#d7dfdb; background:#edf1ef; color:#9aa49f; cursor:default; }
 .training-dock-empty { min-height:220px; display:grid; place-content:center; justify-items:center; gap:8px; color:#87928d; font-size:13px; }
 .training-dock-empty svg { width:27px; }
-.training-floor-panel { min-height:220px; display:grid; align-content:center; gap:9px; padding:18px; background:#f8faf9; color:#5b6d64; font-size:13px; line-height:1.55; }
-.training-floor-panel strong { color:#253e33; font-size:18px; }
-.training-floor-panel button { min-height:38px; display:flex; align-items:center; justify-content:center; gap:7px; border:1px solid #176b4d; border-radius:5px; background:#176b4d; color:#fff; font-size:13px; font-weight:900; }
-.training-floor-panel button svg { width:16px; }
-.training-stage.relationship_8f .training-stage-items { display:none; background:transparent; }
-.training-stage.relationship_8f::after { display:none; }
 .relationship-room-stage { min-width:0; min-height:124px; display:grid; place-items:center; align-content:center; gap:7px; padding:16px; border:1px solid #bdd3c8; border-radius:7px; background:#f7faf8ed; color:#244b3b; box-shadow:0 8px 20px #08150f40; }
 .relationship-room-stage:hover { border-color:#398465; background:#fff; transform:translateY(-2px); }
 .relationship-room-stage>svg { width:28px; height:28px; color:#287154; }
@@ -1650,9 +1632,6 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .relationship-room-note { padding:9px; border:1px solid #e4d7b8; border-radius:5px; background:#fff8e8; color:#795b25!important; }
 .relationship-room-settle { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:40px; }
 .relationship-room-settle svg { width:17px; height:17px; }
-@media (max-width:900px) {
-  .training-stage.relationship_8f .training-stage-items { grid-template-columns:repeat(2,minmax(120px,1fr)); padding:18px; }
-}
 .training-available-item { border-bottom:1px solid #dce5e0; background:#fff; }
 .training-available-item:focus-within { box-shadow:inset 3px 0 #2d8b68; }
 .training-available-item.built-in { background:#f3f8f5; box-shadow:inset 3px 0 0 #2d8b68; }
@@ -4234,8 +4213,6 @@ html.rel3d-open, body.rel3d-open { overflow: hidden; }
 .training-room-role-select { width:100%; min-height:38px; padding:6px 9px; border:1px solid #ccd7d1; border-radius:5px; background:#fff; color:#243b32; font-size:13px; }
 .training-room-role-sections{display:grid;gap:10px}.training-room-role-field{gap:7px;padding:9px;border:1px solid #d9e4de;border-radius:6px;background:#f8fbf9}.training-room-role-field>header{display:flex;align-items:center;justify-content:space-between;gap:8px}.training-room-role-field>header strong{color:#24483a;font-size:13px}.training-room-role-field>header span{color:#71847a;font-size:13px;font-weight:700}.training-room-chips{display:flex;flex-wrap:wrap;gap:5px}.training-room-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 5px 3px 8px;border-radius:999px;background:#e3f3eb;color:#176448;font-size:13px;font-weight:800}.training-room-chip button{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:50%;background:#247455;color:#fff;line-height:1}.training-room-candidates{display:grid;gap:4px;max-height:260px;overflow:auto}.training-room-candidate{display:grid;grid-template-columns:16px minmax(0,1fr);align-items:center;gap:8px;min-height:48px;padding:6px 8px;border:1px solid #dbe5e0;border-radius:5px;background:#fff;cursor:pointer}.training-room-candidate:has(input:checked){border-color:#398565;background:#e8f5ef}.training-room-candidate.disabled{cursor:not-allowed;opacity:.48}.training-room-candidate input{margin:0;accent-color:#176b4d}.training-room-candidate>span{min-width:0;display:grid;gap:2px}.training-room-candidate strong{overflow:visible;color:#29483b;font-size:13px;white-space:normal}.training-room-candidate small{overflow:visible;color:#74867d;font-size:13px;font-weight:600;line-height:1.4;white-space:normal}.training-room-role-empty{padding:7px;color:#87958e;font-size:13px;font-weight:600}.training-room-selected-people{display:grid;gap:7px}.training-room-person-card{display:grid;gap:7px;padding:9px;border:1px solid #d8e3dd;border-left:3px solid #398565;border-radius:5px;background:#fff}.training-room-person-card>header{display:flex;align-items:center;gap:8px}.training-room-person-card>header span{padding:2px 7px;border-radius:10px;background:#e5f2ec;color:#176448;font-size:13px;font-weight:800}.training-room-person-card>header strong{color:#27483a;font-size:14px}.training-room-person-facts{display:flex;flex-wrap:wrap;gap:5px 12px;color:#64786e;font-size:13px}.training-room-person-facts span{display:inline-flex;gap:4px}.training-room-person-facts b{color:#365d4c}.training-room-person-abilities{display:flex;flex-wrap:wrap;gap:5px;color:#7d8d85;font-size:13px}.training-room-person-abilities span{padding:2px 6px;border:1px solid #dbe5e0;border-radius:4px;background:#f1f6f3;color:#426352}.training-room-person-abilities b{color:#176b4d}.training-room-effect-preview{display:grid;gap:7px;padding:10px;border:1px solid #cddfd6;border-radius:6px;background:#eff7f3;color:#557066;font-size:13px}.room-effect-summary{color:#28503f;font-weight:800}.room-effect-row{display:grid;grid-template-columns:minmax(90px,.7fr) minmax(0,1.3fr);gap:8px;line-height:1.45}.room-effect-row strong{color:#29483b}.room-effect-relation{padding-top:6px;border-top:1px solid #cedfd6;color:#64786e}.training-room-effect-preview>header{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:7px}.training-room-effect-preview svg{width:17px;color:#176b4d}.training-room-effect-preview header strong{color:#28503f}.training-room-effect-preview header b{color:#176b4d}.training-room-effect-preview>span{display:grid;grid-template-columns:70px minmax(0,1fr);gap:7px;line-height:1.45}.training-room-effect-preview>span>b{color:#365d4c}.training-room-effect-preview.occupied{background:#f7f5ed;border-color:#ded5b9}
 .training-room-intimacy{display:grid;gap:5px;padding:9px 10px;border:1px solid #dbe4df;border-radius:6px;background:#f7faf8}.training-room-intimacy h3{margin:0;color:#2a4137;font-size:13px}.training-room-intimacy-row{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#33473e;font-size:13px;line-height:1.6}.training-room-intimacy-row .intimacy-positive{color:#176b4d;font-weight:800}.training-room-intimacy-row .intimacy-none{color:#8a9690}.training-room-intimacy-row.negative,.training-room-intimacy.has-negative{border-color:#dfaaa4;color:#a72f25}.training-room-intimacy-row.negative{font-weight:800}.training-room-intimacy.error{border-color:#e2c49b;background:#fff8ee}.room-effect-row small{display:block;margin-top:2px;color:#56786a;font-size:13px}
-.relationship_8f .relationship-room-stage { min-height:126px; border-color:#aac8b9; background:#f5faf7ed; }
-.relationship_8f .relationship-room-stage .room-card-icon { width:52px; height:52px; }
 
 @media(max-width:680px){
   .training-room-attr-grid{grid-template-columns:1fr}
@@ -4286,9 +4263,6 @@ html.rel3d-open, body.rel3d-open { overflow: hidden; }
 .relations-more:hover{color:#176b4d;text-decoration:underline}
 .training-room-item{position:relative}
 .training-room-item>.training-available-head{padding-right:44px}
-.training-room-rename-btn{position:absolute;z-index:2;top:12px;right:28px;width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid #d5e0db;border-radius:5px;background:#fff;color:#62776e;cursor:pointer}
-.training-room-rename-btn:hover{border-color:#8daf9f;background:#edf5f1;color:#176b4d}
-.training-room-rename-btn svg{width:14px;height:14px}
 .room-title{display:flex;align-items:center;gap:5px}
 .room-rename-btn{width:25px;height:25px;display:inline-grid;place-items:center;padding:0;border:0;border-radius:4px;background:transparent;color:#677b72;cursor:pointer}
 .room-rename-btn:hover{background:#e8f1ed;color:#176b4d}
@@ -4307,7 +4281,6 @@ html.rel3d-open, body.rel3d-open { overflow: hidden; }
 .training-staff-option-facts small{overflow:visible;text-overflow:clip;white-space:normal;line-height:1.4}
 .training-room-person-facts.staff{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:6px 14px}
 .training-room-person-facts.staff span{display:grid;grid-template-columns:64px minmax(0,1fr);gap:5px}
-.training-room-rename-dialog{width:min(430px,calc(100vw - 30px))}
 @media(max-width:760px){.training-staff-option-facts,.training-room-person-facts.staff{grid-template-columns:1fr}.training-room-person-facts.staff span{grid-template-columns:60px minmax(0,1fr)}}
 #training-archive-content{grid-template-columns:1fr;gap:8px}
 .training-archive-category{display:grid;gap:6px}
@@ -5344,8 +5317,6 @@ body { background:#f1f4f2; }
 .training-page.facility-text-view .training-facility img,.training-page.facility-text-view .training-facility.indoor-equipment img,.training-page.facility-text-view .training-facility.outdoor-equipment img{position:static;inset:auto;width:60px;height:56px;object-fit:contain;filter:none;transform:none}
 .training-page.facility-text-view .training-facility>span:last-child{position:static;max-width:none;overflow:visible;padding:0;background:transparent;color:#29483b;font-size:14px;font-weight:900;text-overflow:clip;white-space:normal;opacity:1}
 .training-page.facility-text-view .training-empty{position:static;justify-self:stretch;justify-content:center;margin:auto 0;padding:18px;border:1px dashed #c8d6cf;background:#f8faf9;color:#708078;transform:none}
-.training-page.facility-text-view .training-floor-lock{position:static;min-height:240px;padding:20px;border:1px solid #d1ddd7;border-radius:6px;background:#f8faf9;color:#29483b;backdrop-filter:none}
-.training-page.facility-text-view .training-floor-lock span{color:#708078}
 .training-page.facility-text-view .training-scale-control{display:none}
 .training-page.facility-text-view .training-dock-item{grid-template-columns:76px minmax(0,1fr) auto;min-height:82px;column-gap:12px}
 .training-page.facility-text-view .training-dock-item img{width:72px;height:72px;max-width:100%;object-fit:contain}
@@ -5494,6 +5465,16 @@ body { background:#f1f4f2; }
 .training-dock { grid-template-rows:minmax(0,1fr); }
 .training-page.position-training-active .training-dock { grid-template-rows:minmax(0,1fr); }
 .training-stage.roster { background-image:none; background-color:#f2f6f4; }
+/* module backgrounds (training ground modules) */
+.training-stage.roster[data-module],.training-stage.position_training[data-module] { background-position:center; background-size:cover; }
+.training-stage[data-module="player_training"]   { background-image:linear-gradient(#f2f6f4db,#f2f6f4db),url('/assets/training/outdoor.webp'); }
+.training-stage[data-module="position_training"] { background-image:linear-gradient(#f2f6f4db,#f2f6f4db),url('/assets/training/outdoor_2.webp'); }
+.training-stage[data-module="staff_training"]    { background-image:linear-gradient(#f2f6f4db,#f2f6f4db),url('/assets/training/office_3f.webp'); }
+.training-stage[data-module="team_training"]     { background-image:linear-gradient(#f2f6f4db,#f2f6f4db),url('/assets/training/office_4f.webp'); }
+:root[data-theme="dark"] .training-stage[data-module="player_training"]   { background-image:linear-gradient(#0e1714e0,#0e1714e0),url('/assets/training/outdoor.webp'); }
+:root[data-theme="dark"] .training-stage[data-module="position_training"] { background-image:linear-gradient(#0e1714e0,#0e1714e0),url('/assets/training/outdoor_2.webp'); }
+:root[data-theme="dark"] .training-stage[data-module="staff_training"]    { background-image:linear-gradient(#0e1714e0,#0e1714e0),url('/assets/training/office_3f.webp'); }
+:root[data-theme="dark"] .training-stage[data-module="team_training"]     { background-image:linear-gradient(#0e1714e0,#0e1714e0),url('/assets/training/office_4f.webp'); }
 .training-roster { position:absolute; inset:0; display:grid; align-content:start; grid-auto-rows:max-content; gap:8px; overflow:auto; padding:12px; }
 .training-roster-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:2px 4px; }
 .training-roster-head strong { font-size:15px; color:#243b32; }
@@ -5508,6 +5489,24 @@ body { background:#f1f4f2; }
 .training-person-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:stretch; border:1px solid #dbe4df; border-radius:7px; background:#fff; overflow:hidden; }
 .training-person-row.selected { border-color:#176b4d; box-shadow:inset 3px 0 #176b4d; }
 .training-person-row.training { background:#f4faf7; }
+.training-person-row.expanded { grid-template-rows:auto auto; }
+.training-person-attributes { grid-column:1 / -1; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:10px; margin:0 10px 10px; padding-top:10px; border-top:1px solid #e3eae6; }
+.training-person-attributes .player-attribute-group { padding:9px 10px; }
+.training-person-attributes .player-attribute-group h4 { margin:0 0 7px; font-size:13px; }
+.training-person-attributes .ability-list { gap:3px; }
+.training-person-attributes .ability-list span { min-height:26px; padding:3px 7px; font-size:13px; }
+.training-person-attributes .ability-list b { font-variant-numeric:tabular-nums; }
+.training-person-attributes.empty { display:block; padding:10px 0 2px; color:#6b7a72; font-size:13px; }
+.training-person-attributes .hidden-group { grid-column:1 / -1; border-top-color:#8a8f8c; }
+.training-person-attributes .hidden-group .ability-list { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+@media (max-width:1100px) { .training-person-attributes { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+@media (max-width:640px) { .training-person-attributes { grid-template-columns:1fr; } }
+/* staff row expansion: coaching licence only */
+.training-person-attributes.training-staff-licence { display: block; }
+.training-licence-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; padding: 2px 0; }
+.training-licence-line > b { font-weight: 700; }
+.training-licence-line > span { color: #6b7a72; font-size: 13px; }
+.training-licence-line svg { width: 14px; height: 14px; color: #6b7a72; }
 .training-person-open { min-width:0; display:grid; grid-template-columns:42px minmax(0,1fr) auto; align-items:center; gap:10px; padding:9px 10px; border:0; background:transparent; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .training-person-open:focus-visible { outline:3px solid #f0c94f; outline-offset:-3px; }
 .training-person-shirt { width:36px; height:36px; display:grid; place-items:center; border-radius:50%; background:#e8f0ec; color:#176b4d; font-size:13px; font-weight:900; }
@@ -5557,6 +5556,7 @@ body { background:#f1f4f2; }
 :root[data-theme="dark"] .training-person-row { background:#15211c; border-color:#33483f; }
 :root[data-theme="dark"] .training-person-row.training { background:#1a2a22; }
 :root[data-theme="dark"] .training-person-row.selected { border-color:#4c8f70; box-shadow:inset 3px 0 #68c99d; }
+:root[data-theme="dark"] .training-person-attributes { border-top-color:#33483f; }
 :root[data-theme="dark"] .training-person-shirt { background:#20332a; color:#8ed0ad; }
 :root[data-theme="dark"] .training-person-cancel { background:#2a1715; border-color:#4a2a25; color:#ff9a8f; }
 :root[data-theme="dark"] .training-person-badge { background:#214435; color:#8ed0ad; }
@@ -5576,3 +5576,72 @@ body { background:#f1f4f2; }
 :root[data-theme="dark"] .training-task-reason { color:#e0a08a; }
 :root[data-theme="dark"] .training-detail-empty { color:#91a49a; }
 :root[data-theme="dark"] .training-detail-empty strong { color:#e2eee7; }
+
+/* training team-training module (4th module) */
+
+/* 1) 左侧房间行：右边放单价徽标，不用箭头 */
+.team-room-row .team-room-price { white-space:nowrap; font-variant-numeric:tabular-nums; }
+
+/* 2) 训练效果：标题行 + 「提升 / 降低」两行可点选的标签 */
+.team-effects { display:grid; gap:7px; padding:9px; border:1px solid #d9e4de; border-radius:6px; background:#f8fbf9; }
+.team-effects > header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.team-effects > header strong { color:#24483a; font-size:13px; }
+.team-effects > header span { color:#71847a; font-size:13px; font-weight:700; }
+.team-effect-line { display:grid; grid-template-columns:max-content minmax(0,1fr); align-items:start; gap:6px; }
+.team-effect-line > em { min-width:30px; padding-top:3px; color:#6b7a72; font-size:13px; font-style:normal; font-weight:700; }
+.team-effects .room-attr-chip { border:1px solid transparent; font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+.team-effects .room-attr-chip.off { background:#f0f1f0; color:#8a948f; border-color:#dfe3e1; text-decoration:line-through; }
+
+/* 3) 角色规则说明（导师资格 / 只列合格职员） */
+.training-inline-form .team-role-rule { color:#71847a; font-size:13px; font-weight:600; line-height:1.4; }
+
+/* 4) 多选候选：列表不撑满右栏，最多约 4 行 */
+.team-role-field { display:grid; }
+.team-role-field .training-room-candidates { max-height:212px; }
+
+/* 5) 费用 / 人数两格并排 */
+.training-task-summary.team-summary { grid-template-columns:1fr 1fr; }
+
+/* 6) 结算日：安排前和费用、人数排成一行三格；训练中顶部一张结算日卡片 + 成员各自预估 */
+.training-task-summary.team-summary:has(.team-settle-cell) { grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.7fr); }
+.training-task-summary.team-summary:has(div:nth-child(3):not(.team-settle-cell)) { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.team-room-row .team-room-active { white-space:nowrap; background:#fff4d6; color:#8a5a00; }
+.team-active-tag { background:#fff4d6; color:#8a5a00; }
+.team-settle-card { display:grid; gap:3px; padding:10px 12px; border:1px solid #cfe3d8; border-left:4px solid #1f6b4f; border-radius:6px; background:#f3faf6; }
+.team-settle-card small { color:#6b7a72; font-size:13px; font-weight:700; }
+.team-settle-card strong { color:#1f4d3b; font-size:20px; font-variant-numeric:tabular-nums; }
+.team-settle-card p { margin:0; color:#5d6f66; font-size:13px; line-height:1.45; }
+.team-active-members { display:grid; gap:6px; }
+.team-active-member { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 10px; border:1px solid #dfe7e2; border-radius:6px; background:#fff; }
+.team-active-member > span { display:grid; gap:1px; min-width:0; }
+.team-active-member strong { font-size:13px; }
+.team-active-member small { color:#71847a; font-size:13px; }
+.team-active-member em { display:flex; align-items:center; gap:6px; color:#4f6259; font-size:13px; font-style:normal; font-weight:700; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.team-active-member em b { padding:1px 6px; border-radius:999px; background:#1f6b4f; color:#fff; font-size:13px; }
+.team-active-member.latest { border-color:#9cc9b2; background:#f3faf6; }
+
+/* 深色 */
+:root[data-theme="dark"] .team-settle-card { background:#12241c; border-color:#33483f; border-left-color:#4c8f70; }
+:root[data-theme="dark"] .team-settle-card strong { color:#cfeedd; }
+:root[data-theme="dark"] .team-settle-card p,:root[data-theme="dark"] .team-settle-card small { color:#99aaa1; }
+:root[data-theme="dark"] .team-active-member { background:#15211c; border-color:#33483f; }
+:root[data-theme="dark"] .team-active-member.latest { background:#1a3328; border-color:#4c8f70; }
+:root[data-theme="dark"] .team-active-member strong { color:#e2eee7; }
+:root[data-theme="dark"] .team-active-member small,:root[data-theme="dark"] .team-active-member em { color:#99aaa1; }
+:root[data-theme="dark"] .team-room-row .team-room-active,:root[data-theme="dark"] .team-active-tag { background:#3d3112; color:#f0cf7a; }
+:root[data-theme="dark"] .team-effects,:root[data-theme="dark"] .team-role-field { background:#111c17; border-color:#33483f; }
+:root[data-theme="dark"] .team-effects > header strong,:root[data-theme="dark"] .team-role-field > header strong { color:#e2eee7; }
+:root[data-theme="dark"] .team-effects > header span,:root[data-theme="dark"] .team-effect-line > em,:root[data-theme="dark"] .training-inline-form .team-role-rule { color:#99aaa1; }
+:root[data-theme="dark"] .team-effects .room-attr-chip.inc.on { background:#1c3550; color:#a9cdf5; }
+:root[data-theme="dark"] .team-effects .room-attr-chip.dec.on { background:#4a2320; color:#f2aba3; }
+:root[data-theme="dark"] .team-effects .room-attr-chip.off { background:#1a2420; border-color:#2c3c35; color:#6f8178; }
+:root[data-theme="dark"] .team-role-field .training-room-candidate { background:#15211c; border-color:#33483f; }
+:root[data-theme="dark"] .team-role-field .training-room-candidate:has(input:checked) { background:#1a3328; border-color:#4c8f70; }
+:root[data-theme="dark"] .team-role-field .training-room-candidate strong { color:#e2eee7; }
+:root[data-theme="dark"] .team-role-field .training-room-candidate small { color:#99aaa1; }
+:root[data-theme="dark"] #team-training-form > label { color:#b7c9c0; }
+button.team-session-row { width:100%; font:inherit; text-align:left; cursor:pointer; color:inherit; }
+.team-session-row.selected { border-color:#9cc9b2; background:#f3faf6; box-shadow:inset 3px 0 0 #1f6b4f; }
+:root[data-theme="dark"] .team-session-row.selected { background:#1a3328; border-color:#4c8f70; box-shadow:inset 3px 0 0 #4c8f70; }
+.team-summary dd.team-paid-legacy { color:#71847a; font-weight:600; }
+:root[data-theme="dark"] .team-summary dd.team-paid-legacy { color:#99aaa1; }

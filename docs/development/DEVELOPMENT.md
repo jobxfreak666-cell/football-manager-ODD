@@ -110,14 +110,26 @@ git diff --check
 
 修改 `src/tools/*.py` 时可检查实际变更模块。优先运行相关行为回归；涉及共享契约时覆盖受影响调用方，不自动运行全套。已通过的检查仅在新增改动、失败或明确未解决风险时重复/扩大。只使用已确认隔离的测试数据；真实 FM、账户数据或外部服务操作另需相应授权。
 
-### 4.5 前端与双语回归
+### 4.5 前端、训练与原生回归
 
-GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上使用 Windows、Node.js 24 和 Python 3.10。它只运行集团出售确认、货币缩写、球员卡片、前端视觉、本地化及字号回归，不构建或安装原生核心，也不启动产品或连接 FM。可在仓库根目录复现：
+GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上并行运行两个独立 job，使用 Windows、Node.js 24 和 Python 3.10。`frontend-regressions` 运行集团出售确认、货币缩写、球员卡片、前端视觉、训练交互、本地化及字号回归。该 job 不依赖原生核心，可在仓库根目录复现：
 
 ```powershell
 python -m pip install pytest tomli
-python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py -q
+python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py tests/test_relationship_training_frontend.py tests/test_training_roster_attributes_frontend.py tests/test_relationship_frontend.py tests/test_training_task_frontend.py tests/test_i18n_relationship.py -q
 ```
+
+`native-regressions` 使用 runner 的 Rust MSVC 工具链与 Visual C++ Build Tools，从当前提交源码构建 Rust、C++ 两个核心，再运行原生、训练场、团队训练领域/API、训练任务、档案及刷新优化回归。它覆盖扣费幂等、崩溃恢复、任务和档案规则，以及冠军盘开关等刷新契约。构建结果留在 runner 的 `src/build/` 和 Rust crate 的 `src/native/fmodd_native_core/target/` 中；账户数据根通过 `FMODD_DATA_ROOT` 指向 runner 临时目录。测试使用隔离账户文档和测试进程内存，不启动产品或连接 FM，也不依赖游戏或编辑器的专有二进制。复现前先按 4.0 节准备原生工具链，并给本次测试选择独立的临时数据目录：
+
+```powershell
+python -m pip install pytest tomli
+python scripts/build_rust_native.py
+python scripts/build_cpp_hook_core.py
+$env:FMODD_DATA_ROOT = Join-Path ([System.IO.Path]::GetTempPath()) ("fmodd-ci-" + [guid]::NewGuid().ToString("N"))
+python -m pytest tests/test_rust_native_core.py tests/test_native_write_dispatch.py tests/test_training_ground.py tests/test_relationship_api.py tests/test_relationship_training.py tests/test_training_archive.py tests/test_training_task_rules.py tests/test_training_task_application.py tests/test_refresh_optimization.py -q
+```
+
+两个 job 均通过才表示本 workflow 通过；这些静态、模拟和进程内测试不替代真实 FM build 的实机验证。
 
 此 lane 是隔离的源码回归，不证明实时 FM 行为。
 
