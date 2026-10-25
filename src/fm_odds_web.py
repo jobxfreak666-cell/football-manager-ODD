@@ -333,7 +333,8 @@ from tools.local_state_services import (
 from tools.api_routing import RouteRegistry
 from tools.global_statistics import global_statistics, record_usage_heartbeat, save_statistics
 from tools.domain_errors import (
-    DomainError, NotFoundError, ValidationError, normalize_error,
+    ConflictError, DomainError, NotFoundError, UnavailableError,
+    ValidationError, normalize_error,
 )
 from tools.i18n_runtime import (
     localized_error_payload, mail_template_fields, message_key_for_status,
@@ -3907,6 +3908,7 @@ class LocalOddsState:
         self.match_intelligence_results: list[dict[str, Any]] = []
         self.match_intelligence_last_probe_at = 0.0
         self.match_intelligence_last_error: str | None = None
+        self.match_intelligence_probe_in_flight = False
         self.match_intelligence_public_cache: dict[str, Any] = {
             "unlocked": False,
             "floor": "7F",
@@ -20264,6 +20266,7 @@ class LocalOddsState:
                 or self.refreshing
                 or self.reconciling
                 or self.save_change_pending
+                or getattr(self, "match_intelligence_probe_in_flight", False)
             ):
                 return False
             if (
@@ -20278,69 +20281,112 @@ class LocalOddsState:
             ]
             clock = dict(self.last_connection_clock or {})
             scope_id = self._data_scope_id(self.output)
+            save_instance_id = str(self.output.get("save_instance_id") or "")
             self.match_intelligence_last_probe_at = now
-        game_date = str(clock.get("date") or output.get("game_date") or "")
+            self.match_intelligence_probe_in_flight = True
+            self.match_intelligence_last_error = None
         try:
-            game_minutes = int(clock.get("minutes"))
-        except (TypeError, ValueError):
-            return False
-        if not game_date or not scope_id:
-            return False
-        set_active_save_id(scope_id)
-        with self.lock:
-            intelligence_unlocked = bool(
-                self.match_intelligence_public_cache_scope_id == scope_id
-                and self.match_intelligence_public_cache.get("unlocked")
-            )
-        if not intelligence_unlocked:
-            return False
-        if not self.memory_lock.acquire(blocking=False):
-            return False
-        try:
-            probe = probe_match_intelligence_candidates(
-                output.get("matches", []), game_date, game_minutes,
-            )
-        except Exception as error:
+            game_date = str(clock.get("date") or output.get("game_date") or "")
+            try:
+                game_minutes = int(clock.get("minutes"))
+            except (TypeError, ValueError):
+                with self.lock:
+                    self.match_intelligence_last_error = "无法确认当前游戏时间"
+                return False
+            if not game_date or not scope_id or not save_instance_id:
+                with self.lock:
+                    self.match_intelligence_last_error = "尚未识别当前存档或游戏日期"
+                return False
+            set_active_save_id(scope_id)
             with self.lock:
-                self.match_intelligence_last_error = str(error).strip() or type(error).__name__
-            return False
-        finally:
-            self.memory_lock.release()
-        discovered = {
-            str(item.get("fixture_id") or ""): dict(item)
-            for item in (probe.get("candidates") or [])
-            if item.get("fixture_id")
-        }
-        with self.lock:
-            merged = {
+                intelligence_unlocked = bool(
+                    self.match_intelligence_public_cache_scope_id == scope_id
+                    and self.match_intelligence_public_cache.get("unlocked")
+                )
+            if not intelligence_unlocked:
+                with self.lock:
+                    self.match_intelligence_last_error = "情报中心尚未解锁"
+                return False
+            if not self.memory_lock.acquire(blocking=False):
+                return False
+            try:
+                try:
+                    probe = probe_match_intelligence_candidates(
+                        output.get("matches", []), game_date, game_minutes,
+                        force_bounded_rescan=force,
+                    )
+                except Exception as error:
+                    with self.lock:
+                        self.match_intelligence_last_error = (
+                            str(error).strip() or type(error).__name__
+                        )
+                    return False
+            finally:
+                self.memory_lock.release()
+            discovered = {
                 str(item.get("fixture_id") or ""): dict(item)
-                for item in self.match_intelligence_results
+                for item in (probe.get("candidates") or [])
                 if item.get("fixture_id")
             }
-            merged.update(discovered)
-            current_candidates = current_match_intelligence_candidates(
-                list(merged.values()), output.get("matches", []),
-                game_date, game_minutes,
-            )
-            candidates = sorted(current_candidates, key=lambda item: (
-                str(item.get("fixture_date") or ""),
-                int(item.get("kickoff_minutes") or 24 * 60),
-                str(item.get("competition_name") or ""),
-                str((item.get("home") or {}).get("name") or ""),
-            ))
-            before = json.dumps(
-                self.match_intelligence_results,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            after = json.dumps(
-                candidates,
-                ensure_ascii=False, sort_keys=True, default=str,
-            )
-            self.match_intelligence_results = candidates
-            self.match_intelligence_last_error = None
-            if before != after:
-                self.data_version += 1
-        return True
+            with self.lock:
+                current_output = self.output
+                current_scope_id = self._data_scope_id(current_output)
+                if (
+                    not self._has_verified_save()
+                    or self.refreshing
+                    or self.reconciling
+                    or self.save_change_pending
+                    or str(current_output.get("save_instance_id") or "")
+                    != save_instance_id
+                    or current_scope_id != scope_id
+                    or self.match_intelligence_public_cache_scope_id != scope_id
+                    or not self.match_intelligence_public_cache.get("unlocked")
+                ):
+                    self.match_intelligence_last_error = (
+                        "存档或情报中心状态已变化，请重新尝试"
+                    )
+                    return False
+                current_clock = dict(self.last_connection_clock or {})
+                current_date = str(
+                    current_clock.get("date") or current_output.get("game_date") or ""
+                )
+                try:
+                    current_minutes = int(current_clock.get("minutes"))
+                except (TypeError, ValueError):
+                    self.match_intelligence_last_error = "无法确认当前游戏时间"
+                    return False
+                if not current_date:
+                    self.match_intelligence_last_error = "无法确认当前游戏日期"
+                    return False
+                current_matches = [
+                    dict(match) for match in current_output.get("matches", [])
+                ]
+                current_candidates = current_match_intelligence_candidates(
+                    list(discovered.values()), current_matches,
+                    current_date, current_minutes,
+                )
+                candidates = sorted(current_candidates, key=lambda item: (
+                    str(item.get("fixture_date") or ""),
+                    int(item.get("kickoff_minutes") or 24 * 60),
+                    str(item.get("competition_name") or ""),
+                    str((item.get("home") or {}).get("name") or ""),
+                ))
+                before = json.dumps(
+                    self.match_intelligence_results,
+                    ensure_ascii=False, sort_keys=True, default=str,
+                )
+                after = json.dumps(
+                    candidates,
+                    ensure_ascii=False, sort_keys=True, default=str,
+                )
+                self.match_intelligence_results = candidates
+                self.match_intelligence_last_error = None
+                if before != after:
+                    self.data_version += 1
+            return True
+        finally:
+            with self.lock:
+                self.match_intelligence_probe_in_flight = False
 
     def watch_match_intelligence(self) -> None:
         while True:
@@ -20393,6 +20439,167 @@ class LocalOddsState:
         )
         self.match_intelligence_public_cache = deepcopy(intelligence)
         return intelligence
+
+    def refresh_match_intelligence(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Force a gated live candidate scan for an explicit user request."""
+        with self.lock:
+            output = self.output
+            if output.get("save_identity_discovery_deferred") or self.save_change_pending:
+                raise ConflictError(
+                    "正在确认存档身份，请稍后重试",
+                    code="match_intelligence_save_pending",
+                    phase="validate_context",
+                )
+            if not self._has_verified_save() or not output.get("save_instance_id"):
+                raise ValidationError(
+                    "尚未识别当前存档",
+                    code="match_intelligence_save_required",
+                    phase="validate_context",
+                )
+            scope_id = str(self._data_scope_id(output) or "")
+            if not scope_id:
+                raise ValidationError(
+                    "尚未识别当前存档账户",
+                    code="match_intelligence_scope_required",
+                    phase="validate_context",
+                )
+            requested_scope_id = str(payload.get("data_scope_id") or "").strip()
+            if requested_scope_id and requested_scope_id != scope_id:
+                raise ConflictError(
+                    "当前存档已变化，请刷新后重试",
+                    code="match_intelligence_scope_changed",
+                    phase="validate_context",
+                )
+            if self.refreshing or self.reconciling:
+                raise ConflictError(
+                    "当前正在刷新，请稍后获取情报",
+                    code="match_intelligence_busy",
+                    phase="read",
+                )
+            if (
+                self.match_intelligence_public_cache_scope_id != scope_id
+                or not self.match_intelligence_public_cache.get("unlocked")
+            ):
+                raise ValidationError(
+                    "情报中心尚未解锁",
+                    code="activity_centre_locked",
+                    phase="validate_context",
+                )
+            if (
+                getattr(self, "match_intelligence_probe_in_flight", False)
+                or self.memory_lock.locked()
+            ):
+                raise ConflictError(
+                    "情报中心当前正忙，请稍后重试",
+                    code="match_intelligence_busy",
+                    phase="read",
+                )
+            clock = dict(self.last_connection_clock or {})
+            game_date = str(clock.get("date") or output.get("game_date") or "")
+            try:
+                int(clock.get("minutes"))
+            except (TypeError, ValueError):
+                raise UnavailableError(
+                    "无法确认当前游戏时间，请稍后重试",
+                    code="match_intelligence_clock_unavailable",
+                    phase="read",
+                ) from None
+            if not game_date:
+                raise UnavailableError(
+                    "无法确认当前游戏日期，请稍后重试",
+                    code="match_intelligence_clock_unavailable",
+                    phase="read",
+                )
+
+        if not self._probe_match_intelligence_if_idle(force=True):
+            with self.lock:
+                error = str(self.match_intelligence_last_error or "")
+                current_scope_id = str(self._data_scope_id(self.output) or "")
+                save_changed = (
+                    current_scope_id != scope_id
+                    or str(self.output.get("save_instance_id") or "")
+                    != str(output.get("save_instance_id") or "")
+                )
+                if save_changed or "存档或情报中心状态已变化" in error:
+                    raise ConflictError(
+                        "存档或情报中心状态已变化，请重新尝试",
+                        code="match_intelligence_context_changed",
+                        phase="read",
+                    )
+                if (
+                    not self._has_verified_save()
+                    or self.refreshing
+                    or self.reconciling
+                    or self.save_change_pending
+                    or self.memory_lock.locked()
+                    or getattr(self, "match_intelligence_probe_in_flight", False)
+                ):
+                    raise ConflictError(
+                        "情报中心当前正忙，请稍后重试",
+                        code="match_intelligence_busy",
+                        phase="read",
+                    )
+                if error:
+                    if error == "情报中心尚未解锁":
+                        raise ValidationError(
+                            error,
+                            code="activity_centre_locked",
+                            phase="validate_context",
+                        )
+                    if error.startswith("无法确认"):
+                        raise UnavailableError(
+                            f"{error}，请稍后重试",
+                            code="match_intelligence_clock_unavailable",
+                            phase="read",
+                        )
+                    raise UnavailableError(
+                        "获取情报失败，请稍后重试",
+                        code="match_intelligence_probe_failed",
+                        phase="read",
+                    )
+            raise ConflictError(
+                "情报中心当前正忙，请稍后重试",
+                code="match_intelligence_busy",
+                phase="read",
+            )
+        try:
+            intelligence = self.public_match_intelligence()
+        except ValueError:
+            with self.lock:
+                context_changed = (
+                    not self._has_verified_save()
+                    or self.save_change_pending
+                    or str(self._data_scope_id(self.output) or "") != scope_id
+                    or str(self.output.get("save_instance_id") or "")
+                    != str(output.get("save_instance_id") or "")
+                    or self.match_intelligence_public_cache_scope_id != scope_id
+                )
+            if context_changed:
+                raise ConflictError(
+                    "存档或情报中心状态已变化，请重新尝试",
+                    code="match_intelligence_context_changed",
+                    phase="read",
+                ) from None
+            raise UnavailableError(
+                "无法生成最新情报状态，请稍后重试",
+                code="match_intelligence_projection_failed",
+                phase="read",
+            ) from None
+        with self.lock:
+            if (
+                not self._has_verified_save()
+                or self.save_change_pending
+                or str(self._data_scope_id(self.output) or "") != scope_id
+                or str(self.output.get("save_instance_id") or "")
+                != str(output.get("save_instance_id") or "")
+                or self.match_intelligence_public_cache_scope_id != scope_id
+            ):
+                raise ConflictError(
+                    "存档或情报中心状态已变化，请重新尝试",
+                    code="match_intelligence_context_changed",
+                    phase="read",
+                )
+        return {"intelligence": intelligence, "data_scope_id": scope_id}
 
     def buy_match_intelligence(self, payload: dict[str, Any]) -> dict[str, Any]:
         fixture_id = str(payload.get("fixture_id") or "")
@@ -22878,6 +23085,7 @@ def build_api_routes() -> RouteRegistry:
         "/api/activity/black-room": "black_room_activity",
         "/api/activity/counseling": "psychological_counseling",
         "/api/activity/language-learning": "update_language_learning",
+        "/api/activity/intelligence/refresh": "refresh_match_intelligence",
         "/api/activity/intelligence/purchase": "buy_match_intelligence",
         "/api/mail/referee-debt": "referee_debt_mail_action",
         "/api/mail/sponsorship": "sponsorship_mail_action",

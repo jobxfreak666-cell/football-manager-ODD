@@ -136,7 +136,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 2F 球员离队模拟报价、估值与账户报价轮次 | `src/tools/player_departure.py`；所有权校验、当前原生样本与成交编排由 `src/tools/player_departure_application.py` 负责，实际合同/名单及卖方财政写入复用 `src/tools/player_movement.py` |
 | 活动效果、伤病读取及治疗天数原生事务 | `src/tools/club_reader.py` |
 | 退役计划与不退役 Hook | `src/tools/retirement.py` |
-| 情报中心候选赛程、私有赛果证据及情报退款核对 | `src/tools/preview_cup_odds.py`、`src/tools/club_economy.py`、`src/fm_odds_web.py` |
+| 情报中心候选赛程、手动/后台有界探测、私有赛果证据及情报退款核对 | `src/tools/preview_cup_odds.py`、`src/tools/club_economy.py`、`src/fm_odds_web.py` |
 | 比赛/球员道具 | `src/tools/*hook*.py`、`src/tools/*nuclear*.py` |
 
 业务文档、原生对象地址和前端选中状态属于不同层。训练、活动或医疗优化不能通过复用旧地址、吞掉等待状态、缓存伤病真值或绕过写后回读来换取速度。

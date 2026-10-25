@@ -4,6 +4,13 @@
   // Generated from the authoritative zh-CN semantic catalogue with OpenCC
   // s2twp, followed by reviewed Taiwanese UI and football terminology.
   const messages = Object.freeze({
+    "activity.get_intelligence":"取得情報",
+    "activity.intelligence_searching":"正在取得情報…",
+    "activity.intelligence_candidates_updated":"情報候選比賽已更新",
+    "activity.intelligence_search_busy":"情報搜尋正在進行，請稍後再試。",
+    "activity.intelligence_context_changed":"存檔或帳號狀態已變更或尚未就緒，請重新整理後再試。",
+    "activity.intelligence_clock_unavailable":"無法取得遊戲時間，請重新連線後再試。",
+    "activity.intelligence_search_failed":"無法取得情報",
     "facilities.view.aria": "頁面檢視",
     "facilities.view.compact": "簡略版",
     "facilities.view.visual": "圖形",

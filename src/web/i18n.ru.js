@@ -2,6 +2,13 @@
 (() => {
   "use strict";
   const messages = Object.freeze({
+    "activity.get_intelligence":"Собрать сведения",
+    "activity.intelligence_searching":"Поиск сведений…",
+    "activity.intelligence_candidates_updated":"Список матчей со сведениями обновлён",
+    "activity.intelligence_search_busy":"Поиск сведений уже выполняется. Повторите попытку чуть позже.",
+    "activity.intelligence_context_changed":"Состояние сохранения или учётной записи изменилось либо ещё не готово. Обновите страницу и повторите попытку.",
+    "activity.intelligence_clock_unavailable":"Не удалось получить игровое время. Переподключитесь к сохранению и повторите попытку.",
+    "activity.intelligence_search_failed":"Не удалось найти сведения",
   "facilities.view.aria": "Режим отображения",
   "facilities.view.compact": "Компактный вид",
   "facilities.view.visual": "Визуально",

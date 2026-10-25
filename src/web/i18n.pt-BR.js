@@ -5,6 +5,13 @@
   const chinese = Object.create(null);
   modules.forEach((entry) => { const zh = entry.messages?.["zh-CN"] || {}; Object.entries(zh).forEach(([key, value]) => { chinese[key] = String(value ?? ""); }); });
   const messages = Object.freeze({
+    "activity.get_intelligence":"Obter informações",
+    "activity.intelligence_searching":"Buscando informações…",
+    "activity.intelligence_candidates_updated":"Lista de partidas com informações atualizada",
+    "activity.intelligence_search_busy":"Já há uma busca de informações em andamento. Tente novamente em instantes.",
+    "activity.intelligence_context_changed":"O estado do save ou da conta mudou ou ainda não está pronto. Atualize e tente novamente.",
+    "activity.intelligence_clock_unavailable":"Não foi possível obter o horário do jogo. Reconecte ao save e tente novamente.",
+    "activity.intelligence_search_failed":"Não foi possível buscar informações",
   "activity.activity_count": "Atividades {count}",
   "activity.activity_done": "{name} participou da atividade",
   "activity.activity_open": "Abrir",

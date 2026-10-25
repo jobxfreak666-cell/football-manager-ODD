@@ -4,6 +4,13 @@
   // Reviewed German catalogue. Every key is materialised explicitly so this
   // locale never fabricates copy with word substitution or English fallback.
   const messages = Object.freeze({
+    "activity.get_intelligence":"Informationen sammeln",
+    "activity.intelligence_searching":"Informationen werden gesucht…",
+    "activity.intelligence_candidates_updated":"Verfügbare Spiele für Informationen aktualisiert",
+    "activity.intelligence_search_busy":"Eine Informationssuche läuft bereits. Bitte versuchen Sie es später erneut.",
+    "activity.intelligence_context_changed":"Der Spielstand oder Kontostatus hat sich geändert oder ist noch nicht bereit. Bitte aktualisieren Sie die Ansicht und versuchen Sie es erneut.",
+    "activity.intelligence_clock_unavailable":"Die Spielzeit konnte nicht abgerufen werden. Stellen Sie die Verbindung erneut her und versuchen Sie es noch einmal.",
+    "activity.intelligence_search_failed":"Informationen konnten nicht gesucht werden",
     "facilities.view.aria": "Seitenansicht",
     "facilities.view.compact": "Kompaktansicht",
     "facilities.view.visual": "Grafik",
