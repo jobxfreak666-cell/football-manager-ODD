@@ -7,8 +7,10 @@ import subprocess
 import unittest
 from pathlib import Path
 
+from frontend_source import read_frontend_source
+
 WEB = Path(__file__).resolve().parents[1] / "src" / "web"
-APP_JS = (WEB / "app.js").read_text(encoding="utf-8")
+APP_JS = read_frontend_source(WEB / "app.js", mode="raw")
 I18N_ENUMS = (WEB / "i18n.enums.js").read_text(encoding="utf-8")
 
 
@@ -19,6 +21,8 @@ def extract(start: str, end: str) -> str:
 
 LOCALIZE = extract("function localizedTrainingAttribute(attributeKey) {", "function creditDefaultEffects(")
 ROSTER = extract("function trainingAttributeValueClass(value) {", "function renderTrainingPersonDetail()")
+OPEN_PERSON = extract("function openTrainingPerson(kind, personId) {", "function renderTrainingModuleTabs()")
+DETAIL = extract("function renderTrainingPersonDetail() {", "function teamTrainingRooms()")
 LICENCE = extract("const COACHING_LICENSE_NAMES = {", "const COACHING_STAFF_JOB_TYPES")
 
 PLAYERS = [
@@ -50,8 +54,11 @@ const escapeHtml = (v) => String(v).replace(/[&<>"]/g, (c) => ({{"&":"&amp;","<"
 const PLAYERS = {json.dumps(PLAYERS, ensure_ascii=False)};
 const app = {{ trainingModule: "player_training", trainingPersonKind: null, trainingPersonId: null, trainingPlayerSearch: "", showHiddenAttributes: false }};
 const roster = {{ dataset: {{}}, innerHTML: "" }};
-const $ = () => roster;
+const detail = {{ dataset: {{}}, innerHTML: "" }};
+const $ = (selector) => selector === "#training-dock-content" ? detail : roster;
 const trainingRoster = () => PLAYERS;
+const trainingFirstTeamPlayers = () => PLAYERS;
+const trainingCurrentStaff = () => PLAYERS;
 const filteredTrainingRoster = (kind, people) => people;
 const trainingPersonFocus = () => null;
 const trainingFocusKey = () => "";
@@ -59,6 +66,9 @@ const trainingStaffEligible = () => true;
 const trainingPersonRoleLabel = () => "";
 const trainingFocusUsage = () => "";
 {ROSTER}
+{OPEN_PERSON}
+{DETAIL}
+const renderTraining = () => renderTrainingRoster();
 {script}
 """
     result = subprocess.run([node, "-"], input=source, text=True, encoding="utf-8", capture_output=True)
@@ -100,6 +110,32 @@ console.log(JSON.stringify(roster.innerHTML.split('<article').slice(1)));
 
 
 class TrainingRosterAttributesTest(unittest.TestCase):
+    def test_clicking_the_same_player_or_staff_twice_collapses_the_row(self):
+        for kind, module, person_id, people in (
+            ("player", "player_training", 1, PLAYERS),
+            ("staff", "staff_training", 101, STAFF),
+        ):
+            with self.subTest(kind=kind):
+                out = run("zh-CN", f"""
+app.trainingModule = {json.dumps(module)};
+PLAYERS.splice(0, PLAYERS.length, ...{json.dumps(people, ensure_ascii=False)});
+openTrainingPerson({json.dumps(kind)}, {person_id});
+const firstClick = roster.innerHTML;
+openTrainingPerson({json.dumps(kind)}, {person_id});
+const secondClick = roster.innerHTML;
+renderTrainingPersonDetail();
+console.log(JSON.stringify([firstClick, secondClick, detail.innerHTML, app.trainingPersonKind, app.trainingPersonId]));
+""")
+                opened, closed, empty_detail, selected_kind, selected_id = json.loads(out)
+                self.assertIn('aria-expanded="true"', opened)
+                self.assertIn("training-person-attributes", opened)
+                self.assertNotIn('aria-expanded="true"', closed)
+                self.assertNotIn("training-person-attributes", closed)
+                self.assertIn("training-detail-empty", empty_detail)
+                self.assertIn("training.select_person", empty_detail)
+                self.assertIsNone(selected_kind)
+                self.assertIsNone(selected_id)
+
     def test_only_the_clicked_player_expands(self):
         rows = rows_after_clicking(1)
         self.assertIn("training-person-attributes", rows[0])

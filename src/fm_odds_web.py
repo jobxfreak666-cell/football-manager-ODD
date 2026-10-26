@@ -368,8 +368,7 @@ from tools.local_state_services import (
 from tools.api_routing import RouteRegistry
 from tools.global_statistics import global_statistics, record_usage_heartbeat, save_statistics
 from tools.domain_errors import (
-    ConflictError, DomainError, NotFoundError, UnavailableError,
-    ValidationError, normalize_error,
+    DomainError, NotFoundError, ValidationError, normalize_error,
 )
 from tools.i18n_runtime import (
     localized_error_payload, mail_template_fields, message_key_for_status,
@@ -21314,165 +21313,7 @@ class LocalOddsState:
         return self._match_intelligence_application().public_status()
 
     def refresh_match_intelligence(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """Force a gated live candidate scan for an explicit user request."""
-        with self.lock:
-            output = self.output
-            if output.get("save_identity_discovery_deferred") or self.save_change_pending:
-                raise ConflictError(
-                    "正在确认存档身份，请稍后重试",
-                    code="match_intelligence_save_pending",
-                    phase="validate_context",
-                )
-            if not self._has_verified_save() or not output.get("save_instance_id"):
-                raise ValidationError(
-                    "尚未识别当前存档",
-                    code="match_intelligence_save_required",
-                    phase="validate_context",
-                )
-            scope_id = str(self._data_scope_id(output) or "")
-            if not scope_id:
-                raise ValidationError(
-                    "尚未识别当前存档账户",
-                    code="match_intelligence_scope_required",
-                    phase="validate_context",
-                )
-            requested_scope_id = str(payload.get("data_scope_id") or "").strip()
-            if requested_scope_id and requested_scope_id != scope_id:
-                raise ConflictError(
-                    "当前存档已变化，请刷新后重试",
-                    code="match_intelligence_scope_changed",
-                    phase="validate_context",
-                )
-            if self.refreshing or self.reconciling:
-                raise ConflictError(
-                    "当前正在刷新，请稍后获取情报",
-                    code="match_intelligence_busy",
-                    phase="read",
-                )
-            if (
-                self.match_intelligence_public_cache_scope_id != scope_id
-                or not self.match_intelligence_public_cache.get("unlocked")
-            ):
-                raise ValidationError(
-                    "情报中心尚未解锁",
-                    code="activity_centre_locked",
-                    phase="validate_context",
-                )
-            if (
-                getattr(self, "match_intelligence_probe_in_flight", False)
-                or self.memory_lock.locked()
-            ):
-                raise ConflictError(
-                    "情报中心当前正忙，请稍后重试",
-                    code="match_intelligence_busy",
-                    phase="read",
-                )
-            clock = dict(self.last_connection_clock or {})
-            game_date = str(clock.get("date") or output.get("game_date") or "")
-            try:
-                int(clock.get("minutes"))
-            except (TypeError, ValueError):
-                raise UnavailableError(
-                    "无法确认当前游戏时间，请稍后重试",
-                    code="match_intelligence_clock_unavailable",
-                    phase="read",
-                ) from None
-            if not game_date:
-                raise UnavailableError(
-                    "无法确认当前游戏日期，请稍后重试",
-                    code="match_intelligence_clock_unavailable",
-                    phase="read",
-                )
-
-        if not self._probe_match_intelligence_if_idle(force=True):
-            with self.lock:
-                error = str(self.match_intelligence_last_error or "")
-                current_scope_id = str(self._data_scope_id(self.output) or "")
-                save_changed = (
-                    current_scope_id != scope_id
-                    or str(self.output.get("save_instance_id") or "")
-                    != str(output.get("save_instance_id") or "")
-                )
-                if save_changed or "存档或情报中心状态已变化" in error:
-                    raise ConflictError(
-                        "存档或情报中心状态已变化，请重新尝试",
-                        code="match_intelligence_context_changed",
-                        phase="read",
-                    )
-                if (
-                    not self._has_verified_save()
-                    or self.refreshing
-                    or self.reconciling
-                    or self.save_change_pending
-                    or self.memory_lock.locked()
-                    or getattr(self, "match_intelligence_probe_in_flight", False)
-                ):
-                    raise ConflictError(
-                        "情报中心当前正忙，请稍后重试",
-                        code="match_intelligence_busy",
-                        phase="read",
-                    )
-                if error:
-                    if error == "情报中心尚未解锁":
-                        raise ValidationError(
-                            error,
-                            code="activity_centre_locked",
-                            phase="validate_context",
-                        )
-                    if error.startswith("无法确认"):
-                        raise UnavailableError(
-                            f"{error}，请稍后重试",
-                            code="match_intelligence_clock_unavailable",
-                            phase="read",
-                        )
-                    raise UnavailableError(
-                        "获取情报失败，请稍后重试",
-                        code="match_intelligence_probe_failed",
-                        phase="read",
-                    )
-            raise ConflictError(
-                "情报中心当前正忙，请稍后重试",
-                code="match_intelligence_busy",
-                phase="read",
-            )
-        try:
-            intelligence = self.public_match_intelligence()
-        except ValueError:
-            with self.lock:
-                context_changed = (
-                    not self._has_verified_save()
-                    or self.save_change_pending
-                    or str(self._data_scope_id(self.output) or "") != scope_id
-                    or str(self.output.get("save_instance_id") or "")
-                    != str(output.get("save_instance_id") or "")
-                    or self.match_intelligence_public_cache_scope_id != scope_id
-                )
-            if context_changed:
-                raise ConflictError(
-                    "存档或情报中心状态已变化，请重新尝试",
-                    code="match_intelligence_context_changed",
-                    phase="read",
-                ) from None
-            raise UnavailableError(
-                "无法生成最新情报状态，请稍后重试",
-                code="match_intelligence_projection_failed",
-                phase="read",
-            ) from None
-        with self.lock:
-            if (
-                not self._has_verified_save()
-                or self.save_change_pending
-                or str(self._data_scope_id(self.output) or "") != scope_id
-                or str(self.output.get("save_instance_id") or "")
-                != str(output.get("save_instance_id") or "")
-                or self.match_intelligence_public_cache_scope_id != scope_id
-            ):
-                raise ConflictError(
-                    "存档或情报中心状态已变化，请重新尝试",
-                    code="match_intelligence_context_changed",
-                    phase="read",
-                )
-        return {"intelligence": intelligence, "data_scope_id": scope_id}
+        return self._match_intelligence_application().refresh(payload)
 
     def buy_match_intelligence(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._match_intelligence_application().purchase(payload)
@@ -23587,8 +23428,8 @@ def build_api_routes() -> RouteRegistry:
         "/api/activity/black-room": "black_room_activity",
         "/api/activity/counseling": "psychological_counseling",
         "/api/activity/language-learning": "update_language_learning",
-        "/api/activity/intelligence/refresh": "refresh_match_intelligence",
         "/api/activity/intelligence/purchase": "buy_match_intelligence",
+        "/api/activity/intelligence/refresh": "refresh_match_intelligence",
         "/api/mail/referee-debt": "referee_debt_mail_action",
         "/api/mail/sponsorship": "sponsorship_mail_action",
         "/api/mail/version-update-reward/claim": "claim_update_reward",

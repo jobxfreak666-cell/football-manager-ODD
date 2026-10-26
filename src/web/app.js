@@ -12282,8 +12282,11 @@ function setTrainingModule(module) {
   ensureTrainingWorkspaceRosterLoaded();
 }
 function openTrainingPerson(kind, personId) {
-  app.trainingPersonKind = kind === "staff" ? "staff" : "player";
-  app.trainingPersonId = Number(personId || 0) || null;
+  const nextKind = kind === "staff" ? "staff" : "player";
+  const nextPersonId = Number(personId || 0) || null;
+  const collapse = app.trainingPersonKind === nextKind && app.trainingPersonId === nextPersonId;
+  app.trainingPersonKind = collapse ? null : nextKind;
+  app.trainingPersonId = collapse ? null : nextPersonId;
   app.trainingProjectSku = null;
   app.trainingTargetKey = null;
   app.trainingSubmissionRetry = null;
@@ -14045,14 +14048,17 @@ async function refreshMatchIntelligence() {
 }
 
 async function loadMatchIntelligence(force = false) {
-  if (app.matchIntelligenceLoading || (app.matchIntelligence && !force)) return;
+  if (app.matchIntelligenceLoading || app.activityActionBusy || (app.matchIntelligence && !force)) return;
+  const scope = String(app.state?.data_scope_id || "");
   app.matchIntelligenceLoading = true;
   app.matchIntelligenceError = "";
   try {
-    app.matchIntelligence = await request("/api/activity/intelligence");
+    const intelligence = await request("/api/activity/intelligence");
+    if (scope !== String(app.state?.data_scope_id || "")) return;
+    app.matchIntelligence = intelligence;
   } catch (error) {
-    app.matchIntelligence = null;
-    app.matchIntelligenceError = error.message || "无法读取比赛情报";
+    if (scope !== String(app.state?.data_scope_id || "")) return;
+    app.matchIntelligenceError = error.message || uiText("activity.intelligence_search_failed");
   } finally {
     app.matchIntelligenceLoading = false;
     if (app.page === "activity" && app.activityFloor === "intelligence") renderActivity();
@@ -15088,6 +15094,7 @@ function renderActivity() {
     app.activityFloor === "intelligence"
     && centreState.intelligence?.owned
     && !app.matchIntelligenceLoading
+    && !app.matchIntelligenceError
     && (!app.matchIntelligence || (gameDate && intelligencePricingDate !== gameDate))
   ) setTimeout(() => loadMatchIntelligence(true), 0);
   const activityPlayers = (activity) => activity === "naturalization" ? clubPlayers : players;
@@ -15282,7 +15289,7 @@ function renderActivity() {
         };
         const tiers = (candidate.tiers || []).map((tier) => {
           const visual = tierVisuals[tier.key] || {icon:"scan-eye", label:uiText("activity.floor_intelligence")};
-          return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${tier.purchased ? "purchased" : ""}" data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}" data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${Number(tier.price || 0)}" ${tier.purchased || candidate.available === false || app.activityActionBusy ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${visual.icon}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${tier.purchased ? uiText("activity.intelligence_result") : visual.label}</em><strong>${tierResult(tier)}</strong></span></button>`;
+          return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${tier.purchased ? "purchased" : ""}" data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}" data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${Number(tier.price || 0)}" ${tier.purchased || candidate.available === false || app.activityActionBusy || app.matchIntelligenceLoading ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${visual.icon}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${tier.purchased ? uiText("activity.intelligence_result") : visual.label}</em><strong>${tierResult(tier)}</strong></span></button>`;
         }).join("");
         const status = obtained ? uiText("activity.intelligence_status", {count:purchasedCount}) : uiText("activity.intelligence_not_obtained");
         return `<article class="intelligence-card ${expanded ? "expanded" : "compact"}"><button type="button" class="intelligence-card-toggle" data-intelligence-toggle="${escapeHtml(fixtureId)}" aria-expanded="${expanded}"><span class="intelligence-card-meta"><small>${escapeHtml(candidate.competition_name)}</small><time>${escapeHtml(candidate.fixture_date)} ${escapeHtml(candidate.kickoff_time || "")}</time></span><span class="intelligence-card-fixture"><b>${escapeHtml(candidate.home?.name || uiText("activity.home_team"))}</b><em>VS</em><b>${escapeHtml(candidate.away?.name || uiText("activity.away_team"))}</b></span><span class="intelligence-card-status ${obtained ? "revealed" : "sealed"}"><b>${status}</b></span><i data-lucide="chevron-down"></i></button><div class="intelligence-card-body"><div class="intelligence-tier-list">${tiers}</div></div></article>`;
@@ -15705,7 +15712,6 @@ function renderActivity() {
     }
   }));
   document.querySelectorAll("[data-intelligence-refresh]").forEach((button) => button.addEventListener("click", () => {
-    app.matchIntelligence = null;
     loadMatchIntelligence(true);
     renderActivity();
   }));

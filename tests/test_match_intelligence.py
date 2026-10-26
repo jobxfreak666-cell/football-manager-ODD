@@ -369,6 +369,7 @@ def test_current_intelligence_candidates_exclude_every_fixture_before_now():
 
 def test_public_intelligence_projection_excludes_fixture_before_current_time():
     state = object.__new__(fm_odds_web.LocalOddsState)
+    state.lock = RLock()
     state.output = {
         "save_instance_id": "save-1",
         "game_date": "2028-06-10",
@@ -436,7 +437,7 @@ def test_refresh_match_intelligence_forces_probe_and_returns_fresh_projection():
             return_value=projection,
         ),
     ):
-        result = state.refresh_match_intelligence({})
+        result = state.refresh_match_intelligence({"data_scope_id": "scope-save-1"})
 
     assert result == {
         "intelligence": projection,
@@ -454,7 +455,7 @@ def test_refresh_match_intelligence_reports_busy_memory_reader():
     try:
         with patch.object(fm_odds_web, "probe_match_intelligence_candidates") as probe:
             with pytest.raises(ConflictError, match="忙"):
-                state.refresh_match_intelligence({})
+                state.refresh_match_intelligence({"data_scope_id": "scope-save-1"})
     finally:
         state.memory_lock.release()
 
@@ -471,7 +472,7 @@ def test_refresh_match_intelligence_reports_probe_errors_instead_of_success():
         ),
     ):
         with pytest.raises(UnavailableError, match="获取情报失败"):
-            state.refresh_match_intelligence({})
+            state.refresh_match_intelligence({"data_scope_id": "scope-save-1"})
 
 
 def test_refresh_match_intelligence_does_not_publish_across_save_change():
@@ -494,7 +495,7 @@ def test_refresh_match_intelligence_does_not_publish_across_save_change():
         ),
     ):
         with pytest.raises(ConflictError, match="存档"):
-            state.refresh_match_intelligence({})
+            state.refresh_match_intelligence({"data_scope_id": "scope-save-1"})
 
     assert state.match_intelligence_results == []
 
@@ -535,7 +536,7 @@ def test_refresh_match_intelligence_rejects_locked_centre_before_scanning():
     state.match_intelligence_public_cache["unlocked"] = False
     with patch.object(fm_odds_web, "probe_match_intelligence_candidates") as probe:
         with pytest.raises(ValidationError, match="尚未解锁") as error:
-            state.refresh_match_intelligence({})
+            state.refresh_match_intelligence({"data_scope_id": "scope-save-1"})
 
     assert error.value.message_key == "error.invalid_request"
     probe.assert_not_called()
