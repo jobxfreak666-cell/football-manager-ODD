@@ -315,7 +315,7 @@ def test_hall_of_fame_transfer_section_shows_complete_current_club_context() -> 
 def test_hall_of_fame_profile_uses_live_current_club_and_inline_display_name_edit() -> None:
     script = _script()
     identity = script.split("function legacyIdentityLabel(player)", 1)[1].split("function legacyPreferenceBusy", 1)[0]
-    club_line = script.split("function legacyClubLine(player)", 1)[1].split("function renderLegacyViewNav", 1)[0]
+    club_line = script.split("function legacyClubLine(player)", 1)[1].split("function renderLegacyRecentChanges", 1)[0]
     header = script.split("function renderLegacyProfileHeader(player)", 1)[1].split("function legacyStatCards", 1)[0]
     glance = script.split("function renderLegacyProfileGlance(player)", 1)[1].split("function renderLegacySeasonSection", 1)[0]
     live_profile = script.split("async function loadLegacyPlayerLiveProfile", 1)[1].split("function beginLegacyPlayerNameEdit", 1)[0]

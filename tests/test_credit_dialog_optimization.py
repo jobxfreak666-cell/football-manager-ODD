@@ -7,7 +7,7 @@ SCRIPT = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
 def test_credit_terms_are_short_circuited_by_a_complete_render_signature():
     render = SCRIPT.split("function renderCreditTerms()", 1)[1].split(
-        "function playerFractionalIntimacy", 1,
+        "function intimacyRankingProjection", 1,
     )[0]
 
     assert "creditTermsRenderSignature" in SCRIPT
@@ -20,7 +20,7 @@ def test_credit_terms_are_short_circuited_by_a_complete_render_signature():
 
 def test_credit_terms_publish_a_live_status_without_changing_the_borrow_request():
     render = SCRIPT.split("function renderCreditTerms()", 1)[1].split(
-        "function playerFractionalIntimacy", 1,
+        "function intimacyRankingProjection", 1,
     )[0]
     submit = SCRIPT.split('$("#credit-form").addEventListener("submit"', 1)[1].split(
         '$("#history-button")', 1,
