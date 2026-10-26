@@ -1535,6 +1535,35 @@ def test_room_stuck_settling_after_writing_completes_without_reapplying(team_roo
     assert team_room_store["relationship_training_rooms"]["attribute_progress"] == {}
 
 
+def test_legacy_settlement_without_write_marker_is_not_replayed_on_later_syncs(
+    team_room_store, monkeypatch,
+):
+    value = team_training_state()
+    room_id = _crashed_mid_settle(
+        value, team_room_store, monkeypatch, "legacy-unknown-write", wrote=False,
+    )
+    document = team_room_store["relationship_training_rooms"]
+    document["task_rules_version"] = 1
+    pending = _team_room(team_room_store, room_id)["pending_session"]
+    pending.pop("settle_owner")
+    pending.pop("native_writes_started")
+    settled = []
+    listing, commit = _recovering(team_room_store)
+    with listing, commit as committed:
+        result = _advance(value, "2026-08-25", settled)
+        assert result["recovered_room_ids"] == [room_id]
+        assert result["settled_room_ids"] == [] and result["errors"] == []
+        for day in ("2026-08-26", "2026-09-30"):
+            assert _advance(value, day, settled)["settled_room_ids"] == []
+    assert settled == []
+    committed.assert_called_once()
+    room = _team_room(team_room_store, room_id)
+    assert room["status"] == "idle"
+    assert room["last_session"]["effects"]["interrupted_settlement"][
+        "native_writes_unverified"
+    ] is True
+
+
 def test_manual_settle_frees_a_room_stuck_settling_first(team_room_store, monkeypatch):
     value = team_training_state()
     room_id = _crashed_mid_settle(value, team_room_store, monkeypatch, "stuck-manual", wrote=False)

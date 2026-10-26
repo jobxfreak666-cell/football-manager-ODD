@@ -12501,8 +12501,8 @@ class LocalOddsState:
     def _recover_interrupted_team_training(self) -> dict[str, Any]:
         """Free rooms left in ``settling`` by a settle that died (crash, kill).
 
-        A settle that never wrote game memory goes back to occupied, so the
-        due check settles it again from scratch with nothing applied twice.
+        Only an explicit no-write marker returns a settle to occupied, so the
+        due check can safely settle it again from scratch.
         One that may have written is completed from its pending session
         without re-applying anything (``interrupted_settlement``). Each step
         re-checks the room under the module lock, so repeated or concurrent

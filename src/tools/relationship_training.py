@@ -957,10 +957,11 @@ def recover_interrupted_team_training_room(room_id: str, session_id: str) -> dic
     """Undo a settle that never wrote game memory; report one that may have.
 
     Returns ``{"action": "restored"}`` after putting the room back to
-    occupied (the next sync settles it from scratch, nothing was applied), or
-    ``{"action": "complete", "session": ...}`` when writes had begun and the
-    caller must complete it with ``interrupted_settlement_record``. Stale or
-    repeated calls raise ``ValueError`` and change nothing.
+    occupied only for an explicit ``native_writes_started is False`` marker.
+    True, missing or unknown markers may represent writes by an older process;
+    return ``{"action": "complete", "session": ...}`` so the caller completes
+    them with ``interrupted_settlement_record`` without applying effects again.
+    Stale or repeated calls raise ``ValueError`` and change nothing.
     """
     def mutate(raw: Any) -> dict[str, Any]:
         state = _normalize_state(raw)
@@ -968,7 +969,7 @@ def recover_interrupted_team_training_room(room_id: str, session_id: str) -> dic
         pending = (room or {}).get("pending_session") or {}
         if not room or room.get("status") != "settling" or pending.get("id") != session_id:
             raise ValueError("综训结算状态已失效")
-        if pending.get("native_writes_started"):
+        if pending.get("native_writes_started") is not False:
             return {"action": "complete", "session": deepcopy(pending)}
         room["status"] = "occupied"
         room.pop("pending_session", None)
