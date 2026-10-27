@@ -2553,7 +2553,7 @@ if (app.state.training_ground.growth_hook.installed !== true) throw new Error("f
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         prefix = "function trainingPlayerMatchesPositionGroup(player, positionGroup) {"
         function_body = script.split(prefix, 1)[1].split(
-            "\n}\n\nfunction selectedGameIsFm26", 1,
+            "\n}\n\nconst CANTEEN_PLANS", 1,
         )[0]
         function_source = f"{prefix}{function_body}\n}}"
         harness = f"""

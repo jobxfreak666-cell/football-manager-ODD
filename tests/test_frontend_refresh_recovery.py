@@ -452,7 +452,7 @@ class FrontendRefreshRecoveryTests(unittest.TestCase):
             "const round", 1,
         )[0]
         icons = self.script.split("function iconRenderRoots", 1)[1].split(
-            "async function copyText", 1,
+            "function renderCompetitions", 1,
         )[0]
 
         self.assertIn("function customSelectMutationRoots(mutations)", custom_selects)

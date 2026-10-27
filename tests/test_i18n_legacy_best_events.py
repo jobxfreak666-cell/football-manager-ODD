@@ -78,8 +78,7 @@ def test_legacy_best_event_representative_runtime_copy() -> None:
 def test_legacy_best_event_handlers_use_semantic_copy() -> None:
     source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     segments = {
-        "legacyPrimaryClub": source.split("function legacyPrimaryClub", 1)[1].split("function legacyMonthDate", 1)[0],
-        "legacyClubTenureForClub": source.split("function legacyClubTenureForClub", 1)[1].split("function legacyClubTenure", 1)[0],
+        "legacyPrimaryClub": source.split("function legacyPrimaryClub", 1)[1].split("function legacyTransferClubDetails", 1)[0],
         "legacyTransferClubDetails": source.split("function legacyTransferClubDetails", 1)[1].split("function legacyPortraitMarkup", 1)[0],
         "saveLegacyBestTeam": source.split("async function saveLegacyBestTeam", 1)[1].split("function recommendLegacyBestTeam", 1)[0],
         "recommendLegacyBestTeam": source.split("function recommendLegacyBestTeam", 1)[1].split("function assignLegacyBestTeamPlayer", 1)[0],
@@ -87,7 +86,6 @@ def test_legacy_best_event_handlers_use_semantic_copy() -> None:
     }
     for token in (
         'uiText("legacy.profile.loaned_to"',
-        'uiText("legacy.career_since_start")',
         'uiText("legacy.best.save_failed")',
         'uiText("legacy.best.recommended"',
         'uiText("legacy.best.player_added")',

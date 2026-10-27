@@ -21,7 +21,6 @@ def test_hall_of_fame_best_team_has_season_switcher_pitch_and_data_table() -> No
     script = _script()
     styles = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
     for marker in (
-        '["best", "最佳阵容"]',
         "function renderLegacyBestTeam(players)",
         "data-legacy-best-period=\"all_time\"",
         "data-legacy-best-formation=",
@@ -97,9 +96,6 @@ def test_hall_of_fame_loads_and_refreshes_legacy_data() -> None:
 def test_hall_of_fame_uses_overlapping_views_and_no_mutually_exclusive_layers() -> None:
     script = _script()
     assert 'clubLegacyView: "auto"' in script
-    assert "const LEGACY_VIEWS = [" in script
-    for label in ('["roster", "当前阵容"', '["watch", "持续关注"', '["hall", "名人堂"'):
-        assert label in script
     assert "function legacyViewPlayers(players, view)" in script
     assert "if (view === \"watch\") return player.favorite;" in script
     assert "if (view === \"hall\") return player.inducted;" in script
@@ -162,9 +158,6 @@ def test_hall_of_fame_profile_uses_archive_hero_glance_and_two_column_hierarchy(
         ".hall-of-fame-page .legacy-hof-player-data header>div>small",
     ):
         assert selector in (ROOT / "web" / "app.css").read_text(encoding="utf-8")
-    assert "function legacyClubTenure(player)" in script
-    assert "function legacyClubTenureForClub(club, player)" in script
-    assert "${joined}-${club?.active ? \"\"" in script
     assert '"legacy.active"' in script
     for selector in (
         ".legacy-hof-detail-view{width:100%;max-width:none;min-height:calc(100vh - 180px);margin:0}",
@@ -322,7 +315,7 @@ def test_hall_of_fame_transfer_section_shows_complete_current_club_context() -> 
 def test_hall_of_fame_profile_uses_live_current_club_and_inline_display_name_edit() -> None:
     script = _script()
     identity = script.split("function legacyIdentityLabel(player)", 1)[1].split("function legacyPreferenceBusy", 1)[0]
-    club_line = script.split("function legacyClubLine(player)", 1)[1].split("function renderLegacyViewNav", 1)[0]
+    club_line = script.split("function legacyClubLine(player)", 1)[1].split("function renderLegacyRecentChanges", 1)[0]
     header = script.split("function renderLegacyProfileHeader(player)", 1)[1].split("function legacyStatCards", 1)[0]
     glance = script.split("function renderLegacyProfileGlance(player)", 1)[1].split("function renderLegacySeasonSection", 1)[0]
     live_profile = script.split("async function loadLegacyPlayerLiveProfile", 1)[1].split("function beginLegacyPlayerNameEdit", 1)[0]
@@ -605,14 +598,3 @@ def test_hall_of_fame_v10_uses_command_deck_home_and_full_width_dossier() -> Non
         ".legacy-hof-injury-section{border-top-color:var(--hof-red)}",
     ):
         assert selector in styles
-
-
-def test_hall_of_fame_view_navigation_is_one_row_large_and_icon_free() -> None:
-    script = _script()
-    styles = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
-    nav = script.split("function renderLegacyViewNav(players)", 1)[1].split("function renderLegacyRecentChanges", 1)[0]
-    assert "data-lucide" not in nav
-    assert "LEGACY_VIEWS.map(([key, label])" in nav
-    assert ".legacy-hof-views{grid-area:views;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))" in styles
-    assert ".legacy-hof-views button{display:flex;align-items:center;justify-content:center;gap:9px;min-height:46px" in styles
-    assert "font-size:15px" in styles

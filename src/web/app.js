@@ -3816,14 +3816,6 @@ function allManagedPlayers() {
   }
   return [...rows.values()].map((row) => row.player);
 }
-function managedClubPlayers() {
-  const rows = new Map();
-  for (const profile of app.clubProfiles) {
-    if (String(profile.team?.team_type || "club") !== "club") continue;
-    for (const player of profile.players || []) rows.set(Number(player.id), player);
-  }
-  return [...rows.values()];
-}
 function trainingManagedPlayers() {
   const rows = new Map();
   for (const profile of app.clubProfiles) {
@@ -4863,11 +4855,9 @@ function trainingArchiveFacilityLabel(sku,fallback=""){
   return legacyKey?uiText(legacyKey):String(fallback||sku||uiText("training.archive.facility.unknown"));
 }
 function relationReasonText(reason){const value=Number(reason||0),key=RELATION_REASON_KEYS[value];return key?uiText(key):value?uiText("relations.reason.unknown",{value}):uiText("relations.reason.club_member");}
-function relationSentimentText(score){return Number(score||0)<0?uiText("relations.reason.negative"):uiText("relations.reason.positive");}
 function relationshipStaffCategoryText(label){const index=STAFF_JOB_CATEGORY_GROUPS.findIndex((group)=>group.label===String(label||""));return uiText(index>=0?`training.archive.category.staff_${index}`:"training.archive.category.other_staff");}
 function trainingArchiveCategoryText(label){const value=String(label||"");if(value.startsWith("training.archive."))return uiText(value);const key=TRAINING_ARCHIVE_CATEGORY_KEYS[value];return key?uiText(key):relationshipStaffCategoryText(value);}
 function relationshipPositionGroupText(key){return uiText(RELATION_POSITION_GROUP_KEYS[key]||"relations.timeline.category.unclassified");}
-function relationshipKindText(kind){return uiText(kind==="staff"?"relations.role.staff":kind==="player"?"relations.role.player":"relations.unknown_person");}
 function relationshipPlayerPositionText(position){const value=String(position||"");return RELATION_PLAYER_POSITION_KEYS[value]?uiText(RELATION_PLAYER_POSITION_KEYS[value]):(value||uiText("relations.position.unread"));}
 function relationshipStaffRoleText(role, person){const value=String(role||"");const category=staffJobCategory(person||{});const index=STAFF_JOB_CATEGORY_GROUPS.findIndex((group)=>group.label===value);if(index>=0)return uiText(`training.archive.category.staff_${index}`);if(!value&&category)return relationshipStaffCategoryText(category);return localizedStaffRole(person);}
 function trainingArchiveContentLabel(event,type){
@@ -5233,11 +5223,6 @@ async function loadRelationNetwork({force=false, background=false}={}) {
   return await task;
 }
 
-function relationTone(score) {
-  const value = Number(score || 0);
-  return value < 0 ? "negative" : value >= 80 ? "best" : value >= 50 ? "close" : value >= 20 ? "good" : "neutral";
-}
-
 function relationshipPermanentIcon(score, permanent) {
   return permanent || Number(permanent) === 79 ? (Number(score || 0) < 0 ? "💀" : "★") : "";
 }
@@ -5363,27 +5348,6 @@ function relationScopeOptions() {
   return [...managed,...acquired].join("");
 }
 
-function renderRelationCards(people) {
-  return people.map((person) => {
-    const details = Object.entries(person.person_relations_detail || {});
-    const rows = details.sort((a,b) => Math.abs(Number(b[1].score || 0)) - Math.abs(Number(a[1].score || 0))).map(([key, rel]) => { const target=relationState().entities?.[key]; return `<li><span title="${escapeHtml(key)}">${escapeHtml(target?.name || uiText("relations.unknown_person"))}</span><em class="${relationTone(rel.score)}">${Number(rel.score) > 0 ? "+" : ""}${Number(rel.score || 0)}</em><small>${escapeHtml(target?.role || target?.club || uiText("relations.reason.unknown",{value:Number(rel.reason||0)}))}${Number(rel.permanence) === 79 ? ` · ${uiText("relations.permanent")}` : ""}</small></li>`; }).join("");
-    return `<article class="relation-person-card"><header><span>${escapeHtml(String(person.name || "?").slice(0,1))}</span><div><strong>${escapeHtml(person.name || uiText("relations.unknown_person"))}</strong><small>${escapeHtml(person.person_kind === "staff" ? localizedStaffRole(person) : (person.primary_positions || person.positions || []).join(" / ") || uiText("relations.role.player"))}</small></div><b>${details.length}</b></header>${person.relationship_error ? `<p>${escapeHtml(person.relationship_error)}</p>` : details.length ? `<ul>${rows}</ul>` : `<div class="relation-none">${uiText("relations.card.no_relationships")}</div>`}</article>`;
-  }).join("");
-}
-
-function renderRelationsPageLegacy() {
-  const root = $("#relations-content"); if (!root) return;
-  const state = relationState(), scope = selectedRelationScope(), page = state.page;
-  if (!state.scopes && !state.loading) { loadRelationScopes().then(() => loadRelationNetwork()).catch(() => {}); }
-  const squads = state.scopeKind === "acquired" ? [] : (scope?.squads || []);
-  root.setAttribute("aria-busy", String(state.loading));
-  const command=`<div class="relations-command"><label><span>${uiText("relations.control.scope")}</span><select data-relation-scope>${relationScopeOptions()}</select></label><label><span>${uiText("relations.control.team")}</span><select data-relation-squad><option value="0">${uiText("relations.control.first_team")}</option>${squads.map((row) => `<option value="${Number(row.team_id)}" ${Number(state.squadTeamId) === Number(row.team_id) ? "selected" : ""}>${escapeHtml(row.label)} (${Number(row.person_count || 0)})</option>`).join("")}</select></label><div class="relations-segment"><button type="button" data-relation-kind="player" class="${state.personKind === "player" ? "active" : ""}">${uiText("relations.control.player")}</button><button type="button" data-relation-kind="staff" class="${state.personKind === "staff" ? "active" : ""}">${uiText("relations.control.staff")}</button></div><label class="relations-search"><i data-lucide="search"></i><input type="search" value="${escapeHtml(state.search)}" data-relation-search placeholder="${uiText("relations.control.search")}"></label><button type="button" class="relations-3d-open" data-relations-3d ${!page?.people?.length ? "disabled" : ""}><i data-lucide="orbit"></i><span>${uiText("relations.control.relationship_3d")}</span></button></div>`;
-  const fallbackScope=page?.source?.club_name||scope?.team_name||uiText("relations.control.current_scope");
-  const loading=state.loading&&!page?`<div class="relations-loading"><span class="spinner"></span>${uiText("relations.control.loading")}</div>`:"";
-  const content=state.error?`<div class="relations-error">${escapeHtml(state.error)}</div>`:loading||`<div class="relations-summary-line"><span>${escapeHtml(fallbackScope)}</span><b>${uiText("relations.control.people_count",{count:Number(page?.total||0)})}</b><small>${uiText("relations.control.page_summary",{page:Number(page?.page||1),pages:Number(page?.pages||1)})}</small></div><div class="relation-person-grid">${renderRelationCards(page?.people||[])}</div><nav class="relations-pagination"><button type="button" data-relation-page="${Number(page?.page||1)-1}" ${Number(page?.page||1)<=1?"disabled":""}><i data-lucide="chevron-left"></i></button><span>${uiText("relations.control.page_summary",{page:Number(page?.page||1),pages:Number(page?.pages||1)})}</span><button type="button" data-relation-page="${Number(page?.page||1)+1}" ${Number(page?.page||1)>=Number(page?.pages||1)?"disabled":""}><i data-lucide="chevron-right"></i></button></nav>`;
-  root.innerHTML=command+content;
-  renderIcons(root);
-}
 
 function relationshipWorkspaceNav(state) {
   const views=[
@@ -5734,19 +5698,6 @@ function renderRelationsPage() {
   renderIcons(root);
 }
 
-function relationGraphData(people) {
-  const nodes = new Map(), edges = [], edgeKeys = new Set();
-  people.forEach((person) => {
-    if (person.person_key) nodes.set(person.person_key, {key:person.person_key,name:person.name,kind:person.person_kind,external:false});
-  });
-  people.forEach((person) => Object.entries(person.person_relations_detail || {}).forEach(([target, rel]) => {
-    if (!nodes.has(target)) { const resolved=relationState().entities?.[target] || {}; nodes.set(target,{key:target,name:resolved.name || uiText("relations.unknown_person"),kind:resolved.kind || "person",external:true}); }
-    const pair = [person.person_key,target].sort().join(":");
-    if (!person.person_key || edgeKeys.has(pair)) return;
-    edgeKeys.add(pair); edges.push({from:person.person_key,to:target,score:Number(rel.score || 0),reason:Number(rel.reason || 0)});
-  }));
-  return {nodes:[...nodes.values()],edges};
-}
 function updateManagedStaff(staffId, changes) {
   for (const profile of app.clubProfiles) {
     const staff = (profile.staff || []).find((row) => Number(row.id) === Number(staffId));
@@ -11250,14 +11201,6 @@ function trainingPlayerMatchesPositionGroup(player, positionGroup) {
   return playerPositionGroup(player) === positionGroup;
 }
 
-function selectedGameIsFm26() {
-  const status = app.state?.game_versions || {};
-  const available = status.available || [];
-  const selected = available.find((item) => item.key === status.selected) || available[0] || null;
-  return String(selected?.version || "").startsWith("26")
-    || String(selected?.key || "").toLowerCase().includes("fm26");
-}
-
 const CANTEEN_PLANS = {
   basic: {nameKey:"canteen.plan_basic", multiplier:1, daily_cost:0, tone:"basic"},
   nutrition: {nameKey:"canteen.plan_nutrition", multiplier:1.5, daily_cost:10_000, tone:"nutrition"},
@@ -13762,11 +13705,6 @@ function renderCreditTerms() {
   $("#credit-terms-text").innerHTML = `<p>${uiText("credit.terms.theoretical_limit", {multiplier:Number(credit.theoretical_multiplier || 18), limit:formatFullMoney(credit.theoretical_limit)})}</p><p>${uiText("credit.terms.current_limit", {multiplier:Number(credit.credit_multiplier || 4), limit:formatFullMoney(credit.limit)})}</p><p>${uiText("credit.terms.interest")}</p><p>${uiText("credit.terms.repayment")}</p><p>${uiText("credit.terms.auto_debit")}<br>1. ${uiText("credit.terms.bank_account")}<br>2. ${uiText("credit.terms.casino_wallet")}</p><p>${uiText("credit.terms.default_penalty")}</p><p>${uiText("credit.terms.confirm")}</p><div class="credit-summary">${uiText("credit.terms.summary_amount", {amount:formatFullMoney(amount)})}\n${uiText("credit.terms.summary_due")}\n${uiText("credit.terms.summary_rate")}<span class="credit-borrower">${uiText("credit.terms.summary_borrower", {manager:escapeHtml(managerName)})}</span></div>`;
 }
 
-function playerFractionalIntimacy(playerId) {
-  const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
-  return Number(app.state?.welfare?.activity_progress?.[`${managerId}:${Number(playerId)}`] || 0);
-}
-
 function intimacyRankingProjection(person) {
   const unsigned = Math.abs(Number(person.manager_intimacy || 0));
   const explicit = Number(person.manager_signed_intimacy);
@@ -13779,52 +13717,6 @@ function intimacyRankingProjection(person) {
   return {...person, signed_score:signed, permanent, tier};
 }
 
-async function loadIntimacyRankingPairs(kind) {
-  const profile = app.clubProfiles.find((row) => String(row.team?.team_type || "club") === "club") || {};
-  const teamId = Number(profile.team?.id || 0);
-  const sourceVersion = Number(app.state?.data_version || 0);
-  const cacheKey = `${kind}:${teamId}:${sourceVersion}`;
-  if (!teamId || app.intimacyRankingPairCache?.key === cacheKey || app.intimacyRankingPairLoading === cacheKey) return;
-  app.intimacyRankingPairLoading = cacheKey;
-  try {
-    const payload = {scope_kind:"managed",team_id:teamId,squad_team_id:0,person_kind:kind,page_size:60,search:"",data_version:sourceVersion};
-    const first = await request("/api/relations/network", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({...payload,page:1}),
-    });
-    const people = [...(first.people || [])];
-    for (let page = 2; page <= Number(first.pages || 1); page += 1) {
-      const response = await request("/api/relations/network", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...payload,page})});
-      people.push(...(response.people || []));
-    }
-    const personKeys = new Map(people.map((row) => [Number(row.id), String(row.person_key || "")]));
-    const managerCounts = new Map();
-    people.forEach((row) => Object.entries(row.person_relations_detail || {}).forEach(([key, detail]) => {
-      if (Number(detail.reason) === 6) managerCounts.set(key, (managerCounts.get(key) || 0) + 1);
-    }));
-    const managerKey = [...managerCounts].sort((left,right) => right[1] - left[1])[0]?.[0] || "";
-    app.intimacyRankingPairCache = {key:cacheKey, sourceVersion, managerKey, personKeys};
-  } catch (error) {
-    app.intimacyRankingPairCache = {key:cacheKey, sourceVersion, managerKey:"", personKeys:new Map(), error:error.message};
-  } finally {
-    app.intimacyRankingPairLoading = "";
-    renderIntimacyRanking();
-  }
-}
-
-async function openIntimacyRankingPair(personId, personName) {
-  const detail = $("#intimacy-ranking-pair");
-  const cache = app.intimacyRankingPairCache;
-  const personKey = cache?.personKeys?.get(Number(personId));
-  if (!detail || !cache?.managerKey || !personKey) { toast(uiText("relationship.ranking.pair_unresolved")); return; }
-  detail.hidden = false;
-  detail.innerHTML = `<span class="spinner"></span>${uiText("relationship.ranking.pair_loading")}`;
-  try {
-    const pair = await request("/api/relations/pair", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_a:cache.managerKey,person_b:personKey})});
-    const line = (label, value) => `<div><strong>${escapeHtml(label)}</strong><b class="${Number(value?.signed_score || 0) < 0 ? "negative" : ""}">${Number(value?.signed_score || 0) > 0 ? "+" : ""}${Number(value?.signed_score || 0)}</b><small>${escapeHtml(relationshipReasonLabel(value?.reason))}${Number(value?.permanence) === 79 ? ` · ${uiText("relations.permanent")} ${relationshipPermanentIcon(value?.signed_score,true)}` : ""}</small></div>`;
-    detail.innerHTML = `${line(uiText("relationship.ranking.manager_to_person", {person:personName}), pair.a_to_b)}${line(uiText("relationship.ranking.person_to_manager", {person:personName}), pair.b_to_a)}`;
-  } catch (error) { detail.innerHTML = `<div class="intimacy-ranking-empty">${escapeHtml(error.message || uiText("relations.error.pair"))}</div>`; }
-}
 
 function renderIntimacyRanking() {
   const root = $("#intimacy-ranking-list");
@@ -14417,296 +14309,6 @@ async function loadActivityStaffLanguages(personIds) {
     pending.forEach((id) => app.activityStaffLanguagesLoading.delete(id));
     if (app.page === "activity" && app.activityNode === "language_classroom") renderActivity();
   }
-}
-
-function renderActivityLegacy() {
-  const container = $("#activity-content");
-  if (!container) return;
-  const players = allManagedPlayers();
-  const clubPlayers = managedClubPlayers();
-  const balance = Number(app.state?.economy?.total_balance || 0);
-  $("#activity-balance").textContent = formatPounds(balance);
-  if (!players.length) {
-    container.innerHTML = `<div class="empty-feature">${uiText("activity.refreshing_players")}</div>`;
-    $("#intimacy-ranking-list").innerHTML = "";
-    return;
-  }
-  const activities = app.state?.welfare?.activities || {
-    drinks:{name:uiText("activity.drinks"),price:5000,intimacy:0.2,centre:"entertainment"},
-    hot_spring:{name:uiText("activity.hot_spring"),price:20000,intimacy:0.4,centre:"entertainment"},
-    football_game:{name:uiText("activity.football_game"),price:5000,intimacy:0.2,centre:"entertainment"},
-    massage:{name:uiText("activity.massage"),price:50000,intimacy:1,centre:"entertainment"},
-  };
-  const icons = {drinks:"wine", hot_spring:"waves", football_game:"gamepad-2", massage:"hand-heart"};
-  const descriptions = {
-    drinks:uiText("activity.description_drinks"),
-    hot_spring:uiText("activity.description_hot_spring"),
-    football_game:uiText("activity.description_football_game"),
-    massage:uiText("activity.description_massage"),
-  };
-  const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
-  const gameDate = String(app.gameClock?.date || output().game_date || "");
-  const dailyUsage = app.state?.welfare?.activity_daily_usage || {};
-  const playerOptions = (activity) => {
-    const choices = activity === "naturalization" ? clubPlayers : players;
-    const eligibleIds = new Set(choices.map((player) => Number(player.id)));
-    let selectedPlayerId = Number(app.activityPlayerIds.get(activity) || 0);
-    if (!eligibleIds.has(selectedPlayerId)) {
-      selectedPlayerId = Number(choices[0]?.id || 0);
-      if (selectedPlayerId) app.activityPlayerIds.set(activity, selectedPlayerId);
-    }
-    return choices.map((player) => {
-      const playerId = Number(player.id);
-      return `<option value="${playerId}" ${playerId === selectedPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${escapeHtml(primaryPlayerPosition(player))}</option>`;
-    }).join("");
-  };
-  const availablePlayerIds = new Set(players.map((player) => Number(player.id)));
-  const retirementPlayers = activityDataIndex().retirementPlayers
-    .filter((player) => player.retirement && typeof player.retirement === "object" && player.retirement.has_plan && (!player.retirement.cancelled || player.retirement.retirement_date))
-    .sort((left, right) => Number(right.age) - Number(left.age) || String(left.name).localeCompare(String(right.name), activeUiLocale()));
-  let retirementPlayerId = Number(app.activityPlayerIds.get("retirement") || 0);
-  if (!retirementPlayers.some((player) => Number(player.id) === retirementPlayerId)) {
-    retirementPlayerId = Number(retirementPlayers[0]?.id || 0);
-    if (retirementPlayerId) app.activityPlayerIds.set("retirement", retirementPlayerId);
-  }
-  const retirementPlayer = retirementPlayers.find((player) => Number(player.id) === retirementPlayerId);
-  const retirementReply = Number(app.retirementReply?.playerId || 0) === retirementPlayerId
-    ? String(app.retirementReply?.message || "") : "";
-  const retirementOptions = retirementPlayers.map((player) => {
-    return `<option value="${Number(player.id)}" ${Number(player.id) === retirementPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${uiText("activity.age", {age:Number(player.age)})}</option>`;
-  }).join("");
-  const retirementCard = retirementPlayers.length ? `<article class="feature-card activity-card retirement-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="messages-square"></i></div><div><h3>${uiText("activity.retirement_talk")}</h3><span class="item-status">${uiText("activity.retirement_talk_status")}</span></div></div>${retirementReply ? `<p class="retirement-dialogue">${escapeHtml(retirementReply)}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="retirement-player">${retirementOptions}</select></label><label>${uiText("activity.retirement_action_label")}<select id="retirement-action"><option value="cancel">${uiText("activity.retirement_action_cancel")}</option><option value="six_months">${uiText("activity.retirement_action_six_months")}</option><option value="two_years">${uiText("activity.retirement_action_two_years")}</option><option value="ten_years">${uiText("activity.retirement_action_ten_years")}</option><option value="twenty_years">${uiText("activity.retirement_action_twenty_years")}</option></select></label><footer><strong></strong><button id="retirement-submit" type="button">${uiText("activity.confirm_discussion")}</button></footer></article>` : "";
-  let counselingPlayerId = Number(app.activityPlayerIds.get("psychological_counseling") || 0);
-  if (!availablePlayerIds.has(counselingPlayerId)) {
-    counselingPlayerId = Number(players[0].id);
-    app.activityPlayerIds.set("psychological_counseling", counselingPlayerId);
-  }
-  const counselingOptions = players.map((player) => `<option value="${Number(player.id)}" ${Number(player.id) === counselingPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${escapeHtml(primaryPlayerPosition(player))}</option>`).join("");
-  const counselingKey = `${managerId}:${counselingPlayerId}`;
-  const counselingState = app.state?.welfare?.psychological_counseling?.[counselingKey] || {};
-  const cooldownUntil = String(counselingState.cooldown_until || "");
-  const counselingCooling = Boolean(cooldownUntil && gameDate && gameDate < cooldownUntil);
-  const counselingReply = Number(app.counselingReply?.playerId || 0) === counselingPlayerId ? app.counselingReply : null;
-  const counselingCard = `<article class="feature-card activity-card retirement-activity-card counseling-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="heart-handshake"></i></div><div><h3>${uiText("activity.counselling")}</h3><span class="item-status">${uiText("activity.counselling_status")}</span></div></div><p class="counseling-odds"><span>${uiText("activity.counselling_rule", {price:formatPounds(counselingPrice())})}</span></p>${counselingReply ? `<p class="retirement-dialogue counseling-reply ${escapeHtml(counselingReply.outcome || "")}">${escapeHtml(counselingReply.message || "")}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="counseling-player">${counselingOptions}</select></label><footer><strong>${counselingCooling ? uiText("activity.cooling_until", {date:escapeHtml(cooldownUntil)}) : ""}</strong><button id="start-counseling" type="button" ${counselingCooling ? "disabled" : ""}>${uiText(counselingCooling ? "activity.cooling_down" : "activity.start_counselling")}</button></footer></article>`;
-  const entertainmentActivities = Object.entries(activities).filter(([, option]) => String(option.centre || "entertainment") === "entertainment");
-  const activityCards = entertainmentActivities.map(([key, option]) => `<article class="feature-card activity-card" data-activity-card="${key}"><div class="item-hero"><div class="item-icon"><i data-lucide="${icons[key] || "calendar-heart"}"></i></div><div><h3>${escapeHtml(option.name)}</h3><span class="item-status">${uiText("activity.player_activity")}</span></div></div><p>${escapeHtml(descriptions[key] || uiText("activity.fallback_description", {intimacy:Number(option.intimacy).toFixed(1)}))}</p><label>${uiText("activity.choose_player")}<select data-activity-player="${key}">${playerOptions(key)}</select></label><footer><strong>${formatPounds(option.price)}</strong><button type="button" data-player-activity="${key}" data-activity-price="${Number(option.price)}">${uiText("activity.participate")}</button></footer></article>`).join("");
-  const talkCards = `${counselingCard}${retirementCard}`;
-  const centreState = app.state?.welfare?.activity_centres || {};
-  const mediaActivity = activities.media_interview || {name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"};
-  const clubProfile = app.clubProfiles.find((profile) => String(profile.team?.team_type || "club") === "club") || null;
-  const clubTeam = clubProfile?.team || {};
-  let naturalizationPlayerId = Number(app.activityPlayerIds.get("naturalization") || 0);
-  if (!clubPlayers.some((row) => Number(row.id) === naturalizationPlayerId)) {
-    naturalizationPlayerId = Number(clubPlayers[0]?.id || 0);
-    if (naturalizationPlayerId) app.activityPlayerIds.set("naturalization", naturalizationPlayerId);
-  }
-  const naturalizationPlayer = clubPlayers.find((row) => Number(row.id) === naturalizationPlayerId) || null;
-  if (app.activityFloor === "international" && centreState.international?.owned && app.internationalNations === null && !app.internationalNationsLoading && !app.internationalNationError) {
-    setTimeout(loadInternationalNations, 0);
-  }
-  const nationalityOptions = (app.internationalNations || [])
-    .filter((row) => Number(row.id) !== Number(naturalizationPlayer?.nationality_id || 0))
-    .map((row) => `<option value="${Number(row.id)}" ${Number(row.id) === app.internationalNationId ? "selected" : ""}>${escapeHtml(localizedNationName(row))} · ${escapeHtml(localizedContinentName(row.continent))}</option>`).join("");
-  const internationalCards = `<article class="feature-card activity-card international-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="flag"></i></div><div><h3>${uiText("activity.naturalization")}</h3><span class="item-status">${uiText("activity.national_team_eligibility")}</span></div></div><p>${uiText("activity.naturalization_description")}</p><label>${uiText("activity.choose_player")}<select id="naturalization-player">${playerOptions("naturalization")}</select></label><label>${uiText("activity.naturalization_country")}<select id="naturalization-nation" ${app.internationalNationsLoading || !nationalityOptions ? "disabled" : ""}>${nationalityOptions || `<option value="">${escapeHtml(app.internationalNationError || (app.internationalNationsLoading ? uiText("activity.nations_loading") : uiText("activity.refresh_world_data")))}</option>`}</select></label><footer><strong>${uiText("activity.permanent_change")}</strong><button id="submit-naturalization" type="button" ${!naturalizationPlayerId || !nationalityOptions ? "disabled" : ""}>${uiText("activity.submit_application")}</button></footer></article>`;
-  const floors = {
-    entertainment:{floor:"1F",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),icon:"gamepad-2",unlocked:centreState.entertainment?.owned !== false,available:true,price:0,summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.drinks"),uiText("activity.hot_spring"),uiText("activity.football_game"),uiText("activity.massage")],nodes:[{key:"drinks",label:uiText("activity.node_social_bar"),icon:"wine"},{key:"hot_spring",label:uiText("activity.node_recovery_spring"),icon:"waves"},{key:"football_game",label:uiText("activity.node_esports"),icon:"gamepad-2"},{key:"massage",label:uiText("activity.node_massage"),icon:"hand-heart"}]},
-    talk_room:{floor:"2F",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),icon:"messages-square",unlocked:centreState.talk_room?.owned !== false,available:true,price:0,summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.counselling"),uiText("activity.retirement_talk")],nodes:[{key:"psychological_counseling",label:uiText("activity.node_counselling"),icon:"heart-handshake"},{key:"retirement",label:uiText("activity.node_retirement"),icon:"messages-square"}]},
-    international:{floor:"4F",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),icon:"globe-2",unlocked:Boolean(centreState.international?.owned),available:Boolean(centreState.international?.available),unavailableReason:String(centreState.international?.unavailable_reason || uiText("activity.version_unverified")),price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.node_naturalization"),uiText("activity.node_review")],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag"},{key:"nationality_review",label:uiText("activity.node_review"),icon:"file-check-2"}],recommended:true},
-  };
-  if (!floors[app.activityFloor]) {
-    app.activityFloor = "entertainment";
-    app.activityNode = null;
-    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
-  }
-  const selectedFloor = floors[app.activityFloor];
-  const floorTabs = Object.entries(floors).map(([key, floor]) => `<button type="button" class="${key === app.activityFloor ? "active" : ""} ${floor.unlocked ? "" : "locked"}" data-activity-floor="${key}"><span>${floor.floor}</span><strong>${floor.name}</strong>${floor.unlocked ? "" : '<i data-lucide="lock-keyhole"></i>'}</button>`).join("");
-  const stageFeatures = (selectedFloor.nodes || []).map((node, index) => `<button type="button" class="activity-scene-node node-${index + 1} ${selectedFloor.unlocked ? "available" : "locked"}" data-activity-node="${escapeHtml(node.key)}" title="${escapeHtml(selectedFloor.unlocked ? `${uiText("activity.room_use")} ${node.label}` : `${uiText("activity.room_buy")} ${selectedFloor.name}`)}"><i data-lucide="${selectedFloor.unlocked ? node.icon : "lock-keyhole"}"></i><span>${escapeHtml(node.label)}</span><b>${selectedFloor.unlocked ? uiText("activity.room_use") : uiText("activity.room_buy")}</b></button>`).join("");
-  const floorPanel = app.activityFloor === "entertainment"
-    ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:entertainmentActivities.length})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${activityCards}</div></div>`
-    : app.activityFloor === "talk_room"
-      ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:retirementCard ? 2 : 1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${talkCards}</div></div>`
-        : app.activityFloor === "international" && selectedFloor.unlocked
-          ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.core_activity_count", {count:1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${internationalCards}</div></div>`
-        : `<div class="activity-panel-head locked"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.floor_locked")}</span></div><div class="activity-locked-plan"><div class="activity-plan-price"><i data-lucide="building-2"></i><span>${uiText("activity.floor_build_budget")}<strong>${formatPounds(selectedFloor.price)}</strong></span></div><div class="activity-plan-list">${selectedFloor.features.map((feature) => `<div><i data-lucide="circle-dashed"></i><span>${escapeHtml(feature)}</span></div>`).join("")}</div><button type="button" data-activity-unlock="${app.activityFloor}" ${selectedFloor.available ? "" : "disabled"}><i data-lucide="lock-keyhole"></i><span>${selectedFloor.available ? uiText("activity.floor_unlock_build") : uiText("activity.floor_awaiting_validation")}</span></button><small>${selectedFloor.available ? uiText("activity.floor_open_after_build") : escapeHtml(selectedFloor.unavailableReason)}</small></div>`;
-  container.innerHTML = `<div class="activity-building"><div class="activity-floor-tabs">${floorTabs}</div><div class="activity-workspace"><section class="activity-scene ${app.activityFloor} ${selectedFloor.unlocked ? "unlocked" : "locked"}"><div class="activity-scene-shade"></div><div class="activity-scene-title"><small>${selectedFloor.floor} · ${selectedFloor.eyebrow}</small><strong>${selectedFloor.name}</strong></div><div class="activity-scene-labels">${stageFeatures}</div>${selectedFloor.unlocked ? `<span class="activity-open-status"><i data-lucide="badge-check"></i> ${uiText("activity.floor_open")}</span>` : `<div class="activity-scene-lock"><i data-lucide="lock-keyhole"></i><strong>${formatPounds(selectedFloor.price)}</strong><span>${uiText("activity.floor_open_after_build")}</span><button type="button" data-activity-unlock="${app.activityFloor}" ${selectedFloor.available ? "" : "disabled"}>${selectedFloor.available ? uiText("activity.floor_unlock_purchase") : uiText("activity.floor_unavailable")}</button></div>`}</section><aside class="activity-floor-panel">${floorPanel}</aside></div></div>`;
-  renderIntimacyRanking();
-  const updateActivityButton = (button) => {
-    const activity = String(button.dataset.playerActivity || "");
-    const playerId = Number(document.querySelector(`[data-activity-player="${activity}"]`)?.value || 0);
-    const usageKey = `${managerId}:${playerId}`;
-    const centre = String(activities[activity]?.centre || "entertainment");
-    const usedToday = centre === "media"
-      ? String(dailyUsage[`${usageKey}:media`] || "") === gameDate
-      : String(dailyUsage[usageKey] || "") === gameDate
-        || Object.entries(dailyUsage).some(([key, date]) => key.startsWith(`${usageKey}:entertainment`) && String(date || "") === gameDate);
-    button.disabled = usedToday || balance < Number(button.dataset.activityPrice || 0);
-    button.textContent = usedToday ? uiText("activity.today_participated") : activity === "media_interview" ? uiText("activity.arrange_interview") : uiText("activity.participate");
-  };
-  document.querySelectorAll("[data-activity-player]").forEach((select) => select.addEventListener("change", () => {
-    app.activityPlayerIds.set(String(select.dataset.activityPlayer || ""), Number(select.value || 0));
-    const button = document.querySelector(`[data-player-activity="${select.dataset.activityPlayer}"]`);
-    if (button) updateActivityButton(button);
-  }));
-  document.querySelectorAll("[data-player-activity]").forEach((button) => {
-    updateActivityButton(button);
-    button.addEventListener("click", async () => {
-    const playerId = Number(document.querySelector(`[data-activity-player="${button.dataset.playerActivity}"]`)?.value || 0);
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:playerId,team_id:managedPlayerTeamId(playerId),activity:button.dataset.playerActivity})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const effect = response.activity.effect || {};
-      const changes = {manager_intimacy:Math.floor(Number(response.activity.intimacy || 0))};
-      if (effect.field === "morale") changes.morale = effect.after;
-      if (effect.field === "fitness") changes.fitness = effect.after;
-      if (effect.field === "sharpness") changes.sharpness = effect.after;
-      (effect.effects || []).forEach((change) => {
-        if (["morale", "fitness", "sharpness"].includes(change.field)) changes[change.field] = change.after;
-      });
-      updateManagedPlayer(playerId, changes);
-      renderActivity();
-      const intimacyGain = Number(response.activity.intimacy_applied_gain ?? response.activity.intimacy_gain);
-      toast(intimacyGain > 0 ? uiText("activity.intimacy_gain", {name:response.activity.player_name, gain:intimacyGain.toFixed(1)}) : uiText("activity.activity_done", {name:response.activity.player_name}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-    });
-  });
-  $("#counseling-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("psychological_counseling", Number(event.target.value || 0));
-    app.counselingReply = null;
-    renderActivity();
-  });
-  $("#start-counseling")?.addEventListener("click", async () => {
-    const button = $("#start-counseling");
-    if (button) button.disabled = true;
-    try {
-      const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:counselingPlayerId,team_id:managedPlayerTeamId(counselingPlayerId)})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const result = response.counseling || {};
-      const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0))};
-      (result.effect?.effects || []).forEach((change) => {
-        if (change.field === "morale") changes.morale = change.after;
-      });
-      updateManagedPlayer(counselingPlayerId, changes);
-      app.counselingReply = {playerId:counselingPlayerId, message:result.reply, outcome:result.outcome};
-      renderActivity();
-      toast(`${result.player_name}：${result.outcome_name}`);
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  });
-  $("#retirement-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("retirement", Number(event.target.value || 0));
-    app.retirementReply = null;
-    renderActivity();
-  });
-  const submitRetirementAction = async () => {
-    if (!retirementPlayerId) return;
-    const action = String($("#retirement-action")?.value || "");
-    const actionName = {cancel:uiText("activity.retirement_action_cancel"),six_months:uiText("activity.retirement_action_six_months"),two_years:uiText("activity.retirement_action_two_years"),ten_years:uiText("activity.retirement_action_ten_years"),twenty_years:uiText("activity.retirement_action_twenty_years")}[action];
-    if (!actionName || !await fmoddConfirm(uiText("activity.confirm_retirement", {name:retirementPlayer?.name || uiText("activity.choose_player"), action:actionName}), uiText("activity.confirm_discussion"))) return;
-    const body = {player_id:retirementPlayerId, team_id:managedPlayerTeamId(retirementPlayerId), action};
-    const button = $("#retirement-submit");
-    if (button) button.disabled = true;
-    try {
-      const response = await request("/api/activity/retirement", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-      updateManagedPlayer(retirementPlayerId, {retirement:response.retirement});
-      app.retirementReply = {playerId:retirementPlayerId, message:response.reply};
-      renderActivity();
-      toast(response.modified ? uiText("activity.retirement_updated", {name:response.player_name}) : response.reply);
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  };
-  $("#retirement-submit")?.addEventListener("click", submitRetirementAction);
-  document.querySelectorAll("[data-activity-floor]").forEach((button) => button.addEventListener("click", () => {
-    app.activityFloor = String(button.dataset.activityFloor || "entertainment");
-    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
-    renderActivity();
-  }));
-  document.querySelectorAll("[data-activity-node]").forEach((node) => node.addEventListener("click", () => {
-    const target = String(node.dataset.activityNode || "");
-    const unlockButton = document.querySelector("[data-activity-unlock]");
-    if (node.classList.contains("locked")) {
-      unlockButton?.click();
-      return;
-    }
-    const card = document.querySelector(`[data-activity-card="${target}"]`);
-    if (card) {
-      document.querySelectorAll("[data-activity-card].is-focused").forEach((item) => item.classList.remove("is-focused"));
-      card.classList.add("is-focused");
-      card.scrollIntoView({behavior:"smooth",block:"nearest"});
-      const actionButton = card.querySelector("[data-player-activity], [data-media-activity]");
-      if (actionButton) actionButton.click();
-    } else if (target === "psychological_counseling") {
-      $("#start-counseling")?.click();
-    } else if (target === "retirement") {
-      $("#retirement-submit")?.scrollIntoView({behavior:"smooth",block:"nearest"});
-    } else if (target === "naturalization") {
-      $("#submit-naturalization")?.scrollIntoView({behavior:"smooth",block:"nearest"});
-    }
-  }));
-  document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => {
-    const centre = String(button.dataset.activityUnlock || "");
-    const floor = floors[centre];
-    if (!floor || !floor.available) return;
-    const price = floor.price;
-    if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return;
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      renderActivity();
-      toast(uiText("activity.room_unlocked", {name:floor.name}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  }));
-  $("#naturalization-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("naturalization", Number(event.target.value || 0));
-    renderActivity();
-  });
-  $("#naturalization-nation")?.addEventListener("change", (event) => {
-    app.internationalNationId = Number(event.target.value || 0);
-    localStorage.setItem("fmodd-international-nation", String(app.internationalNationId));
-  });
-  $("#submit-naturalization")?.addEventListener("click", async () => {
-    const playerId = Number($("#naturalization-player")?.value || 0);
-    const nationId = Number($("#naturalization-nation")?.value || 0);
-    const player = players.find((row) => Number(row.id) === playerId);
-    const nation = (app.internationalNations || []).find((row) => Number(row.id) === nationId);
-    if (!player || !nation) return;
-    if (!await fmoddConfirm(uiText("activity.confirm_naturalization", {player:player.name, nation:localizedNationName(nation)}), uiText("activity.submit_application"))) return;
-    const button = $("#submit-naturalization");
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity/international", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({player_id:playerId,team_id:managedPlayerTeamId(playerId),nation_id:nationId}),
-      });
-    applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const otherNationalities = [...(player.other_nationalities || [])];
-      if (!otherNationalities.some((row) => Number(row.id) === nationId)) {
-        otherNationalities.push({id:nationId,name:nation.name,eligible_for_nation:true});
-      }
-      updateManagedPlayer(playerId, {other_nationalities:otherNationalities});
-      renderActivity();
-      toast(uiText("activity.naturalization_done", {player:player.name, nation:localizedNationName(nation)}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  });
-  renderIcons();
 }
 
 const COUNSELING_PRICE = 100_000;
@@ -17590,29 +17192,6 @@ function ownedClubOrderStorageKey() {
   return `fmodd-owned-club-order:${String(app.state?.data_scope_id || "default")}`;
 }
 
-function storedOwnedClubOrder() {
-  try {
-    const values = JSON.parse(localStorage.getItem(ownedClubOrderStorageKey()) || "[]");
-    if (!Array.isArray(values)) return [];
-    return [...new Set(values.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
-  } catch (_error) {
-    return [];
-  }
-}
-
-function orderedOwnedClubs(clubs) {
-  const positions = new Map(storedOwnedClubOrder().map((teamId, index) => [teamId, index]));
-  return clubs.map((club, index) => ({club, index})).sort((left, right) => {
-    const leftPosition = positions.get(Number(left.club.id));
-    const rightPosition = positions.get(Number(right.club.id));
-    if (leftPosition != null || rightPosition != null) {
-      if (leftPosition == null) return 1;
-      if (rightPosition == null) return -1;
-      if (leftPosition !== rightPosition) return leftPosition - rightPosition;
-    }
-    return left.index - right.index;
-  }).map((entry) => entry.club);
-}
 
 function ownedClubDataIndex() {
   const data = app.worldClubs;
@@ -21562,10 +21141,6 @@ function portfolioRelationTypeOptions(types, selected) {
   return (types || []).map((row) => `<option value="${Number(row.value)}" ${Number(row.value) === Number(selected) ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("");
 }
 
-function portfolioRelationNullableValue(value) {
-  return value == null ? "" : String(Number(value));
-}
-
 function portfolioRelationOptionalNumber(label, attribute, value, minimum, maximum, required = 0, benefits = 0) {
   const enabled = value != null;
   const available = !required || Boolean(Number(benefits) & Number(required));
@@ -22456,10 +22031,6 @@ function legacyStatNumber(raw, digits = 0) {
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
 }
 
-function legacyLines(raw) {
-  return String(raw || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-}
-
 function legacyPositions(player, limit = 3) {
   const positions = player?.snapshot?.primary_positions || player?.snapshot?.positions || [];
   return positions.slice(0, limit).join(" · ") || uiText("legacy.position_not_read");
@@ -22614,13 +22185,6 @@ function legacyBestTeamLineup(payload = legacyCurrentClubPayload(), key = app.cl
     || {kind:"season",season_key:String(key || ""),formation:"4231",assignments:[],filled:0};
 }
 
-const LEGACY_VIEWS = [
-  ["roster", uiText("legacy.view.roster")],
-  ["watch", uiText("legacy.view.watch")],
-  ["hall", uiText("legacy.view.hall")],
-  ["best", uiText("legacy.view.best")],
-];
-
 function legacySearchMatch(player) {
   const query = String(app.clubLegacySearch || "").trim().toLocaleLowerCase();
   if (!query) return true;
@@ -22677,40 +22241,12 @@ function legacyLatestEvent(player) {
   return (player.events || []).at(-1) || null;
 }
 
-function legacyChangeIcon(title) {
-  const label = String(title || "");
-  if (/伤病|恢复/.test(label)) return "bandage";
-  if (/身价|价格/.test(label)) return "pound-sterling";
-  if (/属性|能力|声望/.test(label)) return "trending-up";
-  if (/外租|名单|离开|回归|转会/.test(label)) return "route";
-  return "activity";
-}
-
 function legacyDeltaLabel(value) {
   const raw = Number(value);
   if (!Number.isFinite(raw) || raw === 0) return "—";
   return `${raw > 0 ? "+" : ""}${raw}`;
 }
 
-function legacyAttributeChangeSummary(player) {
-  const diff = legacyAttributeDiff(player);
-  if (!diff || !diff.rows.length) return "—";
-  const best = diff.rows[0];
-  return `${best.name} ${best.from} → ${best.to}（${legacyDeltaLabel(best.delta)}）`;
-}
-
-function legacyEventChangeDetail(event) {
-  const type = String(event?.type || "");
-  const transitions = {
-    injury_started: uiText("legacy.event.injury_started"),
-    injury_recovered: uiText("legacy.event.injury_recovered"),
-    loan_started: uiText("legacy.event.loan_started"),
-    loan_ended: uiText("legacy.event.loan_ended"),
-    returned_to_roster: uiText("legacy.event.returned"),
-  };
-  const transition = transitions[type];
-  return transition ? `${transition}${event?.detail ? ` · ${event.detail}` : ""}` : String(event?.detail || "");
-}
 
 function legacyValueChangeDetail(previous, latest) {
   const before = Number(previous);
@@ -22824,15 +22360,6 @@ function legacyChangeTone(change) {
   return "neutral";
 }
 
-function legacyValueChange(player) {
-  const history = player.valueHistory || [];
-  if (history.length < 2) return "—";
-  const previous = Number(history.at(-2).asking_price);
-  const latest = Number(history.at(-1).asking_price);
-  if (!Number.isFinite(previous) || !Number.isFinite(latest)) return "—";
-  return latest === previous ? "—" : `${latest > previous ? "↑" : "↓"} ${legacyMoney(Math.abs(latest - previous))}`;
-}
-
 function legacyIdentityLabel(player) {
   const labels = [];
   if (player.active) labels.push(uiText("legacy.active"));
@@ -22918,25 +22445,8 @@ function legacyMonthLabel(month) {
   return year && value ? uiText("legacy.month", {year, month:Number(value)}) : String(month || uiText("legacy.date_not_recorded"));
 }
 
-function legacyPlayerBadges(player) {
-  const badges = [];
-  const shirt = legacyLatestShirt(player);
-  if (shirt) badges.push(`#${shirt}`);
-  if (app.showHiddenAttributes && player.snapshot?.ca != null) badges.push(`CA ${legacyValue(player.snapshot.ca)}`);
-  const value = legacyLatestValue(player);
-  if (value != null) badges.push(legacyMoney(value));
-  if (legacyInjuredNow(player)) badges.push(uiText("legacy.injured"));
-  return badges;
-}
-
 function legacyClubLine(player) {
   return uiText("legacy.current_club", {club:legacyTransferClubDetails(player).currentClub});
-}
-
-function renderLegacyViewNav(players) {
-  const counts = legacyViewCounts(players);
-  const activeView = legacyActiveView(players);
-  return LEGACY_VIEWS.map(([key, label]) => `<button type="button" role="tab" aria-selected="${activeView === key}" class="${activeView === key ? "active" : ""}" data-legacy-view="${key}"><span>${label}</span><b>${key === "best" ? `${counts[key]}/11` : counts[key]}</b></button>`).join("");
 }
 
 function renderLegacyRecentChanges(players) {
@@ -23004,26 +22514,7 @@ function legacyPrimaryClub(player) {
   return {name:String(club.teamName || player.snapshot?.observed_team_name || uiText("legacy.not_read")), state};
 }
 
-function legacyMonthDate(raw) {
-  const match = String(raw || "").match(/^(\d{4})-(\d{2})/);
-  return match ? `${match[1]}.${match[2]}` : "";
-}
 
-function legacyClubTenureForClub(club, player) {
-  const joined = legacyMonthDate(club?.joinedDate);
-  const left = legacyMonthDate(club?.leftDate);
-  if (!joined) return uiText("legacy.career_since_start");
-  return `${joined}-${club?.active ? "" : (left || legacyMonthDate(player?.snapshot?.observed_game_date) || "")}`;
-}
-
-function legacyClubTenure(player) {
-  const preferredTeamId = Number(player?.navigationTeamId || 0);
-  const club = player?.clubs?.find((row) => preferredTeamId > 0 && Number(row.teamId) === preferredTeamId)
-    || player?.clubs?.find((row) => row.isCurrentClub)
-    || player?.clubs?.find((row) => Number(row.teamId) === Number(player.prefTeamId))
-    || player?.clubs?.[0] || {};
-  return legacyClubTenureForClub(club, player);
-}
 
 function legacyTransferClubDetails(player) {
   const clubs = Array.isArray(player?.clubs) ? player.clubs : [];
@@ -25428,25 +24919,6 @@ function renderIcons(root = null) {
     window.lucide.createIcons({attrs:{"stroke-width":2}, root:scope});
     finalizeLucideIcons(scope);
   });
-}
-
-async function copyText(value) {
-  const text = String(value || "");
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch (_error) {
-    const input = document.createElement("textarea");
-    input.value = text;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.select();
-    const copied = document.execCommand("copy");
-    input.remove();
-    if (!copied) throw new Error("复制失败");
-  }
 }
 
 function renderCompetitions() {

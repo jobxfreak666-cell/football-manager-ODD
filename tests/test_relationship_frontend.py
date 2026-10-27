@@ -101,7 +101,7 @@ def test_relationship_frontend_uses_scoped_single_page_apis():
         assert endpoint in JS
     assert "page:1, all:true" in JS
     current_renderer = JS.split("function renderRelationsPage()", 1)[1].split(
-        "function relationGraphData", 1,
+        "function updateManagedStaff", 1,
     )[0]
     assert "relations-pagination" not in current_renderer
     assert "squad_team_id:Number(state.squadTeamId" in JS
