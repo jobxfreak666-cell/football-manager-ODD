@@ -9578,6 +9578,7 @@ document.addEventListener("input", (event) => {
 function settingsRenderStateSignature(settings) {
   return JSON.stringify([
     String(app.state?.data_scope_id || ""),
+    String(app.state?.app_version || ""),
     app.cheatMode, app.disableFa, app.godMode,
     app.darkMode, app.reverseProfitLossColors,
     String(settings.ui_locale || activeUiLocale()), storedLocaleFontKey(settings.ui_locale || activeUiLocale()),
@@ -9627,6 +9628,10 @@ function renderSettingsControls({force = false} = {}) {
   app.settingsRenderSignature = signature;
   $("#cheat-mode").checked = app.cheatMode;
   $("#cheat-actions").classList.toggle("visible", app.cheatMode);
+  const developmentWalletTools = String(app.state?.app_version || "").toLowerCase().endsWith("-dev");
+  document.querySelectorAll("[data-wallet-debug]").forEach((node) => {
+    node.hidden = !developmentWalletTools;
+  });
   $("#disable-fa").checked = app.disableFa;
   if ($("#god-mode")) $("#god-mode").checked = app.godMode;
   $("#dark-mode").checked = app.darkMode;

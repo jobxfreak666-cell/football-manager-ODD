@@ -18031,6 +18031,8 @@ class LocalOddsState:
         return result
 
     def update_cheat_balance(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if FROZEN:
+            raise NotFoundError("接口不存在")
         return self._account_application().update_cheat_balance(payload)
 
     def update_favorite_teams(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -23436,7 +23438,6 @@ def build_api_routes() -> RouteRegistry:
         "/api/mail/item-integrity/waive": "item_integrity_penalty_waiver",
         "/api/hospital/treatment": "update_medical_treatment",
         "/api/hospital/default-treatment": "update_default_medical_treatment",
-        "/api/cheat-balance": "update_cheat_balance",
         "/api/favorites/teams": "update_favorite_teams",
         "/api/favorites/competitions": "update_favorite_competitions",
         "/api/favorites/hidden-competitions": "update_hidden_competitions",
@@ -23631,6 +23632,10 @@ def build_api_routes() -> RouteRegistry:
         _state_payload_route("relationship_training_room_settle"),
     )
     if not FROZEN:
+        routes.add(
+            "POST", "/api/cheat-balance",
+            _state_payload_route("update_cheat_balance"),
+        )
         routes.add(
             "POST", "/api/bank/cheat-hundred-trillion",
             _state_payload_route("grant_temporary_bank_cheat"),
