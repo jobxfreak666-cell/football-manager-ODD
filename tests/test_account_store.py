@@ -581,7 +581,7 @@ class AccountStoreTests(unittest.TestCase):
                 path.write_bytes(content)
 
             with (
-                patch.object(storage_management, "_validated_data_root", return_value=root),
+                patch.object(storage_management, "_validated_data_root", return_value=root.resolve()),
                 patch.object(storage_management, "ensure_data_directories"),
             ):
                 result = storage_management.clear_cache_files(

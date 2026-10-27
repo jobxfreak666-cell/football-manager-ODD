@@ -40,14 +40,14 @@
 ### 4. Tests and remaining warnings
 
 - [x] Run the supported Windows suite in isolated data to identify current failures and repair their causes without weakening behavior checks.
-- [ ] Execute the configured portable Linux matrix on a genuine Linux worker; supplied-log analysis and Windows validation are complete, remote execution awaits publication.
+- [x] Execute the configured portable Linux matrix on a genuine Linux worker; Ubuntu Python 3.10 and 3.13 each passed 174 tests in run `40526642304`.
 - [x] Remove verified unused training imports/locals without changing behavior; run related checks.
 
 ### 5. Acceptance
 
 - [x] Independent final review, combined verification and clean Git status.
 - [x] Record per-item outcome, remaining platform/live verification constraints, and concrete steps requiring user authorisation.
-- [x] Keep this round's new changes local pending explicit remote publication authorisation; previously authorised `99eab35` and `5eed72b` remain pushed.
+- [x] Publish completed integrated changes after the user's explicit push authorisation; preserve unrelated dirty worktrees and do not republish obsolete variants.
 
 ## Initial evidence
 
@@ -101,5 +101,13 @@
 - `054ef21`: a fresh canteen-service import test had removed `SYSTEMROOT`, preventing Windows Python 3.10 hash-randomness initialization. Single-variable probes confirmed the cause; restoring only this variable preserves empty PATH and native-free import assertions. Both interpreters pass all 19 canteen tests.
 - Additional temporary-directory cleanup failures were reproduced using Python standard library alone. They are local filesystem transients, not game/business assertion failures. A test-only bounded empty-root finalisation handles only matching Windows error 145, never recursively deletes new files, propagates other/nonempty/exhausted errors, and reports each recovery as a visible warning. Seven behavior cases and independent review cover this boundary.
 - Final complete isolated Windows runs: **Python 3.10.22: 3631 passed, 269 subtests passed, 4 visible cleanup-recovery warnings, 55.00s**; **Python 3.14.4: 3631 passed, 269 subtests passed, 56.25s**. Both exit 0 with no failed or skipped tests (`build/linux-followup-windows310-acceptance.log/.xml`, `build/linux-followup-windows314-acceptance.log/.xml`).
-- CI preserves the existing Windows check names and native builds, then executes the full suite. A new Ubuntu Python 3.10/3.13 matrix positively selects portable helpers and two atomic-write cases. YAML and selected paths were validated locally; the exact portable selection passed 174 tests on Windows Python 3.10. Remote CI and actual Linux execution have not occurred because these new changes remain local.
+- CI preserves the existing Windows check names and native builds, then executes the full suite. A new Ubuntu Python 3.10/3.13 matrix positively selects portable helpers and two atomic-write cases. YAML and selected paths were validated locally; the exact portable selection passed 174 tests on Windows Python 3.10. Actual remote execution is recorded below.
+
+## Publication and actual CI follow-up
+
+- The user authorised pushing all completed local work. Twelve registered worktrees, thirteen local branches and two nested clones were audited. Other dirty snapshots are already represented by published/integrated work, unimplemented plans, or optional source-slice guards; no additional completed implementation was missing. The optional guards were left untouched under the user's new simplicity rule.
+- `dd538cf` was pushed normally to `origin/codex/integrate-dev-pr8-20261025`; local and remote heads matched. No force push, PR merge or shared main/dev update occurred.
+- Actual GitHub run `40526642304` passed frontend regressions and both **real Ubuntu** portable jobs: Python 3.10 **174 passed**, Python 3.13 **174 passed**. The Windows full job found 5 additional environment-dependent test failures (3626 passed, 269 subtests), which local UTF-8/long-path execution had not exposed.
+- Three failures used default CP1252 I/O for UTF-8 JSON or Node stdin. An isolated CP1252 probe reproduced all 3, and explicit UTF-8 I/O made all 3 pass. Two cache-protection tests mocked `_validated_data_root` with an unresolved 8.3 path although production returns a resolved root. Real short-path probes reproduced 1 failure/1 error, and returning `root.resolve()` made both pass while preserving short-path candidates and all protection assertions. Production code was not changed or given duplicate validation.
+- The three affected test files passed **48 tests and 4 subtests** on Python 3.10; the environment-specific probes and independent review passed (`build/ci-regressions-focused-green.log`, `build/ci-locale-green.log`, `build/ci-cache-original-tests-green.log`, `build/ci-environment-fix-review.md`). The correction is published as a follow-up and checked by a new complete CI run.
 - These are compensation/error-classification guarantees, not durable idempotency, automatic refund recovery, cross-process token validation or atomic FM/account state.
