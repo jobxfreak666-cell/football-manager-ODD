@@ -108,7 +108,7 @@ JSON 业务分派只经过上述注册表；HTTP 修改响应来源契约在 [st
 | 数据与副作用 | 观察到的球员快照和赛季事实属生涯；阵容选择与偏好属经理账户，隔离俱乐部/赛季。最佳阵容保存不写 FM 内存；刷新人物资料是另一个读取/归档流程。统计缺失不能伪造为 0，人工记录不冒充原生事实 |
 | 初始测试候选 | [test_club_legacy.py](../tests/test_club_legacy.py)、[test_club_legacy_frontend.py](../tests/test_club_legacy_frontend.py)；用 `best_team` / `best-team` 定位最佳阵容相关断言 |
 
-头像来源查 `player_portraits`；原生球员统计按架构进入代际资料模块，build 证据看研究索引。不要因修改阵容卡片而启动训练事务或重读整个世界人员库。
+头像来源查 `player_portraits`；XML 映射的正斜杠、反斜杠或混用路径按主机路径规则解析，候选仍须位于所选 graphics 安全根内，行为回归见 [test_player_portraits.py](../tests/test_player_portraits.py)。原生球员统计按架构进入代际资料模块，build 证据看研究索引。不要因修改阵容卡片而启动训练事务或重读整个世界人员库。
 
 ## 核对边界
 
