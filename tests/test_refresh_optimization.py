@@ -4645,7 +4645,7 @@ class RefreshOptimizationTests(unittest.TestCase):
             patch("fm_odds_web.active_effect_skus", return_value=[]),
             patch("fm_odds_web.active_doping_items", return_value=[]),
             patch("fm_odds_web.active_goalkeeper_bribes", return_value=[]),
-            patch("fm_odds_web.active_referee_level", return_value=0),
+            patch("tools.club_economy.active_referee_level", return_value=0),
             patch("fm_odds_web.canteen_plan", return_value=None),
             patch(
                 "fm_odds_web.read_match_engine_state",

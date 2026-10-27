@@ -73,4 +73,5 @@
 ## Task 3 integration evidence
 
 - PR10 (`66ffda2`) merged without source conflicts. Its changed-file/frontend/training selection passed 451 tests and 2 subtests; JavaScript syntax passed. Two pre-existing assertions also failed on the dev baseline: an absent `fundingPaymentSplit(total)` call and a global count of three waits when four live helpers exist. Tests now verify the actual cart funding call and each bounded polling helper; independent review found no weakening or actionable issue.
+- PR11 (`3f1cc70`) merged without conflicts. The existing native/training CI selection plus account, HTTP and counseling regressions passed 609 tests and 29 subtests (`build/pr11-native-integration-validation.log`). The native sources are unchanged; this run used the existing source-matched DLLs.
 - These are compensation/error-classification guarantees, not durable idempotency, automatic refund recovery, cross-process token validation or atomic FM/account state.
