@@ -124,8 +124,9 @@ def _timeline_direction(
     to_person: dict[str, Any], facility: str, fallback_reason: Any = 0,
 ) -> dict[str, Any]:
     row = deepcopy(direction)
-    before = int(row.get("signed_before", row.get("before", 0)) or 0)
-    after = int(row.get("signed_after", row.get("after", 0)) or 0)
+    # Keep validation of stored numeric values without changing their format.
+    int(row.get("signed_before", row.get("before", 0)) or 0)
+    int(row.get("signed_after", row.get("after", 0)) or 0)
     if int(row.get("reason") or 0) == 0 and int(fallback_reason or 0) > 0:
         row["reason"] = int(fallback_reason)
     from_role = event_role(from_person)
@@ -819,7 +820,6 @@ def training_archive_batch(payload: dict[str, Any], scope_id: str | None = None)
     ids = [str(value) for value in payload.get("event_ids") or []]
     if not ids or len(ids) > 100:
         raise ValueError("一次可读取 1 到 100 条训练档案")
-    wanted = set(ids)
     document = load_document(DOCUMENT_KEY, _new_archive(), scope_id)
     by_id = {str(row.get("id") or ""): row for row in _combined_archive_events(document, scope_id)}
     events = [deepcopy(by_id[value]) for value in ids if value in by_id]

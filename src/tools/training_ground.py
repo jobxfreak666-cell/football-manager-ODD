@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import math
 import threading
 import uuid
@@ -11,7 +10,7 @@ from typing import Any
 
 from tools.account_store import load_document, save_document
 from tools.app_paths import save_data_root
-from tools.app_settings import load_settings, local_purchase_price
+from tools.app_settings import load_settings
 from tools.training_archive import archive_training_focus
 from tools.training_catalog import (
     LAB_PROJECT_SKUS,

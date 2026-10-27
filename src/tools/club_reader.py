@@ -3481,13 +3481,26 @@ def apply_psychological_counseling_effect(
         written: list[dict[str, Any]] = []
         try:
             for change in changes:
-                write_process_memory(process, int(change["address"]), change["encoded"])
                 written.append(change)
+                write_process_memory(process, int(change["address"]), change["encoded"])
+                _invalidate_effect_reader(reader)
                 if reader.bytes(int(change["address"]), len(change["encoded"])) != change["encoded"]:
                     raise RuntimeError("心理辅导效果写入校验失败")
-        except Exception:
+        except Exception as operation_error:
+            from tools.player_effects import PlayerEffectRollbackError
+
+            rollback_error = None
             for change in reversed(written):
-                write_process_memory(process, int(change["address"]), change["original"])
+                try:
+                    write_process_memory(process, int(change["address"]), change["original"])
+                    _invalidate_effect_reader(reader)
+                    if reader.bytes(int(change["address"]), len(change["original"])) != change["original"]:
+                        raise RuntimeError("心理辅导效果恢复写后回读不一致")
+                except Exception as error:
+                    if rollback_error is None:
+                        rollback_error = error
+            if rollback_error is not None:
+                raise PlayerEffectRollbackError(operation_error, rollback_error) from operation_error
             raise
 
         public_changes = [

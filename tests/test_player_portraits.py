@@ -1,6 +1,8 @@
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
+
+import pytest
 
 from tools import app_settings
 from tools.player_portraits import clear_portrait_cache, portrait_path, portrait_roots
@@ -12,6 +14,30 @@ def _write(path: Path, content: str | bytes) -> None:
         path.write_bytes(content)
     else:
         path.write_text(content, encoding="utf-8")
+
+
+@pytest.mark.parametrize("path_type", [PurePosixPath, PureWindowsPath])
+@pytest.mark.parametrize("source", [
+    "faces/nested/portrait_123456.png",
+    r"faces\nested\portrait_123456.png",
+    r"faces\nested/portrait_123456.png",
+])
+def test_xml_image_candidates_accept_both_mapping_separators(path_type, source):
+    from tools import player_portraits
+
+    root = path_type("/graphics")
+    xml = root / "pack" / "config.xml"
+    with patch.object(player_portraits, "Path", path_type):
+        first = next(player_portraits._image_candidates(root, xml, source, "", 123456))
+    assert first == root / "pack" / "faces" / "nested" / "portrait_123456.png"
+
+
+@pytest.mark.parametrize("source", ["../outside-222222.png", r"..\outside-222222.png"])
+def test_xml_source_cannot_escape_the_graphics_root(tmp_path, source):
+    _write(tmp_path.parent / "outside-222222.png", b"outside")
+    _write(tmp_path / "config.xml", f'<record from="{source}" to="graphics/pictures/person/222222/portrait" />')
+    clear_portrait_cache()
+    assert portrait_path(222222, roots=(tmp_path,)) is None
 
 
 def test_portrait_path_resolves_uid_from_fm_graphics_xml(tmp_path: Path) -> None:

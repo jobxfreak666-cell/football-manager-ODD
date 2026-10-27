@@ -56,6 +56,26 @@ def test_wallet_update_holds_account_guard_through_write_and_projection(monkeypa
     assert state.lock.depth == 0
 
 
+@pytest.mark.parametrize("payload", [{"amount": 100_000_000_000}, {"clear": True}])
+def test_frozen_wallet_cheat_rejects_before_binding_or_writing(monkeypatch, payload):
+    state = account_state()
+    write = Mock(return_value={"balance": 100})
+    monkeypatch.setattr(web, "FROZEN", True)
+    monkeypatch.setattr(services, "cheat_balance", write)
+    monkeypatch.setattr(services, "public_economy", lambda: {})
+    with pytest.raises(web.NotFoundError):
+        state.update_cheat_balance(payload)
+    state._bind_current_save.assert_not_called()
+    write.assert_not_called()
+
+
+@pytest.mark.parametrize("frozen", [False, True])
+def test_wallet_cheat_http_route_is_available_only_in_development(monkeypatch, frozen):
+    monkeypatch.setattr(web, "FROZEN", frozen)
+    route = web.build_api_routes().resolve("POST", "/api/cheat-balance")
+    assert (route is not None) is (not frozen)
+
+
 @pytest.mark.parametrize("method,payload,target,args,kwargs,transient", [
     ("shop_purchase", {"sku": "item-a", "quantity": "2", "free_purchase": True},
      "buy_item", ("item-a", 2), {}, ("payment",)),

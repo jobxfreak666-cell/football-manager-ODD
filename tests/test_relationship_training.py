@@ -794,6 +794,46 @@ def test_settle_killed_after_writing_completes_without_reapplying(room_store, mo
     assert rooms.interrupted_team_training_rooms(later) == []
 
 
+@pytest.mark.parametrize("marker_fields", [
+    pytest.param({}, id="missing"),
+    pytest.param({"native_writes_started": None}, id="null"),
+    pytest.param({"native_writes_started": 0}, id="zero"),
+    pytest.param({"native_writes_started": ""}, id="empty-string"),
+    pytest.param({"native_writes_started": "false"}, id="string-false"),
+])
+def test_uncertain_native_write_marker_never_reopens_a_settlement(
+    room_store, monkeypatch, marker_fields,
+):
+    room_id, session = _settling_room(room_store, "uncertain-write")
+    state = room_store["relationship_training_rooms"]
+    state["task_rules_version"] = rooms.RELATIONSHIP_TRAINING_TASK_RULES_VERSION
+    room = state["rooms"][0]
+    pending = room["pending_session"]
+    pending.pop("settle_owner")
+    pending.pop("native_writes_started")
+    pending.update(marker_fields)
+    state["attribute_progress"] = {"mind_room:player:1:精神:意志力": 12.5}
+    progress = deepcopy(state["attribute_progress"])
+    _crash_process(monkeypatch)
+    assert rooms.migrate_relationship_training_rooms(deepcopy(state)) is False
+
+    outcome = rooms.recover_interrupted_team_training_room(room_id, session["id"])
+    assert outcome["action"] == "complete"
+    assert room_store["relationship_training_rooms"]["rooms"][0]["status"] == "settling"
+    assert rooms.claim_due_team_training_rooms("2026-08-24")["rooms"] == []
+    record = rooms.interrupted_settlement_record(outcome["session"], "2026-08-25")
+    assert record["attribute_changes"] == []
+    assert record["condition_changes"] == []
+    assert record["relationship_changes"] == []
+    rooms.finalize_relationship_training_room(room_id, session["id"], record)
+    stored = room_store["relationship_training_rooms"]
+    assert stored["rooms"][0]["status"] == "idle"
+    assert stored["attribute_progress"] == progress
+    assert rooms.interrupted_team_training_rooms() == []
+    with pytest.raises(ValueError, match="已失效"):
+        rooms.recover_interrupted_team_training_room(room_id, session["id"])
+
+
 def test_submission_past_the_receipt_cap_is_refused_and_never_charged_again(room_store):
     charges: list[int] = []
 

@@ -10,6 +10,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import secrets
+from threading import Event, RLock, Thread, current_thread
 from types import SimpleNamespace
 from typing import Any
 
@@ -20,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1] / "src"
 FACADE_METHODS = {
     "_match_intelligence_application", "_probe_match_intelligence_if_idle",
     "watch_match_intelligence", "public_match_intelligence", "buy_match_intelligence",
+    "refresh_match_intelligence",
 }
 HELPERS = {
     "random_match_intelligence_candidate", "current_match_intelligence_candidates",
@@ -131,11 +133,15 @@ def harness(facade_code):
     return SimpleNamespace(state=state, globals=namespace, events=events, scope=scope)
 
 
-@pytest.mark.parametrize("gate", ["unverified", "refreshing", "reconciling", "save_change_pending"])
+@pytest.mark.parametrize("gate", [
+    "unverified", "missing_scope", "refreshing", "reconciling", "save_change_pending",
+])
 def test_probe_gates_do_not_touch_memory_or_advance_throttle(harness, gate):
     state = harness.state
     if gate == "unverified":
         state._has_verified_save = lambda: False
+    elif gate == "missing_scope":
+        harness.scope["id"] = ""
     else:
         setattr(state, gate, True)
     assert state._probe_match_intelligence_if_idle(force=True) is False
@@ -154,7 +160,7 @@ def test_probe_throttle_and_forced_probe_keep_nonblocking_memory_acquisition(har
     assert state.match_intelligence_results == [fixture_row()]
 
 
-@pytest.mark.parametrize("mode", ["wrong_scope", "locked", "missing_minutes", "missing_scope"])
+@pytest.mark.parametrize("mode", ["wrong_scope", "locked", "missing_minutes"])
 def test_probe_requires_valid_clock_and_scope_bound_unlock(harness, mode):
     state = harness.state
     if mode == "wrong_scope":
@@ -163,8 +169,6 @@ def test_probe_requires_valid_clock_and_scope_bound_unlock(harness, mode):
         state.match_intelligence_public_cache["unlocked"] = False
     elif mode == "missing_minutes":
         state.last_connection_clock.pop("minutes")
-    else:
-        harness.scope["id"] = ""
     assert state._probe_match_intelligence_if_idle() is False
     assert state.match_intelligence_last_probe_at == 100
     assert not any(event[0] == "memory" for event in harness.events)
@@ -219,7 +223,7 @@ def test_public_status_rejects_unknown_account_identity(harness, field, value, r
         harness.state.output[field] = value
     with pytest.raises(ValueError, match=reason):
         harness.state.public_match_intelligence()
-    assert harness.events == []
+    assert harness.events == [("state", "acquire", True), ("state", "release")]
 
 
 def test_public_status_cross_scope_fallback_does_not_reveal_old_candidates(harness):
@@ -231,7 +235,9 @@ def test_public_status_cross_scope_fallback_does_not_reveal_old_candidates(harne
     assert result["unlocked"] is False
     assert result["pricing_basis"] == "fixed_price"
     assert result["pricing"] == {"game_date": ""}
-    assert harness.events == [("bind_scope", "account-b")]
+    assert harness.events == [
+        ("state", "acquire", True), ("bind_scope", "account-b"), ("state", "release"),
+    ]
 
 
 @pytest.mark.parametrize("minutes,expected", [(900, 1), (901, 0), (None, 0)])
@@ -243,7 +249,80 @@ def test_public_status_filters_by_clock_and_isolates_cached_response(harness, mi
     assert len(result["candidates"]) == expected
     result["candidates"].append({"caller": "changed"})
     assert len(state.match_intelligence_public_cache["candidates"]) == expected
-    assert harness.events == [("bind_scope", "account-a")]
+    assert harness.events == [
+        ("state", "acquire", True), ("bind_scope", "account-a"), ("state", "release"),
+    ]
+
+
+@pytest.mark.parametrize("publication", ["refresh", "account_switch"])
+def test_public_status_cannot_overwrite_concurrent_publication(harness, publication):
+    state = harness.state
+    state.lock = RLock()
+    old, fresh = fixture_row(30), fixture_row()
+    state.output["matches"] = [old, fresh]
+    state.match_intelligence_results = [old]
+    get_projecting, release_get, publication_settled = Event(), Event(), Event()
+    errors, responses = [], {}
+    expected_cache = {"unlocked": True, "candidates": [fresh]}
+
+    def open_status(rows, day):
+        if current_thread() is getter:
+            get_projecting.set()
+            assert release_get.wait(timeout=3)
+        return {"unlocked": True, "candidates": rows}
+
+    def get_status():
+        try:
+            responses["get"] = state.public_match_intelligence()
+        except BaseException as error:
+            errors.append(error)
+
+    def publish():
+        try:
+            # Signal either completed publication or actual lock contention;
+            # the main thread then releases the paused GET without sleeping.
+            if state.lock.acquire(blocking=False):
+                state.lock.release()
+            else:
+                publication_settled.set()
+            if publication == "refresh":
+                responses["refresh"] = state.refresh_match_intelligence(
+                    {"data_scope_id": "account-a"},
+                )
+            else:
+                with state.lock:
+                    harness.scope["id"] = "account-b"
+                    state.output["save_instance_id"] = "career-b"
+                    state.match_intelligence_results = [fresh]
+                    state.match_intelligence_public_cache_scope_id = "account-b"
+                    state.match_intelligence_public_cache = deepcopy(expected_cache)
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            publication_settled.set()
+
+    harness.globals["open_match_intelligence_status"] = open_status
+    getter = Thread(target=get_status)
+    publisher = Thread(target=publish)
+    getter.start()
+    try:
+        assert get_projecting.wait(timeout=3)
+        publisher.start()
+        assert publication_settled.wait(timeout=3)
+    finally:
+        release_get.set()
+        getter.join(timeout=3)
+        if publisher.ident is not None:
+            publisher.join(timeout=3)
+
+    assert not getter.is_alive() and not publisher.is_alive()
+    assert errors == []
+    assert responses["get"]["candidates"] == [old]
+    assert state.match_intelligence_results == [fresh]
+    assert state.match_intelligence_public_cache == expected_cache
+    assert state.match_intelligence_public_cache_scope_id == (
+        "account-a" if publication == "refresh" else "account-b"
+    )
 
 
 def purchase_payload(**extra):
@@ -352,6 +431,7 @@ def test_service_can_publish_with_explicit_dependencies_without_http_runtime():
         pytest.fail("public status must not probe, charge, or read native memory")
 
     runtime = SimpleNamespace(
+        lock=RLock(),
         output={"save_instance_id": "career-a", "game_date": "2028-06-10", "matches": []},
         save_change_pending=False,
         last_connection_clock={"date": "2028-06-10", "minutes": 900},
@@ -371,3 +451,96 @@ def test_service_can_publish_with_explicit_dependencies_without_http_runtime():
     assert service.public_status() == {"candidates": []}
     assert bound == ["account-a"]
     assert runtime.match_intelligence_public_cache == {"candidates": []}
+
+
+@pytest.mark.parametrize("change", ["scope", "save", "clock", "pending", "locked"])
+def test_refresh_rejects_context_changes_without_publishing(harness, change):
+    from tools.domain_errors import ConflictError
+
+    state = harness.state
+    state.match_intelligence_results = [fixture_row(30)]
+    before = deepcopy(state.match_intelligence_results)
+
+    def probe(*args, **kwargs):
+        assert kwargs == {"force_bounded_rescan": True}
+        if change == "scope":
+            harness.scope["id"] = "account-b"
+        elif change == "save":
+            state.output["save_instance_id"] = "career-b"
+        elif change == "clock":
+            state.last_connection_clock["minutes"] = 901
+        elif change == "pending":
+            state.save_change_pending = True
+        else:
+            state.match_intelligence_public_cache["unlocked"] = False
+        return {"candidates": [fixture_row()]}
+
+    harness.globals["probe_match_intelligence_candidates"] = probe
+    with pytest.raises(ConflictError) as error:
+        state.refresh_match_intelligence({"data_scope_id": "account-a"})
+    assert error.value.code == "match_intelligence_context_changed"
+    assert state.match_intelligence_results == before
+    assert state.data_version == 7
+    assert state.match_intelligence_probe_in_flight is False
+    assert state.lock.depth == state.memory_lock.depth == 0
+
+
+@pytest.mark.parametrize("payload", [{}, {"data_scope_id": None},
+                                     {"data_scope_id": ""}, {"data_scope_id": "  "}])
+def test_refresh_requires_explicit_request_scope_before_io(harness, payload):
+    from tools.domain_errors import ValidationError
+
+    with pytest.raises(ValidationError) as error:
+        harness.state.refresh_match_intelligence(payload)
+
+    assert error.value.code == "match_intelligence_scope_required"
+    assert harness.events == []
+    assert harness.state.match_intelligence_results == []
+    assert harness.state.data_version == 7
+
+
+def test_refresh_rejects_scope_change_during_projection_without_publishing(harness):
+    from tools.domain_errors import ConflictError
+
+    state = harness.state
+    state.match_intelligence_results = [fixture_row(30)]
+    before = deepcopy(state.match_intelligence_results)
+    cached = deepcopy(state.match_intelligence_public_cache)
+
+    def switch_scope(rows, day):
+        harness.scope["id"] = "account-b"
+        return {"unlocked": True, "candidates": rows}
+
+    harness.globals["open_match_intelligence_status"] = switch_scope
+    with pytest.raises(ConflictError) as error:
+        state.refresh_match_intelligence({"data_scope_id": "account-a"})
+
+    assert error.value.code == "match_intelligence_context_changed"
+    assert state.match_intelligence_results == before
+    assert state.match_intelligence_public_cache == cached
+    assert state.match_intelligence_public_cache_scope_id == "account-a"
+    assert state.data_version == 7
+    assert state.match_intelligence_probe_in_flight is False
+    assert state.lock.depth == state.memory_lock.depth == 0
+
+
+def test_refresh_projection_failure_preserves_candidates_and_releases_flight(harness):
+    from tools.domain_errors import UnavailableError
+
+    state = harness.state
+    state.match_intelligence_results = [fixture_row(30)]
+    before = deepcopy(state.match_intelligence_results)
+    cached = deepcopy(state.match_intelligence_public_cache)
+
+    def fail_projection(*args):
+        raise ValueError("projection unavailable")
+
+    harness.globals["open_match_intelligence_status"] = fail_projection
+    with pytest.raises(UnavailableError) as error:
+        state.refresh_match_intelligence({"data_scope_id": "account-a"})
+    assert error.value.code == "match_intelligence_projection_failed"
+    assert state.match_intelligence_results == before
+    assert state.match_intelligence_public_cache == cached
+    assert state.data_version == 7
+    assert state.match_intelligence_probe_in_flight is False
+    assert state.lock.depth == state.memory_lock.depth == 0

@@ -1724,26 +1724,6 @@ html[data-locale="en-GB"] :is(.dialog-head h2,.dialog-head p,.feature-page heade
 .training-player-option small { color:#718178; font-weight:600; }
 .training-player-option>svg { width:16px; height:16px; color:#2b7959; }
 .training-player-empty { padding:24px 10px; color:#718178; font-size:13px; text-align:center; }
-.training-player-picker-layer { position:relative; z-index:9; display:grid; padding:0; }
-.training-player-picker-card { width:100%; max-height:min(48vh,420px); display:grid; grid-template-rows:auto auto auto auto minmax(0,1fr); overflow:hidden; border:1px solid #b9d1c4; border-radius:6px; background:#f8fbf9; box-shadow:0 8px 22px #183d2d24; }
-.training-player-picker-card>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:10px 11px 8px; border-bottom:1px solid #dbe6e0; background:#fff; }
-.training-player-picker-card>header>div { min-width:0; display:grid; gap:2px; }
-.training-player-picker-card>header small { color:#4e816b; font-size:13px; font-weight:900; }
-.training-player-picker-card>header h3 { margin:0; color:#1e4737; font-size:15px; }
-.training-player-picker-card>header span { color:#72837a; font-size:13px; }
-.training-player-picker-card>header .icon-button { flex:0 0 auto; width:30px; height:30px; }
-.training-player-search { display:grid; grid-template-columns:18px minmax(0,1fr); align-items:center; gap:8px; margin:8px 9px 6px; padding:0 8px; min-height:34px; border:1px solid #c9dbd2; border-radius:5px; background:#fff; color:#6b8277; }
-.training-player-search:focus-within { border-color:#3b8665; box-shadow:0 0 0 2px #d7eee2; }
-.training-player-search svg { width:16px; }
-.training-player-search input { width:100%; min-width:0; height:32px; border:0; outline:0; background:transparent; color:#284639; font:inherit; font-size:13px; }
-.training-player-picker-filters { display:flex; gap:6px; overflow-x:auto; padding:0 9px 7px; }
-.training-player-picker-filters button { flex:0 0 auto; min-height:30px; padding:0 10px; border:1px solid #c8d9d1; border-radius:15px; background:#fff; color:#5d766a; font-size:13px; font-weight:800; }
-.training-player-picker-filters button.active { border-color:#2f7b5c; background:#2f7b5c; color:#fff; }
-.training-player-picker-meta { display:flex; justify-content:space-between; gap:8px; padding:0 10px 6px; color:#74867d; font-size:13px; }
-.training-player-picker-list { min-height:0; overflow:auto; display:grid; grid-template-columns:minmax(0,1fr); align-content:start; gap:5px; padding:0 8px 9px; }
-.training-player-picker-list .training-player-option { width:100%; }
-.training-player-picker-list .training-player-empty { grid-column:1/-1; }
-@media(max-width:620px){.training-player-picker-card{max-height:min(52vh,360px)}}
 .training-inline-form>.primary-action { min-height:39px; border-radius:4px; }
 .training-inline-form>.primary-action:disabled { cursor:not-allowed; opacity:.45; }
 .training-selection { padding:11px; border-top:1px solid #d8e1dc; background:#fff; }

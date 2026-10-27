@@ -11,7 +11,7 @@ from pathlib import Path
 from copy import deepcopy
 from typing import Any, Callable
 
-from tools.account_store import load_container, load_document, save_document, update_document
+from tools.account_store import load_container, load_document, read_persisted_document, save_document, update_document
 from tools.app_paths import save_data_root
 from tools.app_settings import load_settings, local_purchase_price
 from tools.betting_account import (
@@ -23,6 +23,7 @@ from tools.money import (
     from_minor, migrate_money_fields, migrate_money_records, multiply_minor, read_minor, round_money,
     to_minor, write_minor,
 )
+from tools.domain_errors import CounselingCommitUnknownError
 
 
 ENERGY_DRINK_PRICE = 20_000.0
@@ -2837,6 +2838,59 @@ def psychological_counseling_outcome() -> str:
     return "unlocked"
 
 
+def _save_psychological_counseling_session(
+    payload: dict[str, Any], row: dict[str, Any], key: str, cooldown_key: str,
+) -> None:
+    """Resolve an ambiguous save from primary-file evidence under account locks."""
+    commit_state = "not_started"
+    save_error: Exception | None = None
+    try:
+        with account_transaction():
+            commit_state = "unknown"
+            try:
+                save_economy(payload)
+            except Exception as operation_error:
+                save_error = operation_error
+                try:
+                    persisted = read_persisted_document("economy", legacy_path=economy_path())
+                    if not isinstance(persisted, dict):
+                        raise RuntimeError("心理辅导持久化文档无效")
+                    history = persisted.get("activity_history")
+                    if not isinstance(history, list) or any(not isinstance(item, dict) for item in history):
+                        raise RuntimeError("心理辅导持久化记录无效")
+                    matches = [item for item in history if item.get("id") == row["id"]]
+                    if not matches:
+                        commit_state = "absent"
+                    elif (
+                        matches == [row]
+                        and persisted.get("psychological_counseling", {}).get(key)
+                        == payload["psychological_counseling"][key]
+                        and persisted.get("activity_floor_cooldowns", {}).get(cooldown_key)
+                        == payload["activity_floor_cooldowns"][cooldown_key]
+                        and persisted.get("activity_progress", {}).get(key)
+                        == payload["activity_progress"][key]
+                    ):
+                        commit_state = "confirmed"
+                    else:
+                        raise RuntimeError("心理辅导持久化记录不一致")
+                except Exception as verification_error:
+                    raise CounselingCommitUnknownError(
+                        operation_error, verification_error,
+                    ) from operation_error
+                if commit_state == "absent":
+                    raise
+            commit_state = "confirmed"
+    except Exception as error:
+        # A lock/context exit may fail after saving or replace a save/readback
+        # error. Never let that exception imply a confirmed-uncommitted session.
+        if commit_state in {"unknown", "confirmed"} and not isinstance(error, CounselingCommitUnknownError):
+            operation_error = save_error if save_error is not None else error
+            raise CounselingCommitUnknownError(
+                operation_error, error, commit_state=commit_state,
+            ) from operation_error
+        raise
+
+
 def perform_psychological_counseling(
     manager_id: int, player_id: int, player_name: str, game_date: str,
     current_intimacy: int,
@@ -2898,7 +2952,10 @@ def perform_psychological_counseling(
         }
         payload["activity_history"].append(row)
         payload["activity_history"] = payload["activity_history"][-200:]
-        save_economy(payload)
+        _save_psychological_counseling_session(
+            payload, row, key,
+            _activity_floor_cooldown_key(manager_id, player_id, "talk_room"),
+        )
         return {
             **row,
             "intimacy": int(memory_result.get("after", current_intimacy)) + next_remainder,

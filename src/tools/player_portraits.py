@@ -95,7 +95,8 @@ def _standalone_xml_root(xml_path: Path) -> Path:
 
 
 def _image_candidates(root: Path, xml_path: Path, source: str, target: str, uid: int) -> Iterable[Path]:
-    source_path = Path(source.replace("/", "\\"))
+    # Face-pack XMLs use either separator, independently of the host platform.
+    source_path = Path(source.replace("\\", "/"))
     target_text = target.replace("\\", "/").lstrip("/")
     if source_path.suffix.lower() in IMAGE_SUFFIXES:
         yield xml_path.parent / source_path

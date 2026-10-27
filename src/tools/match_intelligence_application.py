@@ -12,6 +12,8 @@ from dataclasses import dataclass
 import json
 from typing import Any, Callable, Protocol
 
+from tools.domain_errors import ConflictError, DomainError, UnavailableError, ValidationError
+
 
 @dataclass(frozen=True)
 class MatchIntelligenceIO:
@@ -73,133 +75,200 @@ class MatchIntelligenceApplicationService:
         self._poll_seconds = poll_seconds
 
     def probe_if_idle(self, *, force: bool = False) -> bool:
+        try:
+            completed, _response = self._probe(force=force)
+            return completed
+        except DomainError:
+            return False
+
+    def refresh(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Search the bounded result cache for an explicitly scoped request."""
+        requested_scope_id = str(payload.get("data_scope_id") or "").strip()
+        if not requested_scope_id:
+            raise ValidationError(
+                "缺少当前存档账户，请刷新后重试",
+                code="match_intelligence_scope_required", phase="validate_context",
+            )
+        _completed, response = self._probe(
+            force=True,
+            requested_scope_id=requested_scope_id,
+            project=True,
+        )
+        assert response is not None
+        return response
+
+    def _validate_context(self, requested_scope_id: str = "") -> tuple[str, str]:
+        """Read identity and availability only while the runtime lock is held."""
+        runtime = self._runtime
+        output = runtime.output
+        if output.get("save_identity_discovery_deferred") or runtime.save_change_pending:
+            raise ConflictError(
+                "正在确认存档身份，请稍后重试",
+                code="match_intelligence_save_pending", phase="validate_context",
+            )
+        save_id = str(output.get("save_instance_id") or "")
+        if not runtime._has_verified_save() or not save_id:
+            raise ValidationError(
+                "尚未识别当前存档", code="match_intelligence_save_required",
+                phase="validate_context",
+            )
+        scope_id = str(runtime._data_scope_id(output) or "")
+        if not scope_id:
+            raise ValidationError(
+                "尚未识别当前存档账户", code="match_intelligence_scope_required",
+                phase="validate_context",
+            )
+        if requested_scope_id and requested_scope_id != scope_id:
+            raise ConflictError(
+                "当前存档已变化，请刷新后重试",
+                code="match_intelligence_scope_changed", phase="validate_context",
+            )
+        if runtime.refreshing or runtime.reconciling or getattr(
+            runtime, "match_intelligence_probe_in_flight", False,
+        ):
+            raise self._busy_error()
+        return scope_id, save_id
+
+    @staticmethod
+    def _busy_error() -> ConflictError:
+        return ConflictError(
+            "情报中心当前正忙，请稍后重试",
+            code="match_intelligence_busy", phase="read",
+        )
+
+    def _clock(self) -> tuple[str, int]:
+        runtime = self._runtime
+        clock = dict(runtime.last_connection_clock or {})
+        game_date = str(clock.get("date") or runtime.output.get("game_date") or "")
+        try:
+            game_minutes = int(clock["minutes"])
+        except (KeyError, TypeError, ValueError):
+            game_minutes = -1
+        if not game_date or not 0 <= game_minutes < 24 * 60:
+            raise UnavailableError(
+                "无法确认当前游戏时间，请稍后重试",
+                code="match_intelligence_clock_unavailable", phase="read",
+            )
+        return game_date, game_minutes
+
+    def _check_probe_context(
+        self, scope_id: str, save_id: str, clock: tuple[str, int],
+    ) -> None:
+        runtime = self._runtime
+        try:
+            current_clock = self._clock()
+        except UnavailableError:
+            current_clock = None
+        if (
+            not runtime._has_verified_save()
+            or runtime.refreshing or runtime.reconciling or runtime.save_change_pending
+            or runtime.output.get("save_identity_discovery_deferred")
+            or str(runtime.output.get("save_instance_id") or "") != save_id
+            or str(runtime._data_scope_id(runtime.output) or "") != scope_id
+            or runtime.match_intelligence_public_cache_scope_id != scope_id
+            or not runtime.match_intelligence_public_cache.get("unlocked")
+            or current_clock != clock
+        ):
+            raise ConflictError(
+                "存档、游戏时间或情报中心状态已变化，请重新尝试",
+                code="match_intelligence_context_changed", phase="read",
+            )
+
+    def _probe(
+        self, *, force: bool, requested_scope_id: str = "", project: bool = False,
+    ) -> tuple[bool, dict[str, Any] | None]:
         runtime = self._runtime
         io = self._io
         now = io.monotonic()
         with runtime.lock:
-            if (
-                not runtime._has_verified_save()
-                or runtime.refreshing
-                or runtime.reconciling
-                or runtime.save_change_pending
-                or getattr(runtime, "match_intelligence_probe_in_flight", False)
-            ):
-                return False
+            scope_id, save_id = self._validate_context(requested_scope_id)
             if (
                 not force
                 and now - float(runtime.match_intelligence_last_probe_at or 0.0)
                 < self._poll_seconds
             ):
-                return False
-            output = dict(runtime.output)
-            output["matches"] = [
-                dict(match) for match in runtime.output.get("matches", [])
-            ]
-            clock = dict(runtime.last_connection_clock or {})
-            scope_id = runtime._data_scope_id(runtime.output)
-            save_instance_id = str(runtime.output.get("save_instance_id") or "")
+                return False, None
             runtime.match_intelligence_last_probe_at = now
+            game_date, game_minutes = self._clock()
+            if (
+                runtime.match_intelligence_public_cache_scope_id != scope_id
+                or not runtime.match_intelligence_public_cache.get("unlocked")
+            ):
+                raise ValidationError(
+                    "情报中心尚未解锁", code="activity_centre_locked",
+                    phase="validate_context",
+                )
+            matches = deepcopy(runtime.output.get("matches", []))
             runtime.match_intelligence_probe_in_flight = True
             runtime.match_intelligence_last_error = None
         try:
-            game_date = str(clock.get("date") or output.get("game_date") or "")
-            try:
-                game_minutes = int(clock.get("minutes"))
-            except (TypeError, ValueError):
-                with runtime.lock:
-                    runtime.match_intelligence_last_error = "无法确认当前游戏时间"
-                return False
-            if not game_date or not scope_id or not save_instance_id:
-                with runtime.lock:
-                    runtime.match_intelligence_last_error = "尚未识别当前存档或游戏日期"
-                return False
             io.set_active_save_id(scope_id)
-            with runtime.lock:
-                intelligence_unlocked = bool(
-                    runtime.match_intelligence_public_cache_scope_id == scope_id
-                    and runtime.match_intelligence_public_cache.get("unlocked")
-                )
-            if not intelligence_unlocked:
-                with runtime.lock:
-                    runtime.match_intelligence_last_error = "情报中心尚未解锁"
-                return False
             if not runtime.memory_lock.acquire(blocking=False):
-                return False
+                raise self._busy_error()
             try:
-                probe = io.probe_candidates(
-                    output.get("matches", []), game_date, game_minutes,
-                    force_bounded_rescan=force,
-                )
-            except Exception as error:
-                with runtime.lock:
-                    runtime.match_intelligence_last_error = (
-                        str(error).strip() or type(error).__name__
+                try:
+                    probe = io.probe_candidates(
+                        matches, game_date, game_minutes,
+                        force_bounded_rescan=force,
                     )
-                return False
+                except Exception as error:
+                    raise UnavailableError(
+                        "获取情报失败，请稍后重试",
+                        code="match_intelligence_probe_failed", phase="read",
+                    ) from error
             finally:
                 runtime.memory_lock.release()
-            discovered = {
-                str(item.get("fixture_id") or ""): dict(item)
-                for item in (probe.get("candidates") or [])
-                if item.get("fixture_id")
-            }
             with runtime.lock:
-                # The scan ran without the state lock; publish only if the
-                # save, account scope and unlock it was taken for still hold.
-                current_output = runtime.output
-                if (
-                    not runtime._has_verified_save()
-                    or runtime.refreshing
-                    or runtime.reconciling
-                    or runtime.save_change_pending
-                    or str(current_output.get("save_instance_id") or "")
-                    != save_instance_id
-                    or runtime._data_scope_id(current_output) != scope_id
-                    or runtime.match_intelligence_public_cache_scope_id != scope_id
-                    or not runtime.match_intelligence_public_cache.get("unlocked")
-                ):
-                    runtime.match_intelligence_last_error = (
-                        "存档或情报中心状态已变化，请重新尝试"
-                    )
-                    return False
-                current_clock = dict(runtime.last_connection_clock or {})
-                current_date = str(
-                    current_clock.get("date") or current_output.get("game_date") or ""
-                )
+                self._check_probe_context(scope_id, save_id, (game_date, game_minutes))
                 try:
-                    current_minutes = int(current_clock.get("minutes"))
-                except (TypeError, ValueError):
-                    runtime.match_intelligence_last_error = "无法确认当前游戏时间"
-                    return False
-                if not current_date:
-                    runtime.match_intelligence_last_error = "无法确认当前游戏日期"
-                    return False
-                # A successful probe replaces earlier rows so candidates whose
-                # live score no longer verifies are dropped, not kept stale.
-                current_candidates = io.current_candidates(
-                    list(discovered.values()),
-                    [dict(match) for match in current_output.get("matches", [])],
-                    current_date, current_minutes,
-                )
-                candidates = sorted(current_candidates, key=lambda item: (
-                    str(item.get("fixture_date") or ""),
-                    int(item.get("kickoff_minutes") or 24 * 60),
-                    str(item.get("competition_name") or ""),
-                    str((item.get("home") or {}).get("name") or ""),
-                ))
-                before = json.dumps(
-                    runtime.match_intelligence_results,
-                    ensure_ascii=False, sort_keys=True, default=str,
-                )
-                after = json.dumps(
-                    candidates,
-                    ensure_ascii=False, sort_keys=True, default=str,
-                )
+                    # A completed scan is authoritative: retaining old rows can
+                    # resurrect evidence that the reader has just rejected.
+                    current_candidates = io.current_candidates(
+                        [dict(item) for item in (probe.get("candidates") or [])
+                         if item.get("fixture_id")],
+                        deepcopy(runtime.output.get("matches", [])),
+                        game_date, game_minutes,
+                    )
+                    candidates = sorted(current_candidates, key=lambda item: (
+                        str(item.get("fixture_date") or ""),
+                        int(item.get("kickoff_minutes") or 24 * 60),
+                        str(item.get("competition_name") or ""),
+                        str((item.get("home") or {}).get("name") or ""),
+                    ))
+                    intelligence = io.open_status(candidates, game_date) if project else None
+                    before = json.dumps(
+                        runtime.match_intelligence_results,
+                        ensure_ascii=False, sort_keys=True, default=str,
+                    )
+                    after = json.dumps(
+                        candidates, ensure_ascii=False, sort_keys=True, default=str,
+                    )
+                    cached = deepcopy(intelligence) if project else None
+                except Exception as error:
+                    raise UnavailableError(
+                        "无法生成最新情报状态，请稍后重试",
+                        code="match_intelligence_projection_failed", phase="read",
+                    ) from error
+                self._check_probe_context(scope_id, save_id, (game_date, game_minutes))
                 runtime.match_intelligence_results = candidates
                 runtime.match_intelligence_last_error = None
+                if project:
+                    runtime.match_intelligence_public_cache = cached
+                    runtime.match_intelligence_public_cache_scope_id = scope_id
                 if before != after:
                     runtime.data_version += 1
-            return True
+                return True, (
+                    {"intelligence": intelligence, "data_scope_id": scope_id}
+                    if project else None
+                )
+        except DomainError as error:
+            with runtime.lock:
+                if (
+                    str(runtime._data_scope_id(runtime.output) or "") == scope_id
+                    and str(runtime.output.get("save_instance_id") or "") == save_id
+                ):
+                    runtime.match_intelligence_last_error = str(error.__cause__ or error)
+            raise
         finally:
             with runtime.lock:
                 runtime.match_intelligence_probe_in_flight = False
@@ -207,42 +276,45 @@ class MatchIntelligenceApplicationService:
     def public_status(self) -> dict[str, Any]:
         runtime = self._runtime
         io = self._io
-        output = dict(runtime.output)
-        if output.get("save_identity_discovery_deferred") or runtime.save_change_pending:
-            raise ValueError("正在确认存档身份，请稍后重试")
-        if not output.get("save_instance_id"):
-            raise ValueError("尚未识别当前存档")
-        scope_id = runtime._data_scope_id(output)
-        if not scope_id:
-            raise ValueError("尚未识别当前存档账户")
-        io.set_active_save_id(scope_id)
-        if runtime.match_intelligence_public_cache_scope_id != scope_id:
-            return {
-                "unlocked": False,
-                "floor": "5F",
-                "pricing_basis": "fixed_price",
-                "pricing": {"game_date": ""},
-                "candidates": [],
-                "refreshing": True,
-            }
-        clock = dict(runtime.last_connection_clock or {})
-        game_date = str(clock.get("date") or output.get("game_date") or "")
-        try:
-            game_minutes = int(clock["minutes"])
-        except (KeyError, TypeError, ValueError):
-            current_candidates = []
-        else:
-            current_candidates = io.current_candidates(
-                [dict(item) for item in runtime.match_intelligence_results],
-                [dict(item) for item in output.get("matches", [])],
-                game_date,
-                game_minutes,
+        # Scope, candidate snapshot and cache publication share the same owner
+        # lock as refresh and account switches, including projection I/O.
+        with runtime.lock:
+            output = dict(runtime.output)
+            if output.get("save_identity_discovery_deferred") or runtime.save_change_pending:
+                raise ValueError("正在确认存档身份，请稍后重试")
+            if not output.get("save_instance_id"):
+                raise ValueError("尚未识别当前存档")
+            scope_id = runtime._data_scope_id(output)
+            if not scope_id:
+                raise ValueError("尚未识别当前存档账户")
+            io.set_active_save_id(scope_id)
+            if runtime.match_intelligence_public_cache_scope_id != scope_id:
+                return {
+                    "unlocked": False,
+                    "floor": "5F",
+                    "pricing_basis": "fixed_price",
+                    "pricing": {"game_date": ""},
+                    "candidates": [],
+                    "refreshing": True,
+                }
+            clock = dict(runtime.last_connection_clock or {})
+            game_date = str(clock.get("date") or output.get("game_date") or "")
+            try:
+                game_minutes = int(clock["minutes"])
+            except (KeyError, TypeError, ValueError):
+                current_candidates = []
+            else:
+                current_candidates = io.current_candidates(
+                    [dict(item) for item in runtime.match_intelligence_results],
+                    [dict(item) for item in output.get("matches", [])],
+                    game_date,
+                    game_minutes,
+                )
+            intelligence = io.open_status(
+                current_candidates, game_date,
             )
-        intelligence = io.open_status(
-            current_candidates, game_date,
-        )
-        runtime.match_intelligence_public_cache = deepcopy(intelligence)
-        return intelligence
+            runtime.match_intelligence_public_cache = deepcopy(intelligence)
+            return intelligence
 
     def purchase(self, payload: dict[str, Any]) -> dict[str, Any]:
         runtime = self._runtime
