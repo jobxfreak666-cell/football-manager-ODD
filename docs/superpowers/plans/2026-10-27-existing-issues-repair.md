@@ -39,15 +39,15 @@
 
 ### 4. Tests and remaining warnings
 
-- [ ] Run the supported Windows suite in isolated data to identify current failures and repair their causes without weakening behavior checks.
+- [x] Run the supported Windows suite in isolated data to identify current failures and repair their causes without weakening behavior checks.
 - [ ] Reproduce any available Linux-only failures with a genuine Linux runtime; otherwise record the missing environment and exact verification limitation.
 - [x] Remove verified unused training imports/locals without changing behavior; run related checks.
 
 ### 5. Acceptance
 
-- [ ] Independent final review, combined verification and clean Git status.
-- [ ] Record per-item outcome, remaining platform/live verification constraints, and concrete steps requiring user authorisation.
-- [ ] Publish only within the user's explicit remote authorisation; local fixes and integration are reviewable first.
+- [x] Independent final review, combined verification and clean Git status.
+- [x] Record per-item outcome, remaining platform/live verification constraints, and concrete steps requiring user authorisation.
+- [x] Keep this round's new changes local pending explicit remote publication authorisation; previously authorised `99eab35` and `5eed72b` remain pushed.
 
 ## Initial evidence
 
@@ -81,4 +81,13 @@
 - Pyflakes identified 13 remaining unused imports/locals in the web facade and training modules after PR11. The focused scan now exits 0 without warnings (`build/existing-issues-training-lint-final.log`). Account binding and numeric/SKU validation remain in place.
 - Training/archive/API/task/future-transfer regressions passed 433 tests and 11 subtests; independent review found no lost validation or side effect (`build/training-warning-cleanup-validation.log`).
 - The user will provide the historical Linux failure log later and explicitly asked to continue other repairs first. No runnable Linux environment was found locally; those 19 unnamed failures remain deferred, not claimed fixed.
+- The first full Windows run found 4 failures with 3601 passes and 269 subtests. Three tests opened `web/*` relative to an assumed `src` working directory; a fresh Python import test omitted the source path and failed with `ModuleNotFoundError: tools`. Four test files now resolve source paths explicitly and run the pure-import check from a temporary directory with absolute `PYTHONPATH`. All 433 original assertion nodes and the complete pure-import subprogram are unchanged. The four files passed 104 tests from both repository-root and `src` working directories.
+- Final isolated full Windows run: **3605 passed, 269 subtests passed**, exit 0, 57.83s (`build/existing-issues-windows-final.log` and `.xml`). No failed or skipped tests were reported. Independent final review found no actionable integration regression (`build/existing-issues-final-review.md`).
+
+## Remaining verification and publication
+
+- Historical Linux failures are deferred until the user supplies the original log and a genuine Linux execution environment is available. Windows results do not establish Linux results.
+- Live FM verification has not been performed. A concrete test-copy plan is saved in `build/fmodd-live-verification-proposal.md`; executing it needs explicit authorisation under `AGENTS.md:9`. No app/FM launch, hook installation or real save/account operation occurred.
+- Counseling uncertain-state blocking is in the active wheel only. It is not durable idempotency, cross-process native-token validation or automatic recovery/refund after a crash; unresolved states need reconciliation.
+- All three cleanup branch heads, dev `e37b907`, PR8 `807ee63`, PR9 `2dc8f27`, `99eab35` and `5eed72b` are ancestors of the integrated local HEAD. Remote PR/shared-branch state was not modified in this round.
 - These are compensation/error-classification guarantees, not durable idempotency, automatic refund recovery, cross-process token validation or atomic FM/account state.
