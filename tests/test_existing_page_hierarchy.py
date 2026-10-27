@@ -65,19 +65,12 @@ class ExistingPageHierarchyTests(unittest.TestCase):
         self.assertIn("function setTrainingModule(module)", self.script)
 
 
-    def test_lottery_page_keeps_content_without_navigation_entry(self):
+    def test_car_lottery_page_is_removed(self):
         self.assertNotIn('data-page="lottery"', self.index)
-        self.assertIn('id="page-lottery"', self.index)
-        self.assertIn('id="lottery-ticket-button"', self.index)
-        self.assertIn('id="lottery-single" type="button" disabled', self.index)
-        self.assertIn('id="lottery-ten" type="button" disabled', self.index)
-        self.assertIn("function renderLottery()", self.script)
-        self.assertIn('const poolReady = Boolean(data.pool_ready)', self.script)
-        self.assertIn("garage-showroom-concept.png", self.styles)
-        self.assertIn(".lottery-ticket-panel.open", self.styles)
-        self.assertTrue(
-            (ROOT / "web" / "assets" / "lottery" / "garage-showroom-concept.png").is_file()
-        )
+        self.assertNotIn('id="page-lottery"', self.index)
+        self.assertNotIn("renderLottery", self.script)
+        self.assertNotIn(".lottery-", self.styles)
+        self.assertFalse((ROOT / "web" / "assets" / "lottery").exists())
 
     def test_item_and_player_operations_do_not_open_blocking_progress_ui(self):
         self.assertNotIn('id="operation-progress-dialog"', self.index)

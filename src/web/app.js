@@ -824,8 +824,6 @@ const app = {
   positionTrainingBusy: false,
   positionTrainingSlotDrag: null,
   interactiveSurfacePointer: null,
-  lotteryPanelOpen: false,
-  lotteryPurchaseQuantity: 1,
   homeConnectionStartedAt: null,
   homeManagerRecordLoadKey: null,
   homeManagerRecordLoadFailed: false,
@@ -4821,7 +4819,6 @@ function renderCurrentPage(page = app.page) {
     },
     league: () => renderLeague(),
     shop: () => renderShop(),
-    lottery: () => renderLottery(),
     inventory: () => renderInventory(),
     bank: () => renderBank(),
     activity: () => renderActivity(),
@@ -10190,7 +10187,6 @@ function showPage(page, {silent = false} = {}) {
   app.page = page;
   renderTopbarRefreshStatus();
   if (page !== "shop") app.shopCartOpen = false;
-  if (page !== "lottery") app.lotteryPanelOpen = false;
   const navigationSignature=page==="relations"?`${page}:${relationState().view}`:page;
   if (app.navigationRenderSignature !== navigationSignature) {
     const dom = shellDomIndex();
@@ -10284,39 +10280,6 @@ function showInitialUsageNotice() {
   }
   syncCustomSelects(languageSetting || dialog);
   dialog.showModal();
-}
-
-function lotteryData() {
-  return app.state?.lottery || {};
-}
-
-function renderLottery() {
-  const root = $("#page-lottery");
-  if (!root) return;
-  const data = lotteryData();
-  const tickets = Math.max(0, Number(data.tickets || 0));
-  const ticketPrice = Number(data.ticket_price);
-  const priced = Number.isFinite(ticketPrice) && ticketPrice > 0;
-  const poolReady = Boolean(data.pool_ready);
-  $("#lottery-ticket-count").textContent = String(tickets);
-  $("#lottery-ticket-panel-count").textContent = String(tickets);
-  $("#lottery-ticket-balance").textContent = formatFullMoney(app.state?.economy?.total_balance || 0);
-  $("#lottery-ticket-unit-price").textContent = priced ? formatFullMoney(ticketPrice) : uiText("lottery.not_configured");
-  document.querySelectorAll("[data-lottery-ticket-quantity]").forEach((button) => {
-    const quantity = Number(button.dataset.lotteryTicketQuantity || 0);
-    button.classList.toggle("active", quantity === app.lotteryPurchaseQuantity);
-    button.disabled = !priced;
-    const price = button.querySelector("[data-lottery-ticket-price]");
-    if (price) price.textContent = priced ? formatFullMoney(ticketPrice * quantity) : "--";
-  });
-  $("#lottery-ticket-buy").disabled = !priced;
-  $("#lottery-probability").disabled = !poolReady;
-  $("#lottery-history").disabled = !poolReady;
-  $("#lottery-single").disabled = !poolReady || tickets < 1;
-  $("#lottery-ten").disabled = !poolReady || tickets < 10;
-  $("#lottery-ticket-panel").classList.toggle("open", app.lotteryPanelOpen);
-  $("#lottery-ticket-panel").setAttribute("aria-hidden", String(!app.lotteryPanelOpen));
-  $("#lottery-ticket-button").setAttribute("aria-expanded", String(app.lotteryPanelOpen));
 }
 
 function leagueData() {
@@ -28818,14 +28781,6 @@ function bindEvents() {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "hidden") scheduleDataPrewarm();
-  });
-  $("#lottery-ticket-button").addEventListener("click", () => { app.lotteryPanelOpen = !app.lotteryPanelOpen; renderLottery(); renderIcons(); });
-  $("#lottery-ticket-close").addEventListener("click", () => { app.lotteryPanelOpen = false; renderLottery(); });
-  $("#lottery-ticket-panel").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-lottery-ticket-quantity]");
-    if (!button || button.disabled) return;
-    app.lotteryPurchaseQuantity = Number(button.dataset.lotteryTicketQuantity || 1);
-    renderLottery();
   });
   $("#league-board-grid").addEventListener("change", (event) => {
     const select = event.target.closest("[data-league-slot]");

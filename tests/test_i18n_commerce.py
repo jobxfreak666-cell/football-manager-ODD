@@ -68,7 +68,6 @@ def test_commerce_renderers_use_semantic_messages_not_source_chinese_copy() -> N
         for name in ("app.js", "bet_analysis_page.js")
     )
     for key in (
-        'uiText("lottery.not_configured")',
         'uiText("league.slot_label", {slot:slot + 1})',
         'uiText("championship.team_stats"',
         'uiText("shop.confirm_purchase")',
