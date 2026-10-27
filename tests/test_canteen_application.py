@@ -599,14 +599,22 @@ def test_service_module_has_no_native_or_facade_import():
 
 
 def test_service_import_succeeds_in_a_fresh_native_free_process():
+    import os
+
+    env = {"PYTHONPATH": str(ROOT / "src"), "PATH": ""}
+    # Windows Python needs SystemRoot before it can initialise hash randomness.
+    if "SYSTEMROOT" in os.environ:
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
     completed = subprocess.run(
         [
             sys.executable, "-c",
-            "import tools.canteen_application as m; "
+            "import sys; import tools.canteen_application as m; "
+            "assert not {'ctypes', 'fm_odds_web', 'tools.game_session', "
+            "'tools.club_reader'} & sys.modules.keys(); "
             "print(m.CanteenApplicationService.__name__)",
         ],
         cwd=ROOT, capture_output=True, text=True, timeout=60,
-        env={"PYTHONPATH": str(ROOT / "src"), "PATH": ""},
+        env=env,
     )
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "CanteenApplicationService"
