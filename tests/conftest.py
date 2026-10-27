@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import inspect
+import os
+import tempfile
+import warnings
 from pathlib import Path
 
 import pytest
@@ -37,6 +40,29 @@ _LEGACY_FRONTEND_ASSERTION_FILES = {
 def isolate_app_settings(tmp_path, monkeypatch):
     """Keep tests deterministic and away from the developer's live settings."""
     monkeypatch.setattr(app_settings, "SETTINGS_PATH", tmp_path / "settings.json")
+
+
+@pytest.fixture(autouse=True)
+def finish_windows_empty_temp_root(monkeypatch):
+    """Allow bounded rmdir finalisation after Windows delete-pending cleanup."""
+    if os.name != "nt":
+        return
+    from windows_temp_cleanup import finish_empty_temp_root
+
+    original = tempfile.TemporaryDirectory.cleanup
+
+    def remove(directory):
+        try:
+            return original(directory)
+        except OSError as error:
+            finish_empty_temp_root(directory.name, error)
+            warnings.warn(
+                "Recovered Windows error 145 while removing a verified empty temporary root.",
+                pytest.PytestWarning,
+                stacklevel=2,
+            )
+
+    monkeypatch.setattr(tempfile.TemporaryDirectory, "cleanup", remove)
 
 
 def _read_text_with_legacy_frontend_projection(self, *args, **kwargs):

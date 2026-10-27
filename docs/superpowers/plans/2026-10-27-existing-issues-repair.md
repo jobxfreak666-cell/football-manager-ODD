@@ -40,7 +40,7 @@
 ### 4. Tests and remaining warnings
 
 - [x] Run the supported Windows suite in isolated data to identify current failures and repair their causes without weakening behavior checks.
-- [ ] Reproduce any available Linux-only failures with a genuine Linux runtime; otherwise record the missing environment and exact verification limitation.
+- [ ] Execute the configured portable Linux matrix on a genuine Linux worker; supplied-log analysis and Windows validation are complete, remote execution awaits publication.
 - [x] Remove verified unused training imports/locals without changing behavior; run related checks.
 
 ### 5. Acceptance
@@ -86,8 +86,20 @@
 
 ## Remaining verification and publication
 
-- Historical Linux failures are deferred until the user supplies the original log and a genuine Linux execution environment is available. Windows results do not establish Linux results.
-- Live FM verification has not been performed. A concrete test-copy plan is saved in `build/fmodd-live-verification-proposal.md`; executing it needs explicit authorisation under `AGENTS.md:9`. No app/FM launch, hook installation or real save/account operation occurred.
+- The user supplied the original Linux log: 20 failures, 1048 passes and 114 collection errors on dev `2dc8f27`, Python 3.10.22. The follow-up below records the repairs and platform boundaries; a genuine Linux execution is still pending. Windows results do not establish Linux results.
+- Live FM verification is performed by the user. After initially authorising an FM26 test copy, the user explicitly took over actual verification; no app/FM launch, hook installation or real save/account operation was performed by this agent.
 - Counseling uncertain-state blocking is in the active wheel only. It is not durable idempotency, cross-process native-token validation or automatic recovery/refund after a crash; unresolved states need reconciliation.
 - All three cleanup branch heads, dev `e37b907`, PR8 `807ee63`, PR9 `2dc8f27`, `99eab35` and `5eed72b` are ancestors of the integrated local HEAD. Remote PR/shared-branch state was not modified in this round.
+
+## Linux log and Python 3.10 follow-up
+
+- The supplied 20 failure IDs were matched individually to the final Windows Python 3.10 JUnit output: all 20 are present and pass (`build/linux-original20-windows310-status.txt`). The 114 collection errors are Windows native imports in modules, not 114 executed failures.
+- Two obsolete platform-independent assertions were already repaired in `ba5c05c` without weakening cart-funding or polling behavior.
+- `22fb5d4`: pre-3.12 tokenization represents a complete f-string as `STRING`; the audit now detects its f/F prefix. Actual Python 3.10.22 first reproduced 12 failures/6 passes, then passed all 18 audit cases; Python 3.14 also passed 18.
+- `bb31027`: normalize XML source separators using host-compatible paths and keep the safe-root guard. POSIX/Windows path-semantics cases first reproduced 3 failures; both interpreters now pass all 23 portrait tests, including traversal rejection.
+- `9bf0932`: four pure name tests locally isolate the unrelated active-game identity lookup. All 17 name tests pass on both interpreters, with zero game-session imports in the tripwire probe. Seven Web integration cases and the Windows-session mutex case remain Windows-only; no POSIX mutex or fake WinDLL was introduced.
+- `054ef21`: a fresh canteen-service import test had removed `SYSTEMROOT`, preventing Windows Python 3.10 hash-randomness initialization. Single-variable probes confirmed the cause; restoring only this variable preserves empty PATH and native-free import assertions. Both interpreters pass all 19 canteen tests.
+- Additional temporary-directory cleanup failures were reproduced using Python standard library alone. They are local filesystem transients, not game/business assertion failures. A test-only bounded empty-root finalisation handles only matching Windows error 145, never recursively deletes new files, propagates other/nonempty/exhausted errors, and reports each recovery as a visible warning. Seven behavior cases and independent review cover this boundary.
+- Final complete isolated Windows runs: **Python 3.10.22: 3631 passed, 269 subtests passed, 4 visible cleanup-recovery warnings, 55.00s**; **Python 3.14.4: 3631 passed, 269 subtests passed, 56.25s**. Both exit 0 with no failed or skipped tests (`build/linux-followup-windows310-acceptance.log/.xml`, `build/linux-followup-windows314-acceptance.log/.xml`).
+- CI preserves the existing Windows check names and native builds, then executes the full suite. A new Ubuntu Python 3.10/3.13 matrix positively selects portable helpers and two atomic-write cases. YAML and selected paths were validated locally; the exact portable selection passed 174 tests on Windows Python 3.10. Remote CI and actual Linux execution have not occurred because these new changes remain local.
 - These are compensation/error-classification guarantees, not durable idempotency, automatic refund recovery, cross-process token validation or atomic FM/account state.
