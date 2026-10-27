@@ -41,7 +41,7 @@
 
 - [ ] Run the supported Windows suite in isolated data to identify current failures and repair their causes without weakening behavior checks.
 - [ ] Reproduce any available Linux-only failures with a genuine Linux runtime; otherwise record the missing environment and exact verification limitation.
-- [ ] Remove verified unused training imports/locals without changing behavior; run related checks.
+- [x] Remove verified unused training imports/locals without changing behavior; run related checks.
 
 ### 5. Acceptance
 
@@ -75,4 +75,10 @@
 - PR10 (`66ffda2`) merged without source conflicts. Its changed-file/frontend/training selection passed 451 tests and 2 subtests; JavaScript syntax passed. Two pre-existing assertions also failed on the dev baseline: an absent `fundingPaymentSplit(total)` call and a global count of three waits when four live helpers exist. Tests now verify the actual cart funding call and each bounded polling helper; independent review found no weakening or actionable issue.
 - PR11 (`3f1cc70`) merged without conflicts. The existing native/training CI selection plus account, HTTP and counseling regressions passed 609 tests and 29 subtests (`build/pr11-native-integration-validation.log`). The native sources are unchanged; this run used the existing source-matched DLLs.
 - PR12 (`04249f2`) merged without conflicts. The existing frontend/locale CI selection plus page hierarchy, commerce, wallet visibility and counseling behavior passed 256 tests and 8 subtests (`build/pr12-frontend-integration-validation.log`). Four changed JavaScript files passed syntax checks. All three merges are local; remote PRs/shared branches were not changed.
+
+## Task 4 verification
+
+- Pyflakes identified 13 remaining unused imports/locals in the web facade and training modules after PR11. The focused scan now exits 0 without warnings (`build/existing-issues-training-lint-final.log`). Account binding and numeric/SKU validation remain in place.
+- Training/archive/API/task/future-transfer regressions passed 433 tests and 11 subtests; independent review found no lost validation or side effect (`build/training-warning-cleanup-validation.log`).
+- The user will provide the historical Linux failure log later and explicitly asked to continue other repairs first. No runnable Linux environment was found locally; those 19 unnamed failures remain deferred, not claimed fixed.
 - These are compensation/error-classification guarantees, not durable idempotency, automatic refund recovery, cross-process token validation or atomic FM/account state.

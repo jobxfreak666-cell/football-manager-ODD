@@ -244,7 +244,6 @@ from tools.training_ground import (
     public_training_ground,
     release_training_users,
     rebind_training_focus_player, rebind_training_focus_staff,
-    rollback_training_focus,
     training_target_attribute, training_points_required_for_direction,
     COMPREHENSIVE_ROOM_SKUS,
 )
@@ -298,7 +297,6 @@ from tools.person_relationships import (
     rollback_bidirectional_intimacy, write_bidirectional_intimacy,
 )
 from tools.relationship_training import (
-    ANALYSIS_JOB_TYPES, COACHING_JOB_TYPES,
     INTIMACY_PER_DAY,
     ROOMS as RELATIONSHIP_TRAINING_ROOMS,
     attribute_progress_key, coach_composite_multiplier,
@@ -310,7 +308,6 @@ from tools.relationship_training import (
     relationship_training_effect_plan, relationship_training_progress,
     release_relationship_training_room, restore_relationship_training_room,
     sports_science_height_limit, sports_science_height_probability,
-    SPORTS_SCIENCE_JOB_TYPES,
     MENTOR_NOT_CREDIBLE_MESSAGE, TACTICAL_COACH_MESSAGE,
     mentor_credible, relationship_training_session_fee_minor,
     relationship_training_staff_eligible, tactical_coach_eligible,
@@ -3973,7 +3970,8 @@ class TeamTrainingSettlement:
                     and (str(row["person_b"]["kind"]), int(row["person_b"]["id"])) not in skipped
                 ],
             }
-        definition = RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
+        # Validate the persisted room SKU before planning native settlement.
+        RELATIONSHIP_TRAINING_ROOMS[str(session["room_sku"])]
         mentor_left = False
         if session["room_sku"] == "mentoring_room":
             mentor = next(
@@ -16158,7 +16156,7 @@ class LocalOddsState:
 
     def world_club_future_transfers(self, team_id: int) -> dict[str, Any]:
         with self.lock:
-            scope_id = self._bind_current_save()
+            self._bind_current_save()
             output = dict(self.output)
             save_id = str(output.get("save_instance_id") or self._data_scope_id(output))
         _scope_id, _output, club = self._owned_world_club_target(team_id)
@@ -16169,7 +16167,7 @@ class LocalOddsState:
 
     def cancel_world_club_future_transfer(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self.lock:
-            scope_id = self._bind_current_save()
+            self._bind_current_save()
             output = dict(self.output)
             save_id = str(output.get("save_instance_id") or self._data_scope_id(output))
         team_id = int(payload.get("team_id") or 0)
@@ -16332,7 +16330,6 @@ class LocalOddsState:
                 live_levels = read_native_club_facility_levels(
                     team_id, club.get("address"), reader=session.reader,
                 )
-            facility_field = facility_fields[facility]
             current_level = live_levels[facility]
             saved_floors = ownership.get("facility_level_floors")
             previous_floors = (
