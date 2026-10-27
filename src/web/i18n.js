@@ -5,14 +5,11 @@
   const DEFAULT_LOCALE = "en-GB";
   const SOURCE_LOCALE = "zh-CN";
   const SUPPORTED_LOCALES = Object.freeze([
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP",
-    "pt-BR", "pt-PT",
+    "en-GB", "zh-CN",
   ]);
   const SUPPORTED_SET = new Set(SUPPORTED_LOCALES);
-  const ENGLISH_KICKER_LOCALES = new Set(["zh-CN", "zh-TW", "ko-KR", "ja-JP"]);
+  const ENGLISH_KICKER_LOCALES = new Set(["zh-CN"]);
   const ENGLISH_KICKER_KEY = /(\.eyebrow|_eyebrow|\.kicker|_kicker)(?:$|_)/;
-  const localePacks = window.FMODDLocalePacks && typeof window.FMODDLocalePacks === "object"
-    ? window.FMODDLocalePacks : {};
   const externalModules = Array.isArray(window.FMODDI18nModules)
     ? window.FMODDI18nModules.filter((entry) => entry && typeof entry === "object")
     : [];
@@ -58,7 +55,6 @@
       "shell.desktop": "FMODD 桌面",
       "page.home.eyebrow": "FOOTBALL MANAGER 伴侣工具",
       "page.shop.eyebrow": "俱乐部经济", "page.shop.title": "商店",
-      "page.car_lottery.eyebrow": "汽车抽奖", "page.car_lottery.title": "汽车奖池",
       "page.inventory.eyebrow": "我的物品", "page.inventory.title": "物品栏",
       "page.bank.eyebrow": "FMODD 财务", "page.bank.title": "银行",
       "page.activity.eyebrow": "俱乐部服务", "page.activity.title": "活动中心",
@@ -110,7 +106,6 @@
       "shell.desktop": "FMODD desktop",
       "page.home.eyebrow": "FOOTBALL MANAGER COMPANION",
       "page.shop.eyebrow": "CLUB ECONOMY", "page.shop.title": "Shop",
-      "page.car_lottery.eyebrow": "CAR LOTTERY", "page.car_lottery.title": "Car Prize Pool",
       "page.inventory.eyebrow": "MY ITEMS", "page.inventory.title": "Inventory",
       "page.bank.eyebrow": "FMODD FINANCE", "page.bank.title": "Bank",
       "page.activity.eyebrow": "CLUB SERVICES", "page.activity.title": "Activity Centre",
@@ -173,8 +168,7 @@
     "谷歌思源黑体":"Noto Sans CJK SC", "思源黑体":"Source Han Sans SC",
     "作弊模式":"Cheat mode", "设置投注上限":"Set betting limits", "单关":"Singles", "串关":"Accumulators",
     "单关投注上限":"Singles betting limit", "串关投注上限":"Accumulator betting limit",
-    "保存投注上限":"Save betting limits", "无上限":"Unlimited", "商店0元购":"Free shop purchases",
-    "关闭足协":"Disable FA penalties", "清空赌场钱包":"Clear betting wallet", "清空贷款":"Clear loans",
+    "保存投注上限":"Save betting limits", "无上限":"Unlimited",    "关闭足协":"Disable FA penalties", "清空赌场钱包":"Clear betting wallet", "清空贷款":"Clear loans",
     "显示隐藏属性":"Show hidden attributes", "数据保存目录":"Data storage location",
     "正在读取路径...":"Reading path…", "正在计算占用...":"Calculating storage…", "选择路径":"Choose folder",
     "清除缓存":"Clear cache", "删除当前存档":"Delete current save", "删除其他存档":"Delete other saves",
@@ -227,7 +221,7 @@
     "未使用":"Unused", "使用中":"In use", "物品状态":"Item status", "银行与钱包统一流水":"Unified bank and wallet ledger", "充值":"Deposit", "提现":"Withdraw", "账单中心":"Statement centre", "资金操作":"Manage funds",
     "活动中心":"Activity centre", "亲密度排行":"Intimacy ranking", "亲密度排行榜":"Intimacy ranking", "当前经理与执教队伍":"Current manager and managed team",
     "俱乐部医疗中心":"Club medical centre", "默认治疗":"Default treatment", "手动选择":"Manual", "理疗师治疗":"Physio treatment", "保守治疗":"Conservative treatment", "激进治疗":"Aggressive treatment",
-    "训练场":"Training ground", "训练档案":"Training archive", "可用器材":"Available equipment", "器材商店":"Equipment shop", "器材仓库":"Equipment storage", "场地尚未布置":"No facilities placed", "一键全部转动":"Rotate all", "刷新队伍":"Refresh team", "刷新关系":"Refresh relationships", "训练协作分析":"Training collaboration",
+    "训练场":"Training ground", "训练档案":"Training archive", "可用器材":"Available equipment", "器材商店":"Equipment shop", "器材仓库":"Equipment storage", "场地尚未布置":"No facilities placed","刷新队伍":"Refresh team", "刷新关系":"Refresh relationships", "训练协作分析":"Training collaboration",
     "世界国家":"World nations", "国家资料":"Nation details", "世界俱乐部":"World clubs", "世界球员":"World players", "扫描俱乐部":"Scan clubs", "扫描世界数据":"Scan world data", "队伍":"Team", "人员名单":"People",
     "球员":"Players", "职员":"Staff", "详细资料":"Details", "编辑球员":"Edit player", "选择球员":"Select player", "选择队伍、球员和指定比赛":"Select a team, player and fixture",
     "俱乐部资料":"Club details", "俱乐部名人堂":"Club hall of fame", "集团工具":"Group tools", "集团名称":"Group name", "修改集团名称":"Rename group", "修改俱乐部简称":"Edit club short name", "修改球场名称":"Rename stadium", "新球场名称":"New stadium name", "新简称":"New short name", "球场资料":"Stadium details",
@@ -240,13 +234,8 @@
   });
 
   function buildMessageCatalog(localeName) {
-    const catalog = Object.assign(
-      {},
-      messages[localeName] || {},
-      localeName === "ko-KR" ? (window.FMODDKoreanCatalog?.messages || {}) : {},
-    );
+    const catalog = Object.assign({}, messages[localeName] || {});
     externalModules.forEach((entry) => Object.assign(catalog, entry.messages?.[localeName] || {}));
-    Object.assign(catalog, localePacks[localeName]?.messages || {});
     return Object.freeze(catalog);
   }
 
@@ -265,46 +254,8 @@
 
   let locale = storedLocale();
 
-  function koreanEnding(value) {
-    const text = String(value ?? "")
-      .replace(/<[^>]*>/g, "")
-      .replace(/&[A-Za-z0-9#]+;/g, "")
-      .trim();
-    const character = [...text].reverse().find((entry) => /[가-힣A-Za-z0-9]/.test(entry));
-    if (!character) return {batchim:false, rieul:false};
-    const code = character.codePointAt(0);
-    if (code >= 0xAC00 && code <= 0xD7A3) {
-      const jongseong = (code - 0xAC00) % 28;
-      return {batchim:jongseong !== 0, rieul:jongseong === 8};
-    }
-    if (/\d/.test(character)) {
-      const batchimDigits = new Set(["0", "1", "3", "6", "7", "8"]);
-      return {batchim:batchimDigits.has(character), rieul:["1", "7", "8"].includes(character)};
-    }
-    return {batchim:false, rieul:false};
-  }
-
-  function koreanParticle(value, pattern) {
-    const ending = koreanEnding(value);
-    const particles = {
-      "을(를)": ending.batchim ? "을" : "를",
-      "이(가)": ending.batchim ? "이" : "가",
-      "은(는)": ending.batchim ? "은" : "는",
-      "과(와)": ending.batchim ? "과" : "와",
-      "(으)로": ending.batchim && !ending.rieul ? "으로" : "로",
-    };
-    return particles[pattern] || pattern;
-  }
-
   function interpolate(template, parameters = {}) {
-    const source = locale === "ko-KR"
-      ? String(template).replace(
-          /\{([A-Za-z0-9_]+)\}([”"'’』」】»]*)(을\(를\)|이\(가\)|은\(는\)|과\(와\)|\(으\)로)/g,
-          (match, key, punctuation, particle) => Object.prototype.hasOwnProperty.call(parameters, key)
-            ? `${String(parameters[key])}${punctuation}${koreanParticle(parameters[key], particle)}` : match,
-        )
-      : String(template);
-    return source.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
+    return String(template).replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) => (
       Object.prototype.hasOwnProperty.call(parameters, key) ? String(parameters[key]) : match
     ));
   }
@@ -364,12 +315,7 @@
   function translateLegacy(value) {
     const text = String(value ?? "");
     if (locale === SOURCE_LOCALE || !text) return text;
-    const isPtBR = locale === "pt-BR";
-    const isPtPT = locale === "pt-PT";
-    const ptCount = (count, singular, plural) => `${count} ${Number(count) === 1 ? singular : plural}`;
     const catalogs = [
-      localePacks[locale]?.legacy || {},
-      locale === "ko-KR" ? (window.FMODDKoreanCatalog?.legacy || {}) : {},
       ...externalModules.map((entry) => entry.legacy?.[locale] || {}),
     ];
     for (const catalog of catalogs) {
@@ -381,29 +327,29 @@
     match = text.match(/^共\s+(\d+)\s+场$/);
     if (match) return tp("home.matches_played", Number(match[1]));
     match = text.match(/^(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}경기` : isPtBR ? ptCount(match[1], "partida", "partidas") : isPtPT ? ptCount(match[1], "jogo", "jogos") : `${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
+    if (match) return `${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
     match = text.match(/^(\d+)\s*项$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개` : (isPtBR || isPtPT) ? ptCount(match[1], "item", "itens") : `${match[1]} item${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} item${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^(\d+)\s*天$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}일` : (isPtBR || isPtPT) ? ptCount(match[1], "dia", "dias") : `${match[1]} day${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} day${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^(\d+)\s*项选择$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개 선택` : (isPtBR || isPtPT) ? ptCount(match[1], "seleção", "seleções") : `${match[1]} selection${Number(match[1]) === 1 ? "" : "s"}`;
+    if (match) return `${match[1]} selection${Number(match[1]) === 1 ? "" : "s"}`;
     match = text.match(/^已选\s*(\d+)\s*笔$/);
-    if (match) return locale === "ko-KR" ? `${match[1]}개 선택됨` : isPtBR ? `${match[1]} selecionadas` : isPtPT ? `${match[1]} selecionadas` : `${match[1]} selected`;
+    if (match) return `${match[1]} selected`;
     match = text.match(/^(\d+)个$/);
     if (match) return `${match[1]}`;
     match = text.match(/^正在刷新\s+(\d+)%$/);
-    if (match) return locale === "ko-KR" ? `새로 고치는 중 ${match[1]}%` : isPtBR ? `Atualizando ${match[1]}%` : isPtPT ? `A atualizar ${match[1]}%` : `Refreshing ${match[1]}%`;
+    if (match) return `Refreshing ${match[1]}%`;
     match = text.match(/^游戏时间\s+(.+)$/);
-    if (match) return locale === "ko-KR" ? `게임 시간 ${match[1]}` : (isPtBR || isPtPT) ? `Tempo de jogo ${match[1]}` : `Game time ${match[1]}`;
+    if (match) return `Game time ${match[1]}`;
     match = text.match(/^未来(\d+)天\s*[·・]\s*(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `향후 ${match[1]}일 · ${match[2]}경기` : isPtBR ? `Próximos ${match[1]} dias · ${ptCount(match[2], "partida", "partidas")}` : isPtPT ? `Próximos ${match[1]} dias · ${ptCount(match[2], "jogo", "jogos")}` : `Next ${match[1]} days · ${match[2]} match${Number(match[2]) === 1 ? "" : "es"}`;
+    if (match) return `Next ${match[1]} days · ${match[2]} match${Number(match[2]) === 1 ? "" : "es"}`;
     match = text.match(/^之前\s*[·・]\s*(\d+)\s*场$/);
-    if (match) return locale === "ko-KR" ? `이전 · ${match[1]}경기` : isPtBR ? `Anteriores · ${ptCount(match[1], "partida", "partidas")}` : isPtPT ? `Anteriores · ${ptCount(match[1], "jogo", "jogos")}` : `Previous · ${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
+    if (match) return `Previous · ${match[1]} match${Number(match[1]) === 1 ? "" : "es"}`;
     match = text.match(/^已是最新\s*[·・]\s*已结算(\d+)个注单$/);
-    if (match) return locale === "ko-KR" ? `최신 상태 · 베팅 ${match[1]}건 정산됨` : isPtBR ? `Atualizado · ${ptCount(match[1], "aposta liquidada", "apostas liquidadas")}` : isPtPT ? `Atualizado · ${ptCount(match[1], "aposta liquidada", "apostas liquidadas")}` : `Up to date · ${match[1]} bet${Number(match[1]) === 1 ? "" : "s"} settled`;
+    if (match) return `Up to date · ${match[1]} bet${Number(match[1]) === 1 ? "" : "s"} settled`;
     match = text.match(/^钱包，余额\s+(.+)$/);
-    if (match) return locale === "ko-KR" ? `지갑, 잔액 ${match[1]}` : (isPtBR || isPtPT) ? `Carteira, saldo ${match[1]}` : `Wallet, balance ${match[1]}`;
+    if (match) return `Wallet, balance ${match[1]}`;
     return text;
   }
 

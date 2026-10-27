@@ -56,11 +56,31 @@ def test_wallet_update_holds_account_guard_through_write_and_projection(monkeypa
     assert state.lock.depth == 0
 
 
+@pytest.mark.parametrize("payload", [{"amount": 100_000_000_000}, {"clear": True}])
+def test_frozen_wallet_cheat_rejects_before_binding_or_writing(monkeypatch, payload):
+    state = account_state()
+    write = Mock(return_value={"balance": 100})
+    monkeypatch.setattr(web, "FROZEN", True)
+    monkeypatch.setattr(services, "cheat_balance", write)
+    monkeypatch.setattr(services, "public_economy", lambda: {})
+    with pytest.raises(web.NotFoundError):
+        state.update_cheat_balance(payload)
+    state._bind_current_save.assert_not_called()
+    write.assert_not_called()
+
+
+@pytest.mark.parametrize("frozen", [False, True])
+def test_wallet_cheat_http_route_is_available_only_in_development(monkeypatch, frozen):
+    monkeypatch.setattr(web, "FROZEN", frozen)
+    route = web.build_api_routes().resolve("POST", "/api/cheat-balance")
+    assert (route is not None) is (not frozen)
+
+
 @pytest.mark.parametrize("method,payload,target,args,kwargs,transient", [
     ("shop_purchase", {"sku": "item-a", "quantity": "2", "free_purchase": True},
-     "buy_item", ("item-a", 2), {"free": True}, ("payment",)),
+     "buy_item", ("item-a", 2), {}, ("payment",)),
     ("shop_batch_purchase", {"items": [{"sku": "item-a", "quantity": 2}]},
-     "buy_items", ([{"sku": "item-a", "quantity": 2}],), {"free": False},
+     "buy_items", ([{"sku": "item-a", "quantity": 2}],), {},
      ("payment", "purchases")),
     ("transfer_wallet", {"direction": "recharge", "amount": "25", "data_scope_id": "account-a"},
      "transfer_wallet", ("recharge", 25.0), {}, ()),
@@ -137,21 +157,6 @@ def test_wallet_response_is_tagged_with_the_account_actually_bound(monkeypatch):
     assert result["state_sync"] == {"data_version": 7, "data_scope_id": "account-wallet"}
 
 
-def test_welfare_patch_is_bound_before_http_response_finishing(monkeypatch):
-    state = account_state()
-    monkeypatch.setattr(services, "set_free_services", lambda enabled: {"enabled": enabled})
-    monkeypatch.setattr(services, "public_economy", lambda: {"casino_balance": 150})
-    response = state.update_free_services({"enabled": True})
-    # The response serializer can run after a concurrent manager/account switch.
-    state._data_scope_id = lambda output: "account-b"
-    finished = state._mutation_patch_response(response)
-    assert finished["state_sync"]["data_scope_id"] == "account-a"
-    assert finished["state_patch"] == {
-        "economy": {"casino_balance": 150}, "balance": 150.0,
-        "welfare": {"enabled": True},
-    }
-
-
 def test_storage_failure_releases_guard_without_retry_or_projection(monkeypatch):
     state = account_state()
     write = Mock(side_effect=OSError("failed account commit"))
@@ -186,12 +191,6 @@ def test_account_service_runs_with_explicit_context_without_runtime_host(monkeyp
         return {"balance": amount}
 
     monkeypatch.setattr(services, "add_wallet_funds", add)
-    monkeypatch.setattr(services, "set_free_services", lambda enabled: {"enabled": enabled})
-    monkeypatch.setattr(services, "public_economy", lambda: {"bank_balance": 100})
     service = services.AccountApplicationService(operation)
     assert service.add_funds(50) == {"balance": 50}
-    assert service.update_free_services({"enabled": True}) == {
-        "economy": {"bank_balance": 100}, "welfare": {"enabled": True},
-        "patch": {"economy": {"bank_balance": 100}, "welfare": {"enabled": True}},
-    }
-    assert events == [("enter", None), ("exit", None)] * 2
+    assert events == [("enter", None), ("exit", None)]

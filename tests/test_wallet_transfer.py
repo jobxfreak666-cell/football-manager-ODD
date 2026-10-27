@@ -72,7 +72,7 @@ class WalletTransferTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "有限数值"):
                     betting_account._round_money(value)
 
-    def test_free_purchase_flag_cannot_bypass_account_setting(self) -> None:
+    def test_shop_purchase_always_charges_after_free_shop_removal(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with (
@@ -84,15 +84,14 @@ class WalletTransferTests(unittest.TestCase):
                 betting_account.save_wallet(wallet)
 
                 with self.assertRaisesRegex(ValueError, "余额合计不足"):
-                    club_economy.buy_item("red_bull", free=True)
+                    club_economy.buy_item("red_bull")
 
                 economy = club_economy.load_economy()
-                economy["free_services"] = True
+                economy["free_services"] = True  # stale legacy key is ignored
                 club_economy.save_economy(economy)
-                result = club_economy.buy_item("red_bull", free=False)
-
-                self.assertEqual(result["payment"]["total"], 0.0)
-                self.assertEqual(len(result["inventory"]), 1)
+                with self.assertRaisesRegex(ValueError, "余额合计不足"):
+                    club_economy.buy_item("red_bull")
+                self.assertNotIn("free_services", club_economy.load_economy())
 
     def test_combined_payment_refund_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

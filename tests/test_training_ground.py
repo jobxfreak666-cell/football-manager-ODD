@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import uuid
 import threading
 import unittest
 import struct
@@ -11,7 +12,10 @@ from unittest.mock import MagicMock, patch
 
 from fm_odds_web import LocalOddsState
 from tools.app_paths import active_save_id
+from tools import account_store, betting_account, club_economy
 from tools import training_ground as training_ground_module
+from tools.betting_account import load_wallet, save_wallet
+from tools.money import to_minor, write_minor
 
 from tools.club_reader import (
     adjust_player_training_condition, develop_player,
@@ -25,8 +29,7 @@ from tools.attribute_growth_hook import (
 from tools.preferred_moves import FM24_VERIFIED_PREFERRED_MOVES
 from tools.training_ground import (
     FACILITIES,
-    TRAINING_FLOORS,
-    INDOOR_FACILITY_LIMIT,
+    COMPREHENSIVE_ROOM_SKUS,
     NO_EQUIPMENT_TRAINING_MULTIPLIER,
     OUTDOOR_SET_PIECE_AREA_ID,
     OUTDOOR_TEAM_TRAINING_AREA_ID,
@@ -54,8 +57,6 @@ from tools.training_ground import (
     estimated_training_days_to_20,
     find_training_submission,
     due_coaching_license_focuses,
-    place_facility,
-    purchase_facility,
     public_training_ground,
     rebind_training_focus_player,
     release_training_users,
@@ -64,59 +65,89 @@ from tools.training_ground import (
     record_training_focus,
     record_position_training_focus,
     rebase_attribute_training_focus,
-    store_facility,
     training_target_attribute,
     training_points_required,
     training_points_required_for_direction,
-    unlock_training_floor,
 )
+
+
+def _kept_facility(sku: str) -> dict:
+    """Write a kept (old-save) facility record; buying/placing equipment is retired."""
+    record = {"id": str(uuid.uuid4()), "sku": sku, "status": "placed"}
+    payload = training_ground_module.load_training_ground()
+    payload["facilities"].append(record)
+    training_ground_module.save_training_ground(payload)
+    return dict(record)
+
+
+def _placed(facility_id: str, *_ignored_position, **_ignored_options) -> dict:
+    """Kept records are used as-is; coordinates and floors are ignored."""
+    payload = training_ground_module.load_training_ground()
+    return dict(next(row for row in payload["facilities"] if row["id"] == facility_id))
 
 
 class TrainingGroundTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
-        self.path = Path(self.temporary.name) / "training_ground.json"
-        self.path_patch = patch("tools.training_ground.training_ground_path", return_value=self.path)
+        self.root = Path(self.temporary.name)
+        self.path = self.root / "training_ground.json"
+        self.account_path = self.root / "save.fmodd"
+        self.path_patch = patch(
+            "tools.training_ground.training_ground_path", return_value=self.path,
+        )
         self.path_patch.start()
+        self.storage_patches = [
+            patch.object(
+                account_store, "account_save_path",
+                return_value=self.account_path,
+            ),
+            patch.object(account_store, "save_data_root", return_value=self.root),
+            patch("tools.club_economy.save_data_root", return_value=self.root),
+            patch("tools.betting_account.save_data_root", return_value=self.root),
+        ]
+        for storage_patch in self.storage_patches:
+            storage_patch.start()
+        wallet = load_wallet()
+        write_minor(wallet, "balance", to_minor(100_000_000))
+        save_wallet(wallet)
 
     def tearDown(self) -> None:
+        for storage_patch in reversed(self.storage_patches):
+            storage_patch.stop()
         self.path_patch.stop()
         self.temporary.cleanup()
 
     @staticmethod
     def _purchase_existing_hidden_facility(sku: str) -> dict:
-        with patch.dict(FACILITIES[sku], {"available": True}):
-            return purchase_facility(sku)
+        return _kept_facility(sku)
 
-    def test_purchase_place_store_round_trip(self) -> None:
-        facility = purchase_facility("treadmill")
-        self.assertEqual(facility["status"], "stored")
-        placed = place_facility(facility["id"], "indoor", 35, 45, 1)
-        self.assertEqual((placed["status"], placed["rotation"]), ("placed", 1))
-        stored = store_facility(facility["id"])
-        self.assertEqual(stored["status"], "stored")
-        self.assertEqual(
-            {row["sku"] for row in public_training_ground()["facilities"]},
-            {
-                "treadmill", "set_piece_area", "team_training_area",
-                "goalkeeper_training_area", "passing_training_area",
-                "position_training_area",
-            },
-        )
-
-    def test_new_training_floors_are_locked_until_purchased(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertEqual(floors["outdoor"]["name"], "1号室外")
-        self.assertEqual(floors["outdoor_2"]["name"], "2号室外")
-        for scene in ("indoor_3f", "indoor_4f", "indoor_5f"):
-            self.assertFalse(floors[scene]["unlocked"])
-            self.assertEqual(TRAINING_FLOORS[scene]["price"], 5_000_000.0)
-        facility = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "请先解锁"):
-            place_facility(facility["id"], "indoor_3f", 50, 50)
-        unlock_training_floor("indoor_3f")
-        placed = place_facility(facility["id"], "indoor_3f", 50, 50)
-        self.assertEqual(placed["scene"], "indoor_3f")
+    def test_kept_facility_records_ignore_old_floor_and_coordinates(self) -> None:
+        payload = training_ground_module.load_training_ground()
+        payload["unlocked_floors"] = ["indoor_3f", "relationship_8f"]
+        payload["facilities"].append({
+            "id": "old-desk", "sku": "rules_learning_desk", "scene": "comprehensive_7f",
+            "status": "placed", "x": 10.0, "y": 20.0, "rotation": 1, "scale": 1.5,
+        })
+        training_ground_module.save_training_ground(payload)
+        loaded = training_ground_module.load_training_ground()
+        self.assertNotIn("unlocked_floors", loaded)
+        desk = next(row for row in loaded["facilities"] if row["id"] == "old-desk")
+        # The kept record is not migrated between floors any more.
+        self.assertEqual(desk["scene"], "comprehensive_7f")
+        public = public_training_ground()
+        self.assertNotIn("floors", public)
+        for row in public["catalog"]:
+            self.assertNotIn("scene", row)
+        for row in public["facilities"]:
+            if row.get("built_in"):
+                self.assertNotIn("scene", row)
+        for name in (
+            "TRAINING_FLOORS", "INDOOR_FACILITY_LIMIT", "TRAINING_FLOOR_UNLOCK_PRICE",
+            "unlock_training_floor", "assert_training_floor_unlocked",
+            "training_floor_status", "place_facility", "store_facility",
+            "purchase_facility", "_scene_accepts_product",
+        ):
+            self.assertFalse(hasattr(training_ground_module, name), name)
 
     def test_public_training_ground_reuses_one_storage_and_settings_snapshot(self) -> None:
         original_load = training_ground_module.load_training_ground
@@ -131,17 +162,9 @@ class TrainingGroundTests(unittest.TestCase):
         ):
             payload = public_training_ground("2026-07-19")
 
-        self.assertTrue(payload["floors"])
+        self.assertTrue(payload["catalog"])
         load_training.assert_called_once_with()
         load_training_settings.assert_called_once_with()
-
-    def test_coaching_office_moves_to_sixth_floor_with_legacy_alias(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        placed = place_facility(desk["id"], "office_6f", 50, 50)
-        self.assertEqual(placed["scene"], "office_6f")
-        stored = store_facility(desk["id"])
-        legacy = place_facility(stored["id"], "office_3f", 50, 50)
-        self.assertEqual(legacy["scene"], "office_3f")
 
     def test_wallet_only_connection_keeps_account_training_facilities_visible(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "src").joinpath(
@@ -158,61 +181,36 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertIn("if has_verified_save:", block)
         self.assertNotIn("clear_training_ground()", block)
 
-    def test_training_purchase_ignores_forged_free_request_flag(self) -> None:
+    def test_legacy_equipment_routes_are_retired_without_side_effects(self) -> None:
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.output = {"game_date": "2030-01-01"}
         state._bind_current_save = MagicMock(return_value="save-a")
-        payment = {
-            "bank": 3_000_000.0, "wallet": 0.0, "total": 3_000_000.0,
-            "transaction_id": "payment-1",
-        }
-        with (
-            patch("fm_odds_web.free_services_enabled", return_value=False),
-            patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-            patch("fm_odds_web.purchase_facility", return_value={"id": "facility-1"}),
-            patch("fm_odds_web.public_training_ground", return_value={}),
-            patch("fm_odds_web.public_economy", return_value={}),
-        ):
-            result = state.training_purchase({
-                "sku": "treadmill", "free_purchase": True,
-            })
-
-        charge.assert_called_once_with(
-            800_000.0, "training_facility_purchase", sku="treadmill",
-        )
-        self.assertEqual(result["payment"], payment)
-
-    def test_training_floor_purchase_uses_five_million_price(self) -> None:
-        state = LocalOddsState.__new__(LocalOddsState)
-        state.lock = threading.RLock()
-        state.output = {"game_date": "2030-01-01"}
-        state._bind_current_save = MagicMock(return_value="save-a")
-        payment = {
-            "bank": 5_000_000.0, "wallet": 0.0, "total": 5_000_000.0,
-            "transaction_id": "payment-floor-1",
-        }
-        with (
-            patch("fm_odds_web.free_services_enabled", return_value=False),
-            patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-            patch("fm_odds_web.unlock_training_floor", return_value={"scene": "indoor_3f", "unlocked": True}),
-            patch("fm_odds_web.public_training_ground", return_value={}),
-            patch("fm_odds_web.public_economy", return_value={}),
-        ):
-            result = state.training_floor_purchase({"scene": "indoor_3f"})
-
-        charge.assert_called_once_with(
-            5_000_000.0, "training_floor_purchase", scene="indoor_3f",
-        )
-        self.assertEqual(result["payment"], payment)
+        with patch("fm_odds_web.charge_combined_funds") as charge:
+            for handler, payload in (
+                (state.training_purchase, {"sku": "treadmill"}),
+                (state.training_floor_purchase, {"scene": "indoor_3f"}),
+                (state.training_place, {"facility_id": "facility-1"}),
+                (state.training_store, {"facility_id": "facility-1"}),
+                (state.training_sell, {"facility_id": "facility-1"}),
+            ):
+                with self.assertRaisesRegex(ValueError, "不再支持"):
+                    handler(payload)
+        charge.assert_not_called()
 
     def test_training_run_schedules_coaching_license_course(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 679, "name": "曼城", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state.club_profile = None
         state.club_profiles = {
             679: {
@@ -243,8 +241,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(result["staff"]["target_license_code"], 1)
 
     def test_training_run_schedules_player_manager_coaching_course(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
@@ -285,7 +283,13 @@ class TrainingGroundTests(unittest.TestCase):
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.status.return_value = {"installed": False}
@@ -324,11 +328,17 @@ class TrainingGroundTests(unittest.TestCase):
         )
         self.assertFalse(result["player"]["ca_affected"])
 
-    def test_training_run_schedules_maxed_position_as_no_change_focus(self) -> None:
+    def test_training_run_rejects_maxed_position_without_charge(self) -> None:
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.status.return_value = {"installed": False}
@@ -343,6 +353,7 @@ class TrainingGroundTests(unittest.TestCase):
         state._live_player_effect_target = MagicMock(return_value=SimpleNamespace(
             profile=profile, player=player, address="0x1000",
         ))
+        wallet_before = to_minor(load_wallet()["balance"])
 
         with (
             patch(
@@ -351,26 +362,30 @@ class TrainingGroundTests(unittest.TestCase):
             ),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
-            result = state.training_run({
-                "facility_id": POSITION_TRAINING_AREA_ID,
-                "player_id": 10, "team_id": 1, "operation": "position",
-                "position_key": "ST", "duration_mode": "until_20",
-                "client_submission_id": "position-maxed-a",
-            })
+            with self.assertRaisesRegex(ValueError, "已经达到20"):
+                state.training_run({
+                    "project_sku": "position_training_area",
+                    "player_id": 10, "team_id": 1, "operation": "position",
+                    "position_key": "ST", "duration_mode": "until_20",
+                    "client_submission_id": "position-maxed-a",
+                })
 
-        self.assertFalse(result["duplicate"])
-        self.assertTrue(result["focus"]["no_change"])
-        self.assertEqual(result["focus"]["target_position"], 20)
-        self.assertEqual(result["focus"]["required_points"], 0)
-        self.assertFalse(result["player"]["ca_affected"])
+        self.assertEqual(to_minor(load_wallet()["balance"]), wallet_before)
+        self.assertEqual(active_training_focuses("2026-01-01"), [])
 
     def test_training_run_schedules_hidden_attribute_without_ca_estimate(self) -> None:
-        desk = purchase_facility("adaptation_pod")
-        place_facility(desk["id"], "comprehensive_7f", 50, 50)
+        desk = _kept_facility("adaptation_pod")
+        _placed(desk["id"], "comprehensive_7f", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.sync.return_value = {"installed": False}
@@ -398,6 +413,7 @@ class TrainingGroundTests(unittest.TestCase):
                 "team_id": 1, "operation": "attribute",
                 "attribute_key": "隐藏:适应性", "duration_mode": "until_10",
                 "direction": -1,
+                "client_submission_id": "hidden-attribute-a",
             })
 
         estimate_ca.assert_not_called()
@@ -408,12 +424,18 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual((player["ca"], player["pa"]), (100, 120))
 
     def test_football_launcher_stop_ball_accepts_outfield_and_goalkeepers(self) -> None:
-        launcher = purchase_facility("handling_net")
-        place_facility(launcher["id"], "outdoor", 50, 50)
+        launcher = _kept_facility("handling_net")
+        _placed(launcher["id"], "outdoor", 50, 50)
         state = LocalOddsState.__new__(LocalOddsState)
         state.lock = threading.RLock()
         state.memory_lock = threading.Lock()
-        state.output = {"game_date": "2026-01-01"}
+        state.output = {
+            "game_date": "2026-01-01", "save_instance_id": "save-a",
+            "managed_teams": [{
+                "id": 1, "name": "测试队", "address": "0xteam",
+                "team_type": "club",
+            }],
+        }
         state._bind_current_save = MagicMock(return_value="save-a")
         state.attribute_growth_hook = MagicMock()
         state.attribute_growth_hook.sync.return_value = {"installed": False}
@@ -507,14 +529,6 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertTrue(all(item["session_fee"] == 0.0 for item in FACILITIES.values()))
         self.assertEqual(FACILITIES["strength_rack"]["attributes"], ["身体:强壮"])
 
-    def test_duplicate_purchase_and_overlap_are_allowed(self) -> None:
-        first = purchase_facility("treadmill")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("treadmill")
-        self.assertNotEqual(first["id"], second["id"])
-        placed = place_facility(second["id"], "indoor", 40, 50)
-        self.assertEqual((placed["x"], placed["y"]), (40.0, 50.0))
-
     def test_hidden_attribute_facilities_are_single_user_two_speed_devices(self) -> None:
         expected = {
             "adaptation_pod": ("适应模拟舱", ["隐藏:适应性", "隐藏:多面性"], 1),
@@ -524,10 +538,6 @@ class TrainingGroundTests(unittest.TestCase):
             "brainwave_chair": ("脑波座椅", ["隐藏:情绪控制", "隐藏:稳定性"], 1),
             "rules_learning_desk": ("规则学习桌", ["隐藏:争议性", "隐藏:肮脏动作"], -1),
         }
-        expected_scenes = {
-            sku: "comprehensive_7f" for sku in expected
-        }
-        expected_scenes["rules_learning_desk"] = "office_6f"
         expected_sizes = {
             "club_culture_screen": [18.2, 16.8],
             "decisive_match_console": [19.2, 20],
@@ -541,7 +551,8 @@ class TrainingGroundTests(unittest.TestCase):
             self.assertEqual(product["direction"], direction)
             self.assertEqual(product["capacity"], 1)
             self.assertEqual(product["training_multiplier"], 2)
-            self.assertEqual(product["scene"], expected_scenes[sku])
+            self.assertNotIn("scene", product)
+            self.assertEqual(sku in COMPREHENSIVE_ROOM_SKUS, sku != "rules_learning_desk")
             if sku in expected_sizes:
                 self.assertEqual(product["size"], expected_sizes[sku])
             self.assertTrue(((Path(__file__).resolve().parents[1] / "src") / "web" / "assets" / "training" / f"{sku}.webp").is_file())
@@ -558,10 +569,7 @@ class TrainingGroundTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "低于当前属性"):
             training_target_attribute("until_10", 8, -1)
 
-        facility = purchase_facility("rules_learning_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(facility["id"], "comprehensive_7f", 45, 50)
-        place_facility(facility["id"], "office_6f", 45, 50)
+        facility = _kept_facility("rules_learning_desk")
         focus, _session = record_training_focus(
             facility["id"], 10, "A", "2026-07-20",
             "隐藏:争议性", None, "until_10", 15,
@@ -571,7 +579,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(focus["required_points"], 14)
         self.assertEqual(focus["multiplier"], 2)
         self.assertEqual(focus["facility_name"], "规则学习桌")
-        self.assertEqual(focus["floor"], "6F")
+        self.assertNotIn("floor", focus)
+        self.assertNotIn("scene", focus)
         self.assertEqual(focus["training_content"], "隐藏:争议性")
         advance_training_focuses("2026-07-21")
         active = active_training_focuses("2026-07-21")[0]
@@ -594,15 +603,16 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(rebased["target_attribute"], 10)
 
     def test_removed_placeholder_facilities_are_not_obtainable(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertTrue(floors["comprehensive_7f"]["unlocked"])
+        payload = training_ground_module.load_training_ground()
         for sku in (
             "passing_wall", "mind_room", "mentoring_room", "tactical_room",
             "video_analysis_room", "sports_science_room",
         ):
             self.assertNotIn(sku, FACILITIES)
-            with self.assertRaisesRegex(ValueError, "训练器材不存在"):
-                purchase_facility(sku)
+            with self.assertRaisesRegex(ValueError, "训练项目不存在"):
+                training_ground_module.training_project_for_request(
+                    payload, project_sku=sku,
+                )
 
     def test_training_catalog_keeps_outfield_coverage_without_placeholders(self) -> None:
         open_attributes = {
@@ -621,25 +631,9 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertNotIn("defence_zone", FACILITIES)
         self.assertNotIn("goalkeeper_rig", FACILITIES)
 
-    def test_scale_is_persisted_without_collision_bounds(self) -> None:
-        first = purchase_facility("treadmill")
-        placed = place_facility(first["id"], "indoor", 35, 50, scale=1.65)
-        self.assertEqual(placed["scale"], 1.65)
-        second = purchase_facility("strength_rack")
-        place_facility(second["id"], "indoor", 35, 50, scale=1.5)
-        with self.assertRaisesRegex(ValueError, "50%至200%"):
-            place_facility(second["id"], "indoor", 70, 50, scale=2.1)
-
-    def test_visual_size_does_not_inflate_custom_footprint(self) -> None:
-        first = purchase_facility("tactics_table")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("tactics_table")
-        placed = place_facility(second["id"], "indoor", 50, 50)
-        self.assertEqual(placed["status"], "placed")
-
     def test_facility_capacity_is_enforced_per_instance(self) -> None:
-        strength = purchase_facility("strength_rack")
-        place_facility(strength["id"], "indoor", 45, 50)
+        strength = _kept_facility("strength_rack")
+        _placed(strength["id"], "indoor", 45, 50)
         for player_id in (10, 11):
             assert_training_available(strength["id"], player_id, "2026-07-19")
             record_training_focus(
@@ -648,8 +642,6 @@ class TrainingGroundTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "使用人数已满"):
             assert_training_available(strength["id"], 12, "2026-07-19")
-        with self.assertRaisesRegex(ValueError, "不能收回"):
-            store_facility(strength["id"])
 
     def test_configured_capacities_match_training_catalog(self) -> None:
         self.assertEqual(FACILITIES["coaching_desk"]["capacity"], 1)
@@ -692,17 +684,12 @@ class TrainingGroundTests(unittest.TestCase):
 
     def test_outdoor_catalog_adds_builtin_set_piece_area_without_selling_it(self) -> None:
         catalog = public_training_ground()["catalog"]
-        purchasable = {
-            item["sku"] for item in catalog
-            if item["scene"] == "outdoor"
-            and item.get("available", True)
-            and not item.get("built_in")
-        }
+        built_in = {item["sku"] for item in catalog if item.get("built_in")}
         self.assertEqual(
-            purchasable,
+            built_in,
             {
-                "shooting_goal", "dribble_course", "tackle_gate",
-                "marking_track", "high_ball_frame", "handling_net",
+                "set_piece_area", "team_training_area", "goalkeeper_training_area",
+                "passing_training_area", "position_training_area",
             },
         )
         area = next(row for row in public_training_ground()["facilities"] if row["sku"] == "set_piece_area")
@@ -711,14 +698,6 @@ class TrainingGroundTests(unittest.TestCase):
         team_area = next(row for row in public_training_ground()["facilities"] if row["sku"] == "team_training_area")
         self.assertEqual(team_area["id"], OUTDOOR_TEAM_TRAINING_AREA_ID)
         self.assertTrue(team_area["built_in"])
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("set_piece_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("team_training_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("goalkeeper_training_area")
-        with self.assertRaisesRegex(ValueError, "无需购买"):
-            purchase_facility("passing_training_area")
     def test_new_specialist_equipment_has_unique_small_attribute_sets(self) -> None:
         specialist = {
             "tackle_gate", "marking_track", "high_ball_frame",
@@ -740,8 +719,6 @@ class TrainingGroundTests(unittest.TestCase):
         ):
             self.assertNotIn(sku, FACILITIES)
             self.assertIn(sku, training_ground_module.REMOVED_FACILITY_SKUS)
-            with self.assertRaisesRegex(ValueError, "训练器材不存在"):
-                purchase_facility(sku)
 
     def test_new_outdoor_equipment_uses_requested_default_sizes(self) -> None:
         self.assertEqual(FACILITIES["high_ball_frame"]["size"], [15.6, 14.3])
@@ -750,27 +727,17 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(FACILITIES["handling_net"]["size"], [11.55, 11.55])
         self.assertNotIn("通过连续", FACILITIES["handling_net"]["description"])
 
-    def test_outdoor_two_has_its_own_builtin_areas_and_accepts_outdoor_equipment(self) -> None:
-        floors = {row["scene"]: row for row in public_training_ground()["floors"]}
-        self.assertTrue(floors["outdoor"]["unlocked"])
-        self.assertTrue(floors["outdoor_2"]["unlocked"])
-        outdoor_two = {
+    def test_outdoor_two_keeps_its_builtin_area_ids_without_scenes(self) -> None:
+        facilities = {
             row["id"]: row for row in public_training_ground()["facilities"]
-            if row["scene"] == "outdoor_2"
+            if row.get("built_in")
         }
-        self.assertEqual(outdoor_two[OUTDOOR_2_SET_PIECE_AREA_ID]["sku"], "set_piece_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_TEAM_TRAINING_AREA_ID]["sku"], "team_training_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
-        self.assertEqual(outdoor_two[OUTDOOR_2_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
-        outdoor_one = {
-            row["id"]: row for row in public_training_ground()["facilities"]
-            if row["scene"] == "outdoor"
-        }
-        self.assertEqual(outdoor_one[OUTDOOR_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
-        self.assertEqual(outdoor_one[OUTDOOR_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
-        facility = purchase_facility("tackle_gate")
-        placed = place_facility(facility["id"], "outdoor_2", 50, 50)
-        self.assertEqual(placed["scene"], "outdoor_2")
+        self.assertEqual(facilities[OUTDOOR_2_SET_PIECE_AREA_ID]["sku"], "set_piece_area")
+        self.assertEqual(facilities[OUTDOOR_2_TEAM_TRAINING_AREA_ID]["sku"], "team_training_area")
+        self.assertEqual(facilities[OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
+        self.assertEqual(facilities[OUTDOOR_2_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
+        self.assertEqual(facilities[OUTDOOR_GOALKEEPER_TRAINING_AREA_ID]["sku"], "goalkeeper_training_area")
+        self.assertEqual(facilities[OUTDOOR_PASSING_TRAINING_AREA_ID]["sku"], "passing_training_area")
 
     def test_outdoor_builtin_goalkeeper_and_passing_areas_own_their_attributes(self) -> None:
         self.assertEqual(
@@ -902,7 +869,7 @@ class TrainingGroundTests(unittest.TestCase):
         public = public_training_ground("2026-07-19")["focuses"][0]
         self.assertEqual(public["estimated_days"], 68)
 
-    def test_maxed_position_training_stays_active_without_changes(self) -> None:
+    def test_maxed_position_legacy_focus_is_due_and_completes(self) -> None:
         self.assertEqual(position_training_points_required(20), 0)
         self.assertEqual(
             training_ground_module.estimated_position_training_days_to_target(20, 20),
@@ -916,10 +883,16 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertTrue(focus["no_change"])
         self.assertEqual(focus["target_position"], 20)
         self.assertEqual(focus["required_points"], 0)
-        self.assertEqual(focus["progress_points"], 0)
-        self.assertEqual(advance_training_focuses("2027-07-19"), [])
+        due = advance_training_focuses("2027-07-19")
+        self.assertEqual([row["id"] for row in due], [focus["id"]])
+        settled = complete_position_training_focus(
+            focus["id"], "2027-07-19",
+            {"position_after": 20, "already_satisfied": True},
+        )
+        self.assertEqual(settled["status"], "completed")
+        self.assertEqual(active_training_focuses("2027-07-19"), [])
         public = public_training_ground("2027-07-19")["focuses"][0]
-        self.assertEqual(public["status"], "active")
+        self.assertEqual(public["status"], "completed")
         self.assertEqual(public["estimated_days"], 0)
 
     def test_position_training_writer_changes_only_selected_position_byte(self) -> None:
@@ -982,50 +955,19 @@ class TrainingGroundTests(unittest.TestCase):
             self.assertEqual(rows[facility_id]["estimated_days"], 4)
             self.assertEqual(rows[facility_id]["multiplier"], 2)
 
-    def test_indoor_facilities_can_be_placed_on_independent_second_floor(self) -> None:
-        first = purchase_facility("treadmill")
-        place_facility(first["id"], "indoor", 40, 50)
-        second = purchase_facility("treadmill")
-        placed = place_facility(second["id"], "indoor_2f", 40, 50)
-        self.assertEqual(placed["scene"], "indoor_2f")
-        goal = purchase_facility("shooting_goal")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(goal["id"], "indoor_2f", 60, 50)
-
-    def test_coaching_desk_is_isolated_to_third_floor_office(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_3f", 50, 50)
-        self.assertEqual(placed["scene"], "office_3f")
-        treadmill = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(treadmill["id"], "office_3f", 50, 50)
-
     def test_leadership_desk_is_single_person_office_equipment(self) -> None:
         self.assertEqual(FACILITIES["leadership_desk"]["name"], "领导力训练桌")
-        desk = purchase_facility("leadership_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_3f", 50, 50)
-        self.assertEqual(placed["scene"], "office_3f")
         self.assertEqual(FACILITIES["leadership_desk"]["capacity"], 1)
 
     def test_defence_learning_desk_is_single_person_office_equipment(self) -> None:
         product = FACILITIES["defence_learning_desk"]
         self.assertEqual(product["name"], "防守学习桌")
-        self.assertEqual(product["scene"], "office_6f")
         self.assertEqual(product["capacity"], 1)
         self.assertEqual(product["attributes"], ["门将:指挥防守", "门将:拳击球(倾向)"])
-        desk = purchase_facility("defence_learning_desk")
-        with self.assertRaisesRegex(ValueError, "不能放置"):
-            place_facility(desk["id"], "indoor", 50, 50)
-        placed = place_facility(desk["id"], "office_6f", 50, 50)
-        self.assertEqual(placed["scene"], "office_6f")
 
     def test_coaching_license_course_progresses_and_completes(self) -> None:
-        desk = purchase_facility("coaching_desk")
-        place_facility(desk["id"], "office_3f", 50, 50)
+        desk = _kept_facility("coaching_desk")
+        _placed(desk["id"], "office_3f", 50, 50)
         focus, session = record_coaching_license_focus(
             desk["id"], 88, "测试教练", "教练", "0x1234",
             679, "曼城", "2026-01-01", 2, 1,
@@ -1034,7 +976,7 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(focus["due_on"], "2026-06-30")
         self.assertEqual(session["operation"], "coaching_license")
         self.assertEqual(focus["facility_name"], "教练学习桌")
-        self.assertEqual(focus["floor"], "3F")
+        self.assertNotIn("floor", focus)
         self.assertEqual(focus["training_content"], "教练证书进修")
         self.assertEqual(due_coaching_license_focuses("2026-06-29"), [])
         self.assertEqual(
@@ -1048,10 +990,10 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(completed["memory_result"]["after"], 1)
 
     def test_coach_cannot_use_two_learning_desks_at_once(self) -> None:
-        first = purchase_facility("coaching_desk")
-        second = purchase_facility("coaching_desk")
-        place_facility(first["id"], "office_3f", 35, 50)
-        place_facility(second["id"], "office_3f", 65, 50)
+        first = _kept_facility("coaching_desk")
+        second = _kept_facility("coaching_desk")
+        _placed(first["id"], "office_3f", 35, 50)
+        _placed(second["id"], "office_3f", 65, 50)
         record_coaching_license_focus(
             first["id"], 88, "测试教练", "教练", "0x1234",
             679, "曼城", "2026-01-01", 3, 2,
@@ -1062,28 +1004,9 @@ class TrainingGroundTests(unittest.TestCase):
                 679, "曼城", "2026-01-02", 3, 2,
             )
 
-    def test_each_indoor_floor_is_limited_to_fifteen_facilities(self) -> None:
-        for _index in range(INDOOR_FACILITY_LIMIT):
-            facility = purchase_facility("treadmill")
-            place_facility(facility["id"], "indoor", 40, 50)
-        overflow = purchase_facility("treadmill")
-        with self.assertRaisesRegex(ValueError, "每层最多放置15个"):
-            place_facility(overflow["id"], "indoor", 40, 50)
-        place_facility(overflow["id"], "indoor_2f", 40, 50)
-
-    def test_outdoor_has_no_facility_limit(self) -> None:
-        for _index in range(INDOOR_FACILITY_LIMIT + 1):
-            facility = purchase_facility("shooting_goal")
-            place_facility(facility["id"], "outdoor", 50, 50)
-        purchased = [
-            row for row in public_training_ground()["facilities"]
-            if row["sku"] == "shooting_goal"
-        ]
-        self.assertEqual(len(purchased), INDOOR_FACILITY_LIMIT + 1)
-
     def test_clear_training_ground_removes_facilities_people_and_records(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1113,8 +1036,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(public["sessions"], [])
 
     def test_releasing_training_users_preserves_facilities_and_sessions(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1136,8 +1059,8 @@ class TrainingGroundTests(unittest.TestCase):
         assert_training_available(facility["id"], 11, "2026-07-20")
 
     def test_releasing_training_users_save_failure_keeps_original_state(self) -> None:
-        facility = purchase_facility("treadmill")
-        place_facility(facility["id"], "indoor", 35, 50)
+        facility = _kept_facility("treadmill")
+        _placed(facility["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             facility["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1169,8 +1092,8 @@ class TrainingGroundTests(unittest.TestCase):
             training_points_required(20)
 
     def test_training_focus_accumulates_three_points_per_game_day(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -1187,9 +1110,29 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(due[0]["id"], focus["id"])
         self.assertEqual(due[0]["progress_points"], 14)
 
+    def test_equipment_settles_exactly_on_the_displayed_day(self) -> None:
+        # Already true before team training changes: settlement is driven by
+        # game-date catch-up in training_ground, with no FROZEN gate.
+        import inspect
+        import tools.training_ground as ground_module
+        self.assertNotIn("FROZEN", inspect.getsource(ground_module))
+        treadmill = _kept_facility("treadmill")
+        focus, _session = record_training_focus(
+            treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
+            "until_increase", 10,
+        )
+        shown = public_training_ground("2026-07-19")["focuses"][0]["estimated_days"]
+        self.assertEqual(shown, 5)
+        self.assertEqual(advance_training_focuses("2026-07-23"), [])
+        self.assertEqual(advance_training_focuses("2026-07-24")[0]["id"], focus["id"])
+        # A repeated or very late advance reports it due again but never
+        # over-credits: progress is capped at the requirement.
+        late = advance_training_focuses("2026-09-30")
+        self.assertEqual(late[0]["progress_points"], late[0]["required_points"])
+
     def test_training_submission_id_is_persisted_for_safe_retry(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10, client_submission_id="training-request-1",
@@ -1204,8 +1147,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertIsNone(find_training_submission("missing-request"))
 
     def test_training_focus_persists_managed_team_and_player_identity(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
 
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
@@ -1972,8 +1915,8 @@ class TrainingGroundTests(unittest.TestCase):
         )
 
     def test_until_next_point_natural_growth_completes(self) -> None:
-        until = purchase_facility("reaction_wall")
-        place_facility(until["id"], "indoor", 70, 55)
+        until = _kept_facility("reaction_wall")
+        _placed(until["id"], "indoor", 70, 55)
         until_focus, _session = record_training_focus(
             until["id"], 11, "B", "2026-07-20", "精神:预判", 0x20,
             "until_increase", 12,
@@ -1989,8 +1932,8 @@ class TrainingGroundTests(unittest.TestCase):
         ))
 
     def test_attribute_focus_rebases_after_external_drop(self) -> None:
-        facility = purchase_facility("reaction_wall")
-        place_facility(facility["id"], "indoor", 70, 55)
+        facility = _kept_facility("reaction_wall")
+        _placed(facility["id"], "indoor", 70, 55)
         focus, _session = record_training_focus(
             facility["id"], 11, "B", "2026-07-20", "精神:预判", 0x20,
             "until_increase", 12,
@@ -2001,8 +1944,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(rebased["rebased_from_attribute"], 12)
 
     def test_until_20_recalculates_each_stage_and_completes_at_20(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor_2f", 55, 55)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor_2f", 55, 55)
         focus, _session = record_training_focus(
             treadmill["id"], 12, "C", "2026-07-20", "身体:速度", 0x35,
             "until_20", 17,
@@ -2033,8 +1976,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(active_training_focuses("2027-08-14"), [])
 
     def test_fixed_even_target_recalculates_stages_and_stops_at_target(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 55, 55)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 55, 55)
         focus, _session = record_training_focus(
             treadmill["id"], 12, "C", "2026-07-20", "身体:速度", 0x35,
             "until_18", 15,
@@ -2063,8 +2006,8 @@ class TrainingGroundTests(unittest.TestCase):
             training_target_attribute("until_16", 16)
 
     def test_habit_training_waits_one_week_before_completion(self) -> None:
-        machine = purchase_facility("habit_lab")
-        place_facility(machine["id"], "indoor", 35, 50)
+        machine = _kept_facility("habit_lab")
+        _placed(machine["id"], "indoor", 35, 50)
         focus, session = record_habit_training_focus(
             machine["id"], 10, "A", "2026-07-19", 13, "喜欢反越位", "learn",
         )
@@ -2086,8 +2029,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(public_training_ground("2026-07-26")["sessions"][0]["id"], session["id"])
 
     def test_public_focus_contains_usage_days(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2099,8 +2042,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual(row["estimated_days"], 0)
 
     def test_cancel_training_focus_releases_user_and_keeps_history(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2150,8 +2093,8 @@ class TrainingGroundTests(unittest.TestCase):
             )
 
     def test_training_focus_persists_ca_over_pa_confirmation(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_20", 17, allow_ca_over_pa=True,
@@ -2338,8 +2281,8 @@ class TrainingGroundTests(unittest.TestCase):
         self.assertEqual((ca, pa), (123, 150))
 
     def test_completed_focus_does_not_persist_rollback_bytes(self) -> None:
-        treadmill = purchase_facility("treadmill")
-        place_facility(treadmill["id"], "indoor", 35, 50)
+        treadmill = _kept_facility("treadmill")
+        _placed(treadmill["id"], "indoor", 35, 50)
         focus, _session = record_training_focus(
             treadmill["id"], 10, "A", "2026-07-19", "身体:速度", 0x35,
             "until_increase", 10,
@@ -2389,7 +2332,9 @@ class TrainingGroundTests(unittest.TestCase):
                 action = (
                     "改变"
                     if item.get("attribute_kind") == "hidden"
-                    and item.get("scene") == "comprehensive_7f"
+                    and item["name"] in {
+                        FACILITIES[sku]["name"] for sku in COMPREHENSIVE_ROOM_SKUS
+                    }
                     else ("降低" if int(item.get("direction") or 1) < 0 else "提升")
                 )
                 numeral = {2: "二", 3: "三", 4: "四"}.get(
@@ -2398,260 +2343,167 @@ class TrainingGroundTests(unittest.TestCase):
                 expected = f"{numeral}倍速{action}"
                 self.assertIn(expected, item["description"])
 
-    def test_right_dock_has_capacity_people_and_inline_submission(self) -> None:
+
+    def test_training_workspace_keeps_three_modules_person_detail_and_guards(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         page = (root / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('class="training-capacity-badge"', script)
-        self.assertIn('class="training-available-title"', script)
-        self.assertIn('class="training-member-list"', script)
-        self.assertIn('class="training-available-attributes"', script)
-        self.assertIn('class="training-cancel-use"', script)
-        self.assertIn('data-lucide="x"', script)
-        self.assertIn('request("/api/training/cancel"', script)
-        self.assertIn('"三倍速"', script)
-        self.assertIn('"训练点已满，正在结算"', script)
-        self.assertNotIn("训练点已满，等待结算", script)
-        self.assertIn('data-training-repeat=', script)
-        self.assertIn('<span>再来一次</span>', script)
-        self.assertIn('app.trainingRepeatTarget=attributeKey;', script)
-        self.assertIn('function reloadTrainingSettlementPlayers()', script)
-        self.assertIn('request("/api/training/settle"', script)
-        self.assertIn('await ensureTrainingRosterLoaded(true, forceRoster);', script)
-        self.assertIn('payload.team_id = Number(selectedPlayer?.training_team_id || 0);', script)
-        self.assertIn('const needsFormulaSnapshots = !requiresStaff && product.attribute_kind !== "hidden";', script)
-        self.assertIn('? ensurePlayerDevelopmentRosterLoaded()', script)
-        self.assertIn('durationSelect.innerHTML = `<option value="${escapeHtml(active.duration_mode || "until_increase")}">${durationLabel}</option>`;', script)
-        self.assertIn('player.training_team_type === "national"', script)
-        self.assertIn('const settlingFocusIds = (data.focuses || [])', script)
-        self.assertIn('Date.now() - app.trainingSettlementReloadAt > 30000', script)
-        self.assertIn('settleTrainingProgress({forceRoster:true,notify:true})', script)
+        for module in ("player_training", "position_training", "staff_training"):
+            self.assertIn(f'key:"{module}"', script)
+        self.assertIn('id="training-module-tabs"', page)
+        self.assertIn('id="training-roster"', page)
+        self.assertIn('id="training-dock-content"', page)
+        self.assertIn('id="training-balance"', page)
         self.assertIn('id="training-settle-button"', page)
-        self.assertIn('.training-settle-button', styles)
-        self.assertIn('habit ? `<option value="week">一周</option>`', script)
-        self.assertIn('const TRAINING_FIXED_TARGETS = [14,16,18,20];', script)
-        self.assertIn('mode:`until_${target}`,target,label:uiText("training.until_value", {target})', script)
-        self.assertIn('label:direction < 0 ? "降低下一点" : "直到下一点"', script)
-        self.assertNotIn('不影响 CA', script)
-        self.assertIn('return `<option value="${mode}">${label}（${detail}）</option>`;', script)
-        self.assertIn('id="training-inline-direction"', script)
-        self.assertIn('<option value="1"', script)
-        self.assertIn('<option value="-1"', script)
-        self.assertIn('payload.direction = Number(form.querySelector("#training-inline-direction").value)', script)
-        for attribute_key in (
-            "精神:侵略性", "精神:意志力", "精神:才华", "身体:体质",
-            "门将:出击(倾向)", "门将:拳击球(倾向)",
+        self.assertNotIn("data-training-scene=", page)
+        self.assertNotIn("data-training-dock=", page)
+        for legacy in (
+            "training-edit-toggle", "training-rotate", "training-store-selected",
+            "training-selection", "training-floor-lock",
         ):
-            self.assertIn(f'  "{attribute_key}",', script)
-        self.assertIn('function trainingAttributeAffectsCa(attributeKey, product = {}, caCosts = {})', script)
-        self.assertIn('!TRAINING_ZERO_CA_ATTRIBUTE_KEYS.has(String(attributeKey || ""))', script)
-        self.assertIn('const caAffected = trainingAttributeAffectsCa(attributeKey, product, caCosts);', script)
-        self.assertIn('const detail = !caAffected', script)
-        self.assertIn('"training.estimated_days"', script)
-        self.assertIn('"training.estimated_over_pa"', script)
-        self.assertIn('"training.estimated_ca_only"', script)
-        self.assertIn('"training.confirm_continue_ca"', script)
-        self.assertIn('if (trainingAttributeAffectsCa(target, product, caCosts))', script)
-        self.assertIn('payload.confirm_ca_over_pa = true;', script)
-        self.assertNotIn('nextOption.disabled = caSpace < nextCaRequired;', script)
-        self.assertNotIn('<option value="two_weeks">', script)
-        self.assertNotIn('<option value="month"', script)
-        self.assertIn('习惯训练已开始，一周后生效', script)
-        self.assertIn('targetSelect.innerHTML = options || `<option value="">没有可训练属性</option>`;', script)
-        self.assertNotIn('} · 专项训练中</option>`;', script)
-        self.assertIn('.training-cancel-use { width:30px; height:30px;', styles)
-        self.assertIn('background:#c9362e; color:#fff;', styles)
-        self.assertIn('.training-repeat-use { min-height:32px;', styles)
-        self.assertIn('function trainingAttributeWords(product)', script)
-        self.assertIn('product.scene === "outdoor" ? "outdoor-equipment" : "indoor-equipment"', script)
-        self.assertIn('.training-facility.indoor-equipment img { inset:12.5%; width:75%; height:75%; }', styles)
-        self.assertIn('"outdoor-equipment"', script)
-        self.assertIn('.training-facility.outdoor-equipment img { inset:10%; width:80%; height:80%; }', styles)
-        self.assertIn('submitInlineTraining(form)', script)
-        self.assertIn('data-training-player-toggle', script)
-        self.assertIn('data-training-player-option=', script)
-        self.assertIn('class="training-player-picker-card"', script)
-        self.assertIn('data-training-player-picker-layer', script)
-        self.assertIn('id="training-player-search"', script)
-        self.assertIn('data-training-player-position=', script)
-        self.assertIn('app.trainingPlayerSearch=event.target.value || "";', script)
-        self.assertIn('const attributeFormFields = `${targetField}${directionField}${membersSection}${playerPicker}`;', script)
-        self.assertNotIn("roomAdvisor", script)
-        self.assertIn('class="training-target-attribute"', script)
-        self.assertIn('app.trainingTargetKey=event.target.value||null;', script)
-        self.assertIn('data-position-training-set-position', script)
-        self.assertIn('function positionTrainingSetSlotPosition(position)', script)
-        self.assertIn('先选位置，再拖到球场', script)
-        self.assertIn('key:"defence",label:', script)
-        self.assertIn('"training.position_group.defenders"', script)
-        self.assertIn('positions:["GK","SW","DL","DC","DR","WBL","WBR"]', script)
-        self.assertIn('key:"midfield",label:', script)
-        self.assertIn('"training.position_group.midfielders"', script)
-        self.assertIn('positions:["DM","ML","MC","MR"]', script)
-        self.assertIn('key:"attack",label:', script)
-        self.assertIn('"training.position_group.forwards"', script)
-        self.assertIn('positions:["AML","AMC","AMR","ST"]', script)
-        self.assertIn('class="position-training-position-groups"', script)
-        self.assertIn('data-position-training-tray-slot', script)
-        self.assertIn('application/x-fmodd-position-slot', script)
-        self.assertIn('data-position-training-edit-start', script)
-        self.assertIn('data-position-training-edit-finish', script)
-        self.assertIn('data-position-training-unplace', script)
-        self.assertIn('function positionTrainingUnplaceSlot(slotId)', script)
-        self.assertIn('开始编辑', script)
-        self.assertIn('完成编辑', script)
-        self.assertIn('customWorkflowVersion:2', script)
-        self.assertIn('customFormations:state.customFormations', script)
-        self.assertIn('data-position-training-custom-new', script)
-        self.assertIn('data-position-training-custom-select', script)
-        self.assertIn('data-position-training-custom-name', script)
-        self.assertIn('data-position-training-save-name', script)
-        self.assertIn('data-position-training-delete', script)
-        self.assertIn('function positionTrainingDeleteCustom()', script)
-        self.assertIn('自定义阵型已删除', script)
-        self.assertIn('.position-training-custom-name button.danger', styles)
-        self.assertIn('state.editing = true;', script)
-        self.assertIn('.position-training-custom-library', styles)
-        self.assertNotIn('平均熟练度 ${positionTrainingStars', script)
-        self.assertNotIn('已安排 <b>${assignedRatings.length}</b>/11', script)
-        self.assertIn('.position-training-workspace', styles)
-        self.assertIn('position-training-workspace ${state.preset==="custom"?"custom":"preset"}', script)
-        self.assertIn('.position-training-workspace.preset{grid-template-columns:minmax(0,1fr)}', styles)
-        self.assertIn('.position-training-workspace.custom .position-training-pitch{width:min(94%,820px);margin:0 auto}', styles)
-        self.assertIn('.position-training-slot>button.position-training-unplace{', styles)
-        self.assertIn('clip-path:none', styles)
-        self.assertIn('<button data-training-scene="position_training">位置训练</button>', page)
-        self.assertNotIn('<button data-training-scene="position_training"><i ', page)
-        self.assertIn('.position-rating-empty', styles)
-        self.assertIn('.position-training-position-palette', styles)
-        self.assertIn('.position-training-position-group{', styles)
-        self.assertIn('min-width:32px;min-height:26px', styles)
-        self.assertIn('Array.from({length:5}', script)
-        self.assertIn('(rating-index*4)/4*100', script)
-        self.assertIn('class="position-rating-star"', script)
-        self.assertIn('background:linear-gradient(90deg,#f2d56f var(--fill),#52635b var(--fill))', styles)
-        self.assertIn('.position-training-slot .position-slot-role{margin:0 -8px 4px', styles)
-        self.assertIn('overflow-wrap:anywhere', styles)
-        self.assertIn('class="position-player-peaks"', script)
-        self.assertIn('.position-player-peaks{', styles)
-        self.assertIn('const best = positionTrainingTopRatings(player)[0] || null;', script)
-        self.assertIn('ratings.push({position:selectedPosition,rating:current});', script)
-        self.assertIn('data-position-training-auto-add', script)
-        self.assertIn('function positionTrainingAutoAssign()', script)
-        self.assertIn('until_20:"练至满级"', script)
-        self.assertIn('durationMode:"until_20"', script)
-        self.assertIn('function positionTrainingDaysToMax', script)
-        self.assertIn('if (baseline >= 20) return 20;', script)
-        self.assertIn('focus.no_change && current >= 20', script)
+            self.assertNotIn(legacy, page, legacy)
+        for route in (
+            "/api/training/purchase", "/api/training/place",
+            "/api/training/store", "/api/training/sell",
+            "/api/training/floor/purchase",
+        ):
+            self.assertNotIn(route, script, route)
+        self.assertNotIn("requestTrainingFloorUnlock", script)
+        self.assertIn("function trainingFirstTeamPlayers()", script)
+        self.assertIn("function trainingCurrentStaff()", script)
+        self.assertIn("function trainingStaffEligible(staff)", script)
+        self.assertIn("function trainingRoster(module)", script)
+        self.assertIn("function renderTrainingRoster()", script)
+        self.assertIn("function renderTrainingPersonDetail()", script)
+        self.assertIn("function trainingTaskEstimate(", script)
+        self.assertIn("function trainingFeeLabel(", script)
+        self.assertIn("task_price_minor", script)
+        self.assertIn("function trainingRunPayload(", script)
+        self.assertIn("project_sku:String(project.sku)", script)
+        self.assertIn('module:String(project.module || "")', script)
+        self.assertIn('client_submission_id:String(submissionId || "")', script)
+        self.assertIn('request("/api/training/run"', script)
+        self.assertIn('request("/api/training/cancel"', script)
+        self.assertIn('request("/api/training/settle"', script)
+        self.assertIn("training.cancel_message", script)
+        self.assertIn("training.cancel_keep", script)
+        self.assertIn("uiLegacy(cancelLabel)", script)
+        self.assertIn("function submitTrainingPerson()", script)
+        self.assertIn("function cancelTrainingTask(focus)", script)
+        self.assertIn("semantic.confirm_ca_over_pa = true;", script)
+        self.assertIn("training.reason_active", script)
+        self.assertIn("training.staff_ineligible", script)
+        self.assertIn("training.roster_error", script)
+        self.assertIn("data-training-roster-retry", script)
+        self.assertIn("trainingScopeKey()", script)
         self.assertIn(
-            'trainingManagedPlayers().filter((player) => !activeTrainingFocus(player.id))',
+            "if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;",
             script,
         )
-        self.assertNotIn('.filter((item) => item.rating < 20)', script)
-        self.assertIn('满级约 ${positionTrainingDaysToMax', script)
-        self.assertNotIn('until_14:"练至 14"', script)
-        self.assertNotIn('until_16:"练至 16"', script)
-        self.assertNotIn('until_18:"练至 18"', script)
-        self.assertNotIn('目标 ${target}/20', script)
-        self.assertNotIn(' · 训练中', script)
-        self.assertIn('.position-training-roster>footer button{width:max-content;max-width:100%;min-width:0', styles)
-        self.assertIn('.position-training-roster{grid-template-rows:auto auto auto minmax(120px,1fr) auto auto}', styles)
-        self.assertIn('id="show-hidden-attributes"', page)
-        self.assertIn('localStorage.setItem("fm-odds-show-hidden-attributes"', script)
-        self.assertIn('app.showHiddenAttributes?` · CA ${Number(player.ca||0)}/PA ${Number(player.pa||0)}`:""', script)
-        self.assertIn('const playerPositionFilter = String(app.trainingPlayerPositionFilter || "all");', script)
-        self.assertIn('const idleCount = sortedPlayers.filter((player) => !activeTrainingFocus(player.id)).length;', script)
-        self.assertIn('trainingPlayerPositionFilter: app.trainingPlayerPositionFilter,', script)
-        self.assertIn('class="training-active-detail"', script)
-        self.assertIn('class="training-location-tag"', script)
-        self.assertIn('id="training-inline-player"', script)
-        self.assertNotIn('<select id="training-inline-player"', script)
         self.assertIn('interactiveSurfaceBusy($("#training-dock-content"))', script)
-        self.assertIn('.training-player-option {', styles)
-        self.assertIn('.training-player-picker-layer {', styles)
-        self.assertIn('.training-player-picker-filters button.active', styles)
-        self.assertIn('payload.client_submission_id = app.trainingSubmissionRetry.id;', script)
-        self.assertIn('timeoutMs:60000', script)
-        self.assertIn('path === "/api/training/run"\n      ? 60000', script)
-        self.assertIn('"正在安排..."', script)
-        self.assertIn('.training-person.occupied svg { fill:currentColor;', styles)
-        self.assertIn('.training-person.open svg { fill:none;', styles)
+        self.assertIn("ensureTrainingRosterLoaded(true, forceRoster)", script)
+        self.assertIn("timeoutMs:60000", script)
+        self.assertIn(".training-settle-button", styles)
+        self.assertIn(".training-roster {", styles)
+        self.assertIn(".training-person-row {", styles)
+        self.assertIn(".training-detail-panel {", styles)
+        self.assertIn(".training-task-summary {", styles)
 
-    def test_training_equipment_capacity_player_details_and_dock_hash(self) -> None:
+    def test_position_training_workspace_keeps_presets_custom_formations_and_drag(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-        markup = (root / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn('renderCategory("available", "可供使用", available)', script)
-        self.assertIn('renderCategory("unavailable", "不可使用", unavailable)', script)
-        self.assertIn('partial: trainingIsUnlimited(product) ? used > 0 : capacity > 1 && used > 0 && used < capacity', script)
-        self.assertIn('function trainingIsFull(product, used)', script)
-        self.assertIn('unlimited ? "不限人数"', script)
-        self.assertIn('!item.built_in && item.available !== false', script)
-        self.assertNotIn('training.built_in_note', script)
-        self.assertNotIn('training-built-in-note', script)
-        self.assertIn('trainingEstimatedDays(player, attributeKey, mode, multiplier, direction)', script)
-        self.assertIn('trainingMultiplier: item.training_multiplier', script)
-        self.assertIn('visiblePlaced.map((facility)', script)
-        self.assertIn(
-            'const partialDifference = Number(right[1].some((row) => row.partial))',
-            script,
-        )
-        self.assertIn('const totalBySku = new Map();', script)
-        self.assertNotIn('facility._partialUse', script)
-        self.assertIn('class="training-target-attribute"', script)
-        self.assertIn('.training-player-option small.training-target-attribute', styles)
-        self.assertNotIn('facilityAttrKeys.map((key)', script)
-        self.assertIn('overflow-wrap:anywhere', styles)
-        self.assertIn('grid-auto-rows:max-content; align-content:start;', styles)
-        self.assertIn('height:max-content;', styles)
-        self.assertNotIn(
-            '.training-player-option small.training-idle-attrs { font-size:11px',
-            styles,
-        )
-        self.assertIn(
-            'const attributeRange = currentAttribute > 0 && targetAttribute > 0',
-            script,
-        )
-        self.assertIn('progressPoints: focus.progress_points', script)
-        self.assertIn('attributes: player.attributes', script)
-        self.assertIn('function renderTraining({skipStage = false} = {})', script)
-        self.assertIn('if (app._lastStageHash !== stageHash)', script)
-        self.assertIn('if (app._lastDockHash !== dockHash)', script)
-        self.assertIn('if (app._lastSelHash !== selHash)', script)
-        self.assertIn('function trainingDataIndex()', script)
-        self.assertIn('if (app.trainingIndexSource === data && app.trainingIndex)', script)
-        self.assertIn('activeFocusesByFacility.get(facilityId) || []', script)
-        self.assertIn('facilityOrdinalById.set(facility.id,index)', script)
-        helper_block = script.split('function trainingDataIndex()', 1)[1].split(
-            'function trainingIsUnlimited', 1,
-        )[0]
-        self.assertNotIn('.filter((item) => item.status === "active"', helper_block)
-        self.assertIn('submissionRetry: app.trainingSubmissionRetry', script)
-        self.assertIn('staffLoading: app.trainingStaffLoading', script)
-        self.assertIn('growth_hook:response.training_ground.growth_hook ?? growthHook', script)
-        self.assertIn('await ensureTrainingRosterLoaded(true);', script)
-        self.assertIn('const abilityLine = app.showHiddenAttributes', script)
-        self.assertNotIn('const abilityLine = app.showHiddenAttributes && habit', script)
-        self.assertIn('const selectedTargetSummary = selectedPlayer && selectedTargetKey', script)
-        self.assertIn('targetKey: app.trainingTargetKey,', script)
-        self.assertIn('showHiddenAttributes: app.showHiddenAttributes,', script)
-        self.assertIn('gameDate: String(app.gameClock?.date', script)
-        self.assertIn('function syncTrainingStatus()', script)
+        self.assertIn('data-training-module="${module.key}"', script)
+        self.assertIn("data-training-position-filter", script)
+        self.assertIn("data-position-training-set-position", script)
+        self.assertIn("function positionTrainingSetSlotPosition(position)", script)
+        self.assertIn("key:\"defence\",label:", script)
+        self.assertIn('"training.position_group.defenders"', script)
+        self.assertIn('positions:["GK","SW","DL","DC","DR","WBL","WBR"]', script)
+        self.assertIn("key:\"midfield\",label:", script)
+        self.assertIn('"training.position_group.midfielders"', script)
+        self.assertIn('positions:["DM","ML","MC","MR"]', script)
+        self.assertIn("key:\"attack\",label:", script)
+        self.assertIn('"training.position_group.forwards"', script)
+        self.assertIn('positions:["AML","AMC","AMR","ST"]', script)
+        self.assertIn('class="position-training-position-groups"', script)
+        self.assertIn("data-position-training-tray-slot", script)
+        self.assertIn("application/x-fmodd-position-slot", script)
+        self.assertIn("application/x-fmodd-player", script)
+        self.assertIn("data-position-training-edit-start", script)
+        self.assertIn("data-position-training-edit-finish", script)
+        self.assertIn("data-position-training-unplace", script)
+        self.assertIn("function positionTrainingUnplaceSlot(slotId)", script)
+        self.assertIn("customWorkflowVersion:2", script)
+        self.assertIn("customFormations:state.customFormations", script)
+        self.assertIn("data-position-training-custom-new", script)
+        self.assertIn("data-position-training-custom-select", script)
+        self.assertIn("data-position-training-custom-name", script)
+        self.assertIn("data-position-training-save-name", script)
+        self.assertIn("data-position-training-delete", script)
+        self.assertIn("function positionTrainingDeleteCustom()", script)
+        self.assertIn("state.editing = true;", script)
+        self.assertIn("position-training-workspace ${state.preset===\"custom\"?\"custom\":\"preset\"}", script)
+        self.assertIn("data-position-training-auto-add", script)
+        self.assertIn("function positionTrainingAutoAssign()", script)
+        self.assertIn("until_20:\"练至满级\"", script)
+        self.assertIn("durationMode:\"until_20\"", script)
+        self.assertIn("function positionTrainingDaysToMax", script)
+        self.assertIn("if (baseline >= 20) return 20;", script)
+        self.assertIn("focus.no_change && current >= 20", script)
+        self.assertIn("trainingPositionPlayers().filter((player) => !activeTrainingFocus(player.id))", script)
+        self.assertIn("满级约 ${positionTrainingDaysToMax", script)
+        self.assertIn("function positionTrainingPayload(player, slot, durationMode)", script)
+        self.assertIn('project_sku:"position_training_area"', script)
+        self.assertIn("function positionTrainingRows(state, playersById)", script)
+        self.assertIn("activeTrainingFocus(player.id)", script)
+        self.assertIn("function positionTrainingSaveCustomName(name)", script)
+        self.assertIn("localStorage.setItem(app.positionTrainingStorageKey", script)
+        self.assertIn(".position-training-workspace", styles)
+        self.assertIn(".position-training-workspace.preset{grid-template-columns:minmax(0,1fr)}", styles)
+        self.assertIn(".position-training-workspace.custom .position-training-pitch{width:min(94%,820px);margin:0 auto}", styles)
+        self.assertIn(".position-training-position-palette", styles)
+        self.assertIn(".position-training-position-group{", styles)
+        self.assertIn(".position-training-roster{grid-template-rows:auto auto auto minmax(120px,1fr) auto auto}", styles)
+        self.assertIn(".position-training-roster>footer button{width:max-content;max-width:100%;min-width:0", styles)
+
+
+
+    def test_training_data_index_and_mutation_guards_are_current(self) -> None:
+        root = (Path(__file__).resolve().parents[1] / "src")
+        script = (root / "web" / "app.js").read_text(encoding="utf-8")
+        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
+        self.assertIn("function trainingDataIndex()", script)
+        self.assertIn("activeFocusByPlayer", script)
+        self.assertIn("activeFocusByStaff", script)
+        self.assertNotIn("activeFocusesByFacility", script)
+        self.assertNotIn("floorsByScene", script)
+        self.assertNotIn("facilitiesById", script)
+        self.assertIn("if (focus.focus_type === \"coaching_license\")", script)
+        self.assertIn("trainingMutationRevision", script)
+        self.assertIn("trainingRevisionAtStart !== Number(app.trainingMutationRevision || 0)", script)
+        self.assertIn("nextState.training_ground = app.state.training_ground", script)
+        self.assertIn("function updateTrainingResponse(response)", script)
+        self.assertIn("growth_hook:response.training_ground.growth_hook ?? growthHook", script)
+        self.assertIn("player_manager:response.training_ground.player_manager ?? playerManager", script)
+        self.assertIn("function syncTrainingStatus()", script)
         self.assertIn('root.setAttribute("aria-busy", "true")', script)
-        self.assertIn('正在结算训练进度', script)
-        self.assertIn('id="training-sync-status"', markup)
-        self.assertIn('.training-toolbar button:focus-visible', styles)
-        reduced_motion = styles.split('@media (prefers-reduced-motion: reduce)', 1)[1]
-        self.assertIn('.training-sync-status > i { animation:none; }', reduced_motion)
+        self.assertIn("app.trainingRequestSeq", script)
+        self.assertIn("content.dataset.signature", script)
+        self.assertIn("roster.dataset.signature", script)
+        self.assertIn("interactiveSurfaceBusy($(\"#training-dock-content\"))", script)
+        self.assertIn(".training-toolbar button:focus-visible", styles)
+        reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+        self.assertIn(".training-sync-status > i { animation:none; }", reduced_motion)
+
 
     def test_training_mutation_keeps_state_supplements_for_every_facility(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         prefix = "function updateTrainingResponse(response) {"
         function_body = script.split(prefix, 1)[1].split(
-            "\n}\nfunction firstTrainingPosition", 1,
+            "\n}\nfunction trainingPlayerMatchesPositionGroup", 1,
         )[0]
         function_source = f"{prefix}{function_body}\n}}"
         harness = f"""
@@ -2683,82 +2535,25 @@ if (app.state.training_ground.growth_hook.installed !== true) throw new Error("f
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_training_use_panel_executes_for_builtin_and_single_user_facilities(self) -> None:
+
+    def test_training_workspace_uses_server_catalog_price_and_submission_id(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        prefix = "function trainingUsePanel(facility) {"
-        function_body = script.split(prefix, 1)[1].split(
-            "\n}\n\nfunction selectedGameIsFm26", 1,
-        )[0]
-        function_source = f"{prefix}{function_body}\n}}"
-        harness = f"""
-const app = {{
-  trainingPlayerId:0, trainingActionBusy:false,
-  trainingPlayerGroupState:{{}}, trainingPlayerPickerOpen:false,
-  trainingRosterLoading:false, showHiddenAttributes:false,
-}};
-const products = {{
-  set_piece_area:{{
-    name:"定位球训练区", built_in:true, unlimited:true,
-    capacity:null, training_multiplier:2,
-    attributes:["定位球:任意球"], icon:"flag-triangle-right",
-  }},
-  leadership_desk:{{
-    name:"领导力训练桌", built_in:false, capacity:1,
-    attributes:["精神:领导力"],
-  }},
-  habit_lab:{{
-    name:"习惯塑形机", built_in:false, capacity:1,
-    attributes:[],
-  }},
-}};
-function trainingProduct(sku) {{ return products[sku] || {{}}; }}
-let focuses = [];
-function trainingFacilityFocuses() {{ return focuses; }}
-function trainingIsUnlimited(product) {{ return product?.unlimited === true; }}
-function trainingManagedPlayers() {{ return []; }}
-function trainingFacilityVisual() {{ return "<span></span>"; }}
-    function trainingFacilityLabel(facility) {{ return trainingProduct(facility.sku).name; }}
-    function localizedPreferredMove(focus) {{ return focus.preferred_move_name || ""; }}
-    function localizedTrainingAttribute(value) {{ return value || ""; }}
-    function trainingCapacityIcons() {{ return ""; }}
-function trainingMemberRows() {{ return ""; }}
-function escapeHtml(value) {{ return String(value ?? ""); }}
-function uiText(key, parameters = {{}}) {{
-  if (key === "training.people_training") return `${{parameters.used}}/${{parameters.capacity}} 人使用中`;
-  if (key === "training.player_active_summary") return `球员${{parameters.name}}使用中，训练${{parameters.target}}，还需${{parameters.days}}天`;
-  if (key === "training.multiplier") return `以 ${{parameters.value}} 倍速训练`;
-  return key;
-}}
-function uiPlural(key, count) {{
-  if (key === "training.people_studying") return `${{count}} 人训练中`;
-  return String(count);
-}}
-{function_source}
-const builtin = trainingUsePanel({{id:"area",sku:"set_piece_area"}});
-const leadership = trainingUsePanel({{id:"desk",sku:"leadership_desk"}});
-if (!builtin.includes("当前无人训练 · 不限人数")) throw new Error("builtin usage label missing");
-if (builtin.includes("以 2 倍速训练")) throw new Error("builtin note should be hidden");
-if (!leadership.includes("0/1 人使用中")) throw new Error("single-user usage label missing");
-focuses = [{{
-  focus_type:"preferred_move", player_id:10, player_name:"梅西",
-  preferred_move_name:"尝试倒钩", days_used:2,
-}}];
-const activeHabit = trainingUsePanel({{id:"habit",sku:"habit_lab"}});
-if (!activeHabit.includes("球员梅西使用中，训练尝试倒钩，还需5天")) throw new Error("active player summary missing");
-"""
-        result = subprocess.run(
-            ["node", "-"], input=harness, text=True, encoding="utf-8",
-            capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("function trainingFeeLabel(feeMinor)", script)
+        self.assertIn("formatPounds(Number(feeMinor) / 100)", script)
+        self.assertIn("function trainingRunPayload(", script)
+        self.assertIn('client_submission_id:String(submissionId || "")', script)
+        self.assertIn("client_submission_id:trainingSubmissionFor(semantic)", script)
+        self.assertNotIn("function trainingUsePanel(facility)", script)
+        self.assertNotIn("function trainingCoachingDeskPanel(facility)", script)
+
 
     def test_goalkeeper_training_selector_accepts_any_player_with_gk_ability(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
         prefix = "function trainingPlayerMatchesPositionGroup(player, positionGroup) {"
         function_body = script.split(prefix, 1)[1].split(
-            "\n}\n\nfunction trainingUsePanel", 1,
+            "\n}\n\nconst CANTEEN_PLANS", 1,
         )[0]
         function_source = f"{prefix}{function_body}\n}}"
         harness = f"""
@@ -2818,19 +2613,28 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
             '<span>训练场</span></button>', facilities,
         )
 
-    def test_training_equipment_tabs_use_requested_text_without_icons(self) -> None:
+
+    def test_three_module_tabs_replace_legacy_equipment_tabs(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         index = (root / "web" / "index.html").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        for marker in (
-            'data-training-dock="available"', 'data-training-dock="shop"',
-            'data-training-dock="storage"',
+        self.assertIn('id="training-module-tabs"', index)
+        self.assertNotIn("data-training-dock=", index)
+        self.assertNotIn("training.available_equipment", script)
+        self.assertNotIn("training.equipment_shop", script)
+        self.assertNotIn("training.equipment_storage", script)
+        for key in (
+            "training.module.player_training",
+            "training.module.position_training",
+            "training.module.staff_training",
         ):
-            self.assertIn(marker, index)
-            self.assertIn(marker, script)
-        for key in ("training.available_equipment", "training.equipment_shop", "training.equipment_storage"):
             self.assertIn(key, script)
-        self.assertNotIn('data-training-dock="shop"><i ', index)
+        self.assertIn('data-training-module="${module.key}"', script)
+        self.assertIn('$("#training-module-tabs").addEventListener("click"', script)
+        self.assertIn("setTrainingModule(button.dataset.trainingModule)", script)
+        self.assertIn("function setTrainingModule(module)", script)
+        self.assertNotIn("data-training-scene", index)
+
 
     def test_training_dock_keeps_localised_copy_readable(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
@@ -2850,80 +2654,64 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         self.assertIn('<strong>执教管理</strong>', index)
         self.assertIn('<h1 id="club-title">执教管理</h1>', index)
 
-    def test_training_ground_has_independent_second_floor_scene(self) -> None:
+
+    def test_legacy_floor_scenes_and_equipment_shop_are_retired(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('data-training-scene="indoor_2f">室内 2F</button>', index)
-        self.assertIn(".training-stage.indoor_2f", styles)
-        self.assertIn('item.scene === app.trainingScene', script)
+        for scene in ("indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f", "office_3f", "comprehensive_7f"):
+            self.assertNotIn(f'data-training-scene="{scene}"', index)
+        self.assertNotIn("data-training-scene=", index)
+        self.assertNotIn("trainingFloorLabel", script)
+        self.assertNotIn("trainingSceneAcceptsProduct", script)
+        self.assertNotIn("requestTrainingFloorUnlock", script)
+        self.assertIn('"position_training_area"', script)
+        self.assertIn('module:"position_training"', script)
+        # Floors are replaced by the four training modules; team training is the old 8F rooms.
+        self.assertNotIn("TRAINING_FLOOR_LABEL_KEYS", script)
+        modules = script.split("const TRAINING_MODULES = [", 1)[1].split("];", 1)[0]
+        for module in ("player_training", "position_training", "staff_training", "team_training"):
+            self.assertIn(f'key:"{module}"', modules)
 
-    def test_training_ground_has_placeable_comprehensive_seventh_floor(self) -> None:
-        root = (Path(__file__).resolve().parents[1] / "src")
-        index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-        script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn(
-            'data-training-scene="comprehensive_7f">实验室 7F</button>', index,
-        )
-        self.assertIn(".training-stage.comprehensive_7f", styles)
-        self.assertIn(
-            ".training-stage.comprehensive_7f { background-image:url('/assets/training/comprehensive_7f.webp'); }",
-            styles,
-        )
-        self.assertTrue(
-            (root / "web" / "assets" / "training" / "comprehensive_7f.webp").is_file(),
-        )
 
-        self.assertNotIn(".training-facility.training-room", styles)
-        self.assertNotIn("training-room-icon", script)
-        for sku in (
-            "mind_room", "mentoring_room", "tactical_room",
-            "video_analysis_room", "sports_science_room",
-        ):
-            self.assertTrue((root / "web" / "assets" / "training" / f"{sku}.webp").is_file())
-        self.assertNotIn("trainingRoomAdvisorCandidates", script)
-        self.assertNotIn("payload.advisor_kind", script)
-        self.assertNotIn('id="training-inline-advisor"', script)
     def test_training_floor_backgrounds_keep_office_separate_from_training_halls(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-
-        self.assertIn(
-            ".training-stage.indoor_3f,.training-stage.indoor_4f,.training-stage.indoor_5f { background-image:url('/assets/training/indoor_2f.webp'); }",
-            styles,
-        )
-        self.assertIn(
-            ".training-stage.office_3f,.training-stage.office_6f { background-image:url('/assets/training/office_3f.webp'); }",
-            styles,
-        )
-        self.assertTrue(
-            (root / "web" / "assets" / "training" / "office_3f.webp").is_file(),
-        )
-
-    def test_training_ground_has_third_floor_coaching_office(self) -> None:
-        root = (Path(__file__).resolve().parents[1] / "src")
-        index = (root / "web" / "index.html").read_text(encoding="utf-8")
-        styles = (root / "web" / "app.css").read_text(encoding="utf-8")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('data-training-scene="office_3f">办公室 3F</button>', index)
-        self.assertIn(".training-stage.office_3f", styles)
-        self.assertIn('facility.sku === "coaching_desk"', script)
-        self.assertIn('operation:"coaching_license"', script)
-        self.assertIn('subject_type:String(staff.training_subject_type || "staff")', script)
+        self.assertIn("stage.dataset.module = app.trainingModule;", script)
+
+        def background(module: str) -> str:
+            rule = styles.split(f'.training-stage[data-module="{module}"]', 1)[1].split("}", 1)[0]
+            return rule.split("url('", 1)[1].split("')", 1)[0]
+
+        # Staff training (office) keeps its own background, separate from the player training halls.
+        self.assertEqual(background("staff_training"), "/assets/training/office_3f.webp")
+        self.assertNotIn("office", background("player_training"))
+        self.assertNotIn("office", background("position_training"))
+        for module in ("player_training", "position_training", "staff_training", "team_training"):
+            self.assertTrue((root / "web" / background(module).lstrip("/")).is_file(), module)
+        self.assertNotIn(".training-stage.office_3f", styles)
+
+
+    def test_staff_training_keeps_coaching_course_and_manager_path(self) -> None:
+        root = (Path(__file__).resolve().parents[1] / "src")
+        script = (root / "web" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function trainingCurrentStaff()", script)
+        self.assertIn('training_subject_type:"staff"', script)
         self.assertIn('training_subject_type:"player_manager"', script)
+        self.assertIn('subject_type:String(person.training_subject_type || "staff")', script)
+        self.assertIn('operation:"coaching_license"', script)
+        self.assertIn("target_license_code:Number(person.coaching_license?.next_code || 0)", script)
+        self.assertIn("coaching_license_course_days", script)
+        self.assertIn("function trainingStaffEligible(staff)", script)
+        self.assertIn("COACHING_STAFF_JOB_TYPES.has(Number(staff.job_type || 0))", script)
         self.assertIn("managedCoachingRostersAreCurrent()", script)
-        self.assertIn('profile.profile_stage === "complete"', script)
-        self.assertIn("ensureTrainingCoachingRosterLoaded()", script)
-        self.assertIn("player_manager:response.training_ground.player_manager ?? playerManager", script)
-        self.assertIn('"training.sync_roster"', script)
-        self.assertIn('教练 / 玩家经理', script)
-        self.assertIn('已最高等级', script)
-        self.assertIn('id="training-inline-staff"', script)
-        self.assertIn('开始考证', script)
-        self.assertTrue((root / "web" / "assets" / "training" / "office_3f.webp").is_file())
-        self.assertTrue((root / "web" / "assets" / "training" / "coaching_desk.webp").is_file())
+        self.assertIn("ensureTrainingCoachingRosterLoaded(true)", script)
+        self.assertIn('module === "staff_training"', script)
+        self.assertIn("training.staff_ineligible", script)
+        self.assertIn("training.licence_target", script)
+        self.assertNotIn("function trainingCoachingDeskPanel(facility)", script)
+
 
     def test_training_dock_content_cannot_resize_desktop_stage(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
@@ -2951,14 +2739,31 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
     def test_relationship_room_detail_accepts_dom_string_instance_id(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('const lookupId = String(instanceId ?? "");', script)
-        self.assertIn('String(row.id ?? "") === lookupId', script)
+        # Team rooms are picked by their string SKU straight from the DOM dataset, and
+        # "end early" settles only the selected session, sending its room_id as a string.
+        self.assertIn("app.teamTrainingRoomSku = button.dataset.teamRoom;", script)
+        self.assertIn("rooms.find((room) => room.sku === app.teamTrainingRoomSku) || rooms[0] || null", script)
+        self.assertIn("endTeamTrainingEarly(teamTrainingRoom(), endEarly.dataset.teamEndEarly);", script)
+        settle = script.split("async function endTeamTrainingEarly(room, roomId) {", 1)[1].split(
+            "\nfunction bindTeamTrainingEvents()", 1,
+        )[0]
+        self.assertIn('roomId = String(roomId || "");', settle)
+        self.assertIn(
+            "if (!teamTrainingSessions(room).some((row) => String(row.room_id) === roomId)) return;",
+            settle,
+        )
+        self.assertIn("body:JSON.stringify({room_id:roomId})", settle)
+        self.assertNotIn("const lookupId", script)
 
     def test_relationship_room_staff_sort_has_chief_classifier(self) -> None:
         root = (Path(__file__).resolve().parents[1] / "src")
         script = (root / "web" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("function isStaffChief(staff)", script)
-        self.assertIn("[38, 44, 50, 62].includes(jobType)", script)
+        # Staff for a team room come from the backend's eligible_staff_ids; the frontend no
+        # longer classifies chiefs itself, and a player-manager is never offered as staff.
+        candidates = script.split("function teamTrainingCandidates(room, role) {", 1)[1].split("\n}", 1)[0]
+        self.assertIn("room.eligible_staff_ids?.[role.key]", candidates)
+        self.assertIn('staff.training_subject_type !== "player_manager"', candidates)
+        self.assertNotIn("function isStaffChief(staff)", script)
 
     def test_relationship_training_people_include_youth_squads(self) -> None:
         profile = {
@@ -3004,52 +2809,41 @@ if (playerAttributeValue(goalkeeper,"技术:停球") !== 14) throw new Error("go
         self.assertEqual(FM24_VERIFIED_PREFERRED_MOVES[42], "第一时间射门")
 
 
-def test_training_compact_view_keeps_equipment_images_and_excludes_position_training() -> None:
+
+def test_training_compact_view_and_equipment_images_are_retired() -> None:
     root = (Path(__file__).resolve().parents[1] / "src")
     markup = (root / "web" / "index.html").read_text(encoding="utf-8")
     script = (root / "web" / "app.js").read_text(encoding="utf-8")
     styles = (root / "web" / "app.css").read_text(encoding="utf-8")
-
-    page = markup.split('id="page-training"', 1)[1].split('</section>', 1)[0]
-    header = page.split('</header>', 1)[0]
-    assert '<label class="facility-view-toggle"><input type="checkbox" data-facility-view-page="training"' in header
-    assert header.rindex('class="facility-view-toggle"') > header.index('id="training-settle-button"')
-    assert 'if (mode === "text") app.trainingEditing = false;' in script
-    assert 'app._lastSelHash = null;' in script
-    assert 'if (page === "training" && app.trainingScene === "position_training") return "visual";' in script
-    assert 'const visual = `<img src="${trainingSprite(facility.sku, product)}" alt="">`;' in script
-    assert 'trainingFacilityVisual(product, sku)' in script
-    assert 'product?.built_in\n    ? `<span class="training-area-icon">' in script
-    assert 'training-text-facility-icon' not in script
-    assert 'const selHash = JSON.stringify({\n      viewMode,' in script
-    for dock in ('available', 'shop', 'storage'):
-        assert f'data-training-dock="{dock}"' in script or f'data-training-dock="{dock}"' in markup
-    for action in ('data-training-use=', 'data-training-buy=', 'data-training-place=', 'data-training-sell='):
-        assert action in script
-    assert '.training-page.facility-text-view .training-stage-items' in styles
-    assert '.training-page.facility-text-view .training-facility.indoor-equipment img' in styles
-    assert '.training-page.facility-text-view .training-dock-item{grid-template-columns:76px minmax(0,1fr) auto' in styles
-    assert '.training-page.facility-text-view .training-dock-item img{width:72px;height:72px;max-width:100%' in styles
-    assert '.training-page.facility-text-view .training-stage-panel{min-width:0;overflow:hidden' in styles
-    assert '.training-page.facility-text-view .training-toolbar #training-scene-tabs{width:100%;min-width:0;overflow-x:auto}' in styles
-    assert '.training-page.facility-text-view .training-dock{position:relative;z-index:3;min-width:0;overflow:hidden}' in styles
-    assert '.training-page.facility-text-view .training-selection{min-width:0;overflow:hidden}' in styles
-    assert '.training-page.facility-text-view .training-selection>div:first-child strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' in styles
-    assert '.training-page.facility-text-view .position-training-pitch' not in styles
+    assert 'data-facility-view-page="training"' not in markup
+    assert "trainingFacilityVisual" not in script
+    assert "trainingSprite" not in script
+    assert "training-dock-item" not in script
+    assert 'class="training-roster"' in markup
+    assert 'class="training-stage roster"' in markup
+    assert ".training-roster {" in styles
+    assert ".training-person-row {" in styles
+    assert "position-training-active" in script
+    assert "function renderPositionTrainingStudio()" in script
 
 
-def test_training_stage_equipment_click_opens_matching_available_detail() -> None:
+
+
+def test_training_roster_click_opens_detail_and_position_slots_stay_interactive() -> None:
     root = (Path(__file__).resolve().parents[1] / "src")
     script = (root / "web" / "app.js").read_text(encoding="utf-8")
+    assert 'data-training-person="${kind}:${Number(person.id)}"' in script
+    assert "openTrainingPerson(kind, Number(personId))" in script
+    assert 'data-training-cancel-focus="${escapeHtml(activeFocus.id)}"' in script
+    assert 'data-position-training-slot="${escapeHtml(slot.id)}"' in script
+    assert "positionTrainingPlaceSlot(positionSlotId" in script
+    assert "application/x-fmodd-position-slot" in script
+    assert "data-training-facility" not in script
+    assert "openTrainingDetail" not in script
+    assert "function renderTrainingModuleTabs()" in script
+    assert "function renderTrainingRoster()" in script
+    assert "function renderTrainingPersonDetail()" in script
 
-    click_handler = script.split('stage.addEventListener("click",(event)=>{', 1)[1].split("\n  });", 1)[0]
-    assert 'event.target.closest("[data-training-facility]")' in click_handler
-    assert 'app.trainingSelectedId=node.dataset.trainingFacility;' in click_handler
-    assert 'openTrainingDetail(node.dataset.trainingFacility)' in click_handler
-    assert "if (app.trainingEditing)" not in click_handler
-    assert 'app.trainingIgnoreFacilityClickUntil = Date.now() + 180;' in script
-    assert 'app.trainingDock = "available";' in script
-    assert 'app.trainingDetailId = facility.id;' in script
 
 
 if __name__ == "__main__":

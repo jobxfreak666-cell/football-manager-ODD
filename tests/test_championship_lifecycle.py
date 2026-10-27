@@ -133,11 +133,11 @@ class ChampionshipLifecycleTests(unittest.TestCase):
         cup=root/'cache'/'account-test'/'competitions'/'cups.json'
         league=cup.with_name('leagues.json')
         cup.parent.mkdir(parents=True)
-        cup.write_text('{}');league.write_text('{}')
+        cup.write_text('{}', encoding='utf-8');league.write_text('{}', encoding='utf-8')
         with patch('tools.betting_account.load_bets',return_value=[{'type':'championship','status':'pending'}]),patch('tools.championship_odds.cup_state_path',return_value=cup),patch('tools.championship_odds.league_state_path',return_value=league):
             protected=pending_snapshot_paths()
             self.assertTrue(has_pending_championship_bets())
-        with patch('tools.storage_management._validated_data_root',return_value=root),patch('tools.storage_management.configured_data_root',return_value=root),patch('tools.storage_management.ensure_data_directories'):
+        with patch('tools.storage_management._validated_data_root',return_value=root.resolve()),patch('tools.storage_management.configured_data_root',return_value=root),patch('tools.storage_management.ensure_data_directories'):
             clear_cache_files(protected_paths=protected)
         self.assertTrue(cup.exists() and league.exists())
 
@@ -158,7 +158,7 @@ class ChampionshipLifecycleTests(unittest.TestCase):
         start=source.index('function championshipDataIndex() {')
         end=source.index('\nfunction championshipSettlementDate(',start)
         script='''const data={competitions:[{competition_id:1,season_key:'1:2027/28',status:'open',teams:[{team_id:7}]},{competition_id:1,season_key:'1:2026/27',status:'complete',teams:[]}]}; const app={}; function championshipData(){return data;} function output(){return {competitions:[]};} function activeUiLocale(){return 'en-GB';} '''+source[start:end]+'''\nconst index=championshipDataIndex(); if(!index.teamsByCompetitionId.get(1).has(7))throw new Error('Current selection lost'); console.log(index.competitions.length);'''
-        result=subprocess.run([node,'-e',script],capture_output=True,text=True,check=True)
+        result=subprocess.run([node,'-e',script],capture_output=True,text=True,encoding='utf-8',check=True)
         self.assertEqual(result.stdout.strip(),'1')
 
     def test_same_year_new_tournament_preserves_pending_old_final(self):
@@ -173,7 +173,7 @@ class ChampionshipLifecycleTests(unittest.TestCase):
         self.assertEqual([m['season_key'] for m in markets['competitions']], ['1301394:2026/27@2027-05-10'])
         previous=markets['settlement_competitions'][0]
         self.assertEqual((previous['season_key'],previous['settlement_date']), ('1301394:2026/27','2027-05-01'))
-        stored=json.loads((self.root/'cups.json').read_text())
+        stored=json.loads((self.root/'cups.json').read_text(encoding='utf-8'))
         self.assertEqual(len(stored['seasons']),2)
 
     def test_partial_league_window_cannot_become_terminal_by_elapsed_date(self):
@@ -240,4 +240,4 @@ class ChampionshipLifecycleTests(unittest.TestCase):
         current['competition_formats'][0]['competition_season_address']='0x2000'
         markets=championship.build_championship_markets(current,{'competitions':[]})
         self.assertEqual(markets['competitions'][0]['season_key'],'1301394:2026/27')
-        self.assertEqual(len(json.loads((self.root/'cups.json').read_text())['seasons']),1)
+        self.assertEqual(len(json.loads((self.root/'cups.json').read_text(encoding='utf-8'))['seasons']),1)

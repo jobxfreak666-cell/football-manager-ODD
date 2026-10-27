@@ -1,0 +1,134 @@
+name: Frontend checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-regressions:
+    name: Frontend, money, and locale regressions
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install isolated test tools
+        run: python -m pip install --disable-pip-version-check pytest tomli
+
+      - name: Run frontend and bilingual regressions
+        run: >-
+          python -m pytest
+          tests/test_owned_club_sell_confirm_frontend.py
+          tests/test_money_abbreviations_frontend.py
+          tests/test_my_group_visual_fixes_frontend.py
+          tests/test_player_card_frontend.py
+          tests/test_i18n_frontend.py
+          tests/test_i18n_catalog_contract.py
+          tests/test_i18n_locale_packs.py
+          tests/test_i18n_settings.py
+          tests/test_i18n_dynamic_enums.py
+          tests/test_settings_frontend_optimization.py
+          tests/test_frontend_font_sizes.py
+          tests/test_relationship_training_frontend.py
+          tests/test_training_roster_attributes_frontend.py
+          tests/test_relationship_frontend.py
+          tests/test_training_task_frontend.py
+          tests/test_i18n_relationship.py
+          -q
+
+  native-regressions:
+    name: Native cores and training API regressions
+    runs-on: windows-2022
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.10"
+
+      - name: Install isolated test tools
+        run: python -m pip install --disable-pip-version-check pytest tomli
+
+      - name: Build Rust native core
+        run: python scripts/build_rust_native.py
+
+      - name: Build C++ Hook core
+        run: python scripts/build_cpp_hook_core.py
+
+      - name: Run complete Windows test suite
+        env:
+          FMODD_DATA_ROOT: ${{ runner.temp }}/fmodd-full-windows-tests
+        run: >-
+          python -m pytest
+          tests
+          -q
+
+  portable-regressions:
+    name: Portable helpers (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install isolated test tools
+        run: python -m pip install --disable-pip-version-check pytest tomli
+
+      - name: Run portable helper regressions
+        env:
+          FMODD_DATA_ROOT: ${{ runner.temp }}/fmodd-portable-tests
+        run: >-
+          python -m pytest
+          tests/test_player_portraits.py
+          tests/test_player_name_localization.py
+          tests/test_i18n_audit.py
+          tests/test_frontend_refresh_recovery.py
+          tests/test_storage_io.py::test_atomic_write_does_not_leave_fixed_temporary_file
+          tests/test_storage_io.py::test_atomic_write_retries_windows_file_contention
+          -q

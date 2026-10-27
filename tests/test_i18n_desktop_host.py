@@ -50,25 +50,26 @@ def test_desktop_message_catalogs_have_key_parity_and_complete_locales() -> None
     host_keys = _host_catalog_keys("English")
     assert host_keys
     assert _host_catalog_keys("Chinese") == host_keys
-    assert _host_catalog_keys("TraditionalChinese") == host_keys
-    assert _host_catalog_keys("Korean") == host_keys
-    assert _host_catalog_keys("German") == host_keys
-    assert _host_catalog_keys("Spanish") == host_keys
-    assert _host_catalog_keys("French") == host_keys
-    assert _host_catalog_keys("Russian") == host_keys
-    assert _host_catalog_keys("Japanese") == host_keys
-    assert _host_catalog_keys("BrazilianPortuguese") == host_keys
-    assert _host_catalog_keys("EuropeanPortuguese") == host_keys
+    host_source = (ROOT / "desktop" / "WebViewHost.cs").read_text(encoding="utf-8")
+    assert "TraditionalChineseUserText" not in host_source
+    assert "KoreanUserText" not in host_source
+    assert "GermanUserText" not in host_source
+    assert "SpanishUserText" not in host_source
+    assert "FrenchUserText" not in host_source
+    assert "RussianUserText" not in host_source
+    assert "JapaneseUserText" not in host_source
+    assert "BrazilianPortugueseUserText" not in host_source
+    assert "EuropeanPortugueseUserText" not in host_source
 
 
 def test_desktop_locale_uses_the_existing_settings_contract_and_falls_back_to_english() -> None:
     with patch("fmodd_desktop.load_settings", return_value={"ui_locale": "zh-CN"}):
         assert fmodd_desktop.resolve_desktop_locale() == "zh-CN"
     with patch("fmodd_desktop.load_settings", return_value={"ui_locale": "ko-KR"}):
-        assert fmodd_desktop.resolve_desktop_locale() == "ko-KR"
+        assert fmodd_desktop.resolve_desktop_locale() == "en-GB"
     for locale in ("zh-TW", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"):
         with patch("fmodd_desktop.load_settings", return_value={"ui_locale": locale}):
-            assert fmodd_desktop.resolve_desktop_locale() == locale
+            assert fmodd_desktop.resolve_desktop_locale() == "en-GB"
     with patch("fmodd_desktop.load_settings", return_value={"ui_locale": "it-IT"}):
         assert fmodd_desktop.resolve_desktop_locale() == "en-GB"
     with patch("fmodd_desktop.load_settings", side_effect=OSError("settings unavailable")):
@@ -83,16 +84,17 @@ def test_desktop_messages_translate_catalogued_text_but_preserve_diagnostics_ver
         "FMODD 已在运行，请勿重复启动。"
     )
     assert fmodd_desktop.desktop_message("zh-TW", "startup.already_running") == (
-        "FMODD 已在執行，請勿重複啟動。"
+        "FMODD is already running. Do not start it again."
     )
     assert fmodd_desktop.desktop_message("ko-KR", "startup.already_running") == (
-        "FMODD가 이미 실행 중입니다. 다시 시작하지 마세요."
+        "FMODD is already running. Do not start it again."
     )
     diagnostic = "WinError 5: C:\\private-path"
     rendered = fmodd_desktop.desktop_message(
         "ko-KR", "startup.host_start_failed", error=diagnostic,
     )
     assert diagnostic in rendered
+    assert rendered.startswith("Unable to start the desktop window:")
 
 
 def test_host_uses_localized_keys_for_every_owned_startup_and_file_dialog_surface() -> None:

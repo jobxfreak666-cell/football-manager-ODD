@@ -7,10 +7,10 @@ from pathlib import Path
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
-SETTINGS_LOCALES = ("en-GB", "zh-CN", "ko-KR", "pt-BR", "pt-PT")
+SETTINGS_LOCALES = ("en-GB", "zh-CN")
 SETTINGS_LOCALE_OPTION_KEYS = (
-    "settings.locale.option.pt_br",
-    "settings.locale.option.pt_pt",
+    "settings.locale.option.en",
+    "settings.locale.option.zh",
 )
 
 
@@ -20,17 +20,11 @@ const fs = require("fs"), vm = require("vm"), root = process.argv[1];
 const context = {window:{FMODDI18nModules:[]}, document:{documentElement:{dataset:{}}, querySelector:()=>null, dispatchEvent:()=>{}}, NodeFilter:{SHOW_TEXT:4}, CustomEvent:class CustomEvent {}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(root + "/web/i18n.settings.js", "utf8"), context);
-for (const file of ["i18n.pt-BR.js", "i18n.pt-PT.js"]) {
-  vm.runInContext(fs.readFileSync(root + "/web/" + file, "utf8"), context, {filename:file});
-}
 const module = context.window.FMODDI18nModules[0];
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context);
-const catalogs = Object.fromEntries(["en-GB", "zh-CN", "ko-KR", "pt-BR", "pt-PT"].map((locale) => [
-  locale,
-  Object.assign({}, module.messages?.[locale] || {}, context.window.FMODDLocalePacks?.[locale]?.messages || {}),
-]));
+const catalogs = Object.fromEntries(["en-GB", "zh-CN"].map((locale) => [locale, module.messages?.[locale] || {}]));
 const result = {messages:module.messages, catalogs, examples:{}};
-for (const locale of ["en-GB", "ko-KR", "pt-BR", "pt-PT"]) {
+for (const locale of ["en-GB", "zh-CN"]) {
   context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
   result.examples[locale] = context.window.FMODDI18n.t("operations.location", {location:"/api/state"});
 }
@@ -46,7 +40,9 @@ console.log(JSON.stringify(result));
 def test_settings_catalog_has_locale_and_placeholder_parity() -> None:
     output = _probe()
     catalogs = output["catalogs"]
+    assert set(output["messages"]) == set(SETTINGS_LOCALES)
     source_keys = set(output["messages"]["en-GB"])
+    assert set(catalogs) == set(SETTINGS_LOCALES)
     for locale in SETTINGS_LOCALES:
         assert source_keys <= set(catalogs[locale])
     for key in source_keys:
@@ -57,10 +53,8 @@ def test_settings_catalog_has_locale_and_placeholder_parity() -> None:
         assert all(value == parameters[0] for value in parameters), key
     assert all(key in catalogs["en-GB"] for key in SETTINGS_LOCALE_OPTION_KEYS)
     assert output["examples"]["en-GB"] == "Location: /api/state"
-    assert output["examples"]["ko-KR"] == "위치: /api/state"
-    assert set(output["examples"]) == {"en-GB", "ko-KR", "pt-BR", "pt-PT"}
-    assert output["examples"]["pt-BR"] != output["examples"]["en-GB"]
-    assert output["examples"]["pt-PT"] != output["examples"]["en-GB"]
+    assert output["examples"]["zh-CN"] == "定位：/api/state"
+    assert set(output["examples"]) == set(SETTINGS_LOCALES)
 
 
 def test_settings_and_operation_renderers_use_semantic_copy() -> None:

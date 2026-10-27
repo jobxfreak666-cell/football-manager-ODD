@@ -23,9 +23,9 @@ const i18n = context.window.FMODDI18n;
 const keys = Object.fromEntries(Object.entries(module.messages).map(([locale, catalog]) => [locale, Object.keys(catalog).sort()]));
 i18n.setLocale("en-GB", {persist:false, root:null});
 const english = [i18n.t("bank.page", {page:2, total:7}), i18n.t("betting.upcoming", {days:3, count:8}), i18n.t("mail.page_summary", {page:2, pages:4, total:73}), i18n.t("analysis.record", {wins:8, losses:3, returns:1}), i18n.t("bank.overview"), i18n.t("bank.salary_schedule", {date:"Sunday"}), i18n.t("money.dialog.repay_source", {amount:"£2.00"}), i18n.t("bank.sugar_daddy.confirm_title")];
-i18n.setLocale("ko-KR", {persist:false, root:null});
-const korean = [i18n.t("bank.page", {page:2, total:7}), i18n.t("betting.upcoming", {days:3, count:8}), i18n.t("mail.page_summary", {page:2, pages:4, total:73}), i18n.t("analysis.record", {wins:8, losses:3, returns:1}), i18n.t("bank.overview"), i18n.t("bank.salary_schedule", {date:"Sunday"}), i18n.t("money.dialog.repay_source", {amount:"£2.00"}), i18n.t("bank.sugar_daddy.confirm_title")];
-console.log(JSON.stringify({keys, messages:module.messages, english, korean}));
+i18n.setLocale("zh-CN", {persist:false, root:null});
+const chinese = [i18n.t("bank.page", {page:2, total:7}), i18n.t("betting.upcoming", {days:3, count:8}), i18n.t("mail.page_summary", {page:2, pages:4, total:73}), i18n.t("analysis.record", {wins:8, losses:3, returns:1}), i18n.t("bank.overview"), i18n.t("bank.salary_schedule", {date:"Sunday"}), i18n.t("money.dialog.repay_source", {amount:"£2.00"}), i18n.t("bank.sugar_daddy.confirm_title")];
+console.log(JSON.stringify({keys, messages:module.messages, english, chinese}));
 '''
     result = subprocess.run(
         ["node", "-e", probe, str(ROOT)], check=True, capture_output=True,
@@ -43,21 +43,22 @@ def placeholders(value: str) -> set[str]:
 def test_commerce_catalog_locale_and_placeholder_parity() -> None:
     output = commerce_probe()
     keys = output["keys"]
-    assert keys["en-GB"] == keys["zh-CN"] == keys["ko-KR"]
+    assert set(keys) == {"en-GB", "zh-CN"}
+    assert keys["en-GB"] == keys["zh-CN"]
     for key in keys["en-GB"]:
-        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN", "ko-KR")]
-        assert placeholders(variants[0]) == placeholders(variants[1]) == placeholders(variants[2])
+        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN")]
+        assert placeholders(variants[0]) == placeholders(variants[1])
     assert output["english"] == [
         "Page 2 / 7", "Next 3 days · 8 matches",
         "Page 2 / 4 · 73 messages", "W 8 · L 3 · R 1",
         "Account overview", "Paid every Sunday · next Sunday",
         "Bank first, then wallet if needed; up to £2.00", "Confirm support type change",
     ]
-    assert output["korean"] == [
-        "2 / 7페이지", "향후 3일 · 8경기",
-        "2 / 4페이지 · 총 73통", "승 8 · 패 3 · 반환 1",
-        "계정 개요", "매주 일요일 지급 · 다음 Sunday",
-        "은행에서 먼저 차감하고 부족하면 지갑에서 차감 · 최대 £2.00", "지원 유형 변경 확인",
+    assert output["chinese"] == [
+        "第 2 / 7 页", "未来3天 · 8 场",
+        "第 2 / 4 页 · 共 73 封", "赢 8 · 输 3 · 退 1",
+        "账户总览", "每周日发放 · 下次 Sunday",
+        "优先扣银行，不足再扣钱包，最多 £2.00", "确认修改资助类型",
     ]
 
 
@@ -67,7 +68,6 @@ def test_commerce_renderers_use_semantic_messages_not_source_chinese_copy() -> N
         for name in ("app.js", "bet_analysis_page.js")
     )
     for key in (
-        'uiText("lottery.not_configured")',
         'uiText("league.slot_label", {slot:slot + 1})',
         'uiText("championship.team_stats"',
         'uiText("shop.confirm_purchase")',

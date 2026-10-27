@@ -11,7 +11,7 @@ from tools.betting_account import (
 )
 from tools.club_economy import (
     adjust_bank_balance, buy_item, buy_items, clear_credit_cheat,
-    credit_status, public_economy, set_free_services, transfer_wallet,
+    credit_status, public_economy, transfer_wallet,
 )
 
 
@@ -62,29 +62,17 @@ class AccountApplicationService:
             )
             return operation.economy_patch(result)
 
-    def update_free_services(self, payload: dict[str, Any]) -> dict[str, Any]:
-        with self._operation(None) as operation:
-            welfare = set_free_services(bool(payload.get("enabled")))
-            economy = public_economy()
-            patch = {"economy": economy, "welfare": welfare}
-            if "casino_balance" in economy:
-                patch["balance"] = float(economy["casino_balance"])
-            # This is the same HTTP patch formerly attached by the serializer,
-            # now tagged before an account switch can change its identity.
-            return operation.state_patch({"economy": economy, "welfare": welfare}, patch)
-
     def shop_purchase(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._operation(None) as operation:
             result = buy_item(
                 str(payload.get("sku", "")), int(payload.get("quantity", 1)),
-                free=bool(payload.get("free_purchase")),
             )
             return operation.economy_patch(result, transient=("payment",))
 
     def shop_batch_purchase(self, payload: dict[str, Any]) -> dict[str, Any]:
         with self._operation(None) as operation:
             result = buy_items(
-                payload.get("items"), free=bool(payload.get("free_purchase")),
+                payload.get("items"),
             )
             return operation.economy_patch(result, transient=("payment", "purchases"))
 

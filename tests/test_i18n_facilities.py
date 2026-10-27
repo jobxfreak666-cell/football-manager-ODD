@@ -25,9 +25,9 @@ const i18n = context.window.FMODDI18n;
 const keys = Object.fromEntries(Object.entries(module.messages).map(([locale, catalog]) => [locale, Object.keys(catalog).sort()]));
 i18n.setLocale("en-GB", {persist:false, root:null});
 const english = [i18n.t("canteen.ban_all_confirm", {count:4}), i18n.tp("canteen.people", 2), i18n.translateLegacy("解锁建设")];
-i18n.setLocale("ko-KR", {persist:false, root:null});
-const korean = [i18n.t("canteen.ban_all_confirm", {count:4}), i18n.tp("canteen.people", 2), i18n.translateLegacy("解锁建设")];
-console.log(JSON.stringify({keys, messages:module.messages, english, korean}));
+i18n.setLocale("zh-CN", {persist:false, root:null});
+const chinese = [i18n.t("canteen.ban_all_confirm", {count:4}), i18n.tp("canteen.people", 2), i18n.translateLegacy("解锁建设")];
+console.log(JSON.stringify({keys, messages:module.messages, english, chinese}));
 '''
     result = subprocess.run(
         ["node", "-e", probe, str(ROOT)], check=True, capture_output=True,
@@ -54,7 +54,7 @@ for (const source of sources) {
   vm.runInContext(fs.readFileSync(root + "/web" + source, "utf8"), context, {filename:source});
 }
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context);
-const locales = ["en-GB","zh-CN","zh-TW","ko-KR","de-DE","es-ES","fr-FR","ru-RU","ja-JP","pt-BR","pt-PT"];
+const locales = ["en-GB","zh-CN"];
 const labels = {};
 for (const locale of locales) {
   context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
@@ -68,7 +68,7 @@ console.log(JSON.stringify(labels));
     )
     labels = json.loads(result.stdout)
     expected_keys = {"facilities.view.compact"}
-    assert set(labels) == {"en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"}
+    assert set(labels) == {"en-GB", "zh-CN"}
     for locale, values in labels.items():
         assert all(value and value not in expected_keys for value in values), (locale, values)
 
@@ -76,19 +76,20 @@ console.log(JSON.stringify(labels));
 def test_facilities_catalog_has_locale_and_placeholder_parity() -> None:
     output = facilities_probe()
     keys = output["keys"]
-    assert keys["en-GB"] == keys["zh-CN"] == keys["ko-KR"]
+    assert set(keys) == {"en-GB", "zh-CN"}
+    assert keys["en-GB"] == keys["zh-CN"]
     for key in keys["en-GB"]:
-        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN", "ko-KR")]
-        assert placeholders(variants[0]) == placeholders(variants[1]) == placeholders(variants[2]), key
+        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN")]
+        assert placeholders(variants[0]) == placeholders(variants[1]), key
     assert output["english"] == [
         "Deny all 4 first-team players access to the canteen for 3 days? Each decision can be revoked.",
         "2 people",
         "Unlock construction",
     ]
-    assert output["korean"] == [
-        "현재 1군 선수 4명의 식당 출입을 3일간 금지할까요? 각 결정을 철회할 수 있습니다.",
-        "2명",
-        "건설 잠금 해제",
+    assert output["chinese"] == [
+        "是否禁止当前一线队全部 4 名球员在3天内进入球队食堂？可逐人撤销。",
+        "2 人",
+        "解锁建设",
     ]
 
 
@@ -106,7 +107,7 @@ for (const source of sources) {
   vm.runInContext(fs.readFileSync(root + "/web" + source, "utf8"), context, {filename:source});
 }
 vm.runInContext(fs.readFileSync(root + "/web/i18n.js", "utf8"), context);
-const locales = ["en-GB","zh-CN","zh-TW","ko-KR","de-DE","es-ES","fr-FR","ru-RU","ja-JP","pt-BR","pt-PT"];
+const locales = ["en-GB","zh-CN"];
 const messages = {};
 for (const locale of locales) {
   context.window.FMODDI18n.setLocale(locale, {persist:false, root:null});
@@ -126,13 +127,13 @@ console.log(JSON.stringify(messages));
     assert messages["zh-CN"] == {
         "description": "选择有不满的球员进行心理辅导",
         "action": "开始谈话",
-        "confirmation": "确认支付 £100K 为 Alex 解锁必定清除不满？",
+        "confirmation": "确认从钱包支付 £100K 为 Alex 进行心理辅导？\n\n这会直接修改 FM 进程内存，请先备份存档。",
     }
     for locale, copy in messages.items():
         assert copy["description"] and copy["description"] != "activity.counselling_roster_description", locale
         assert copy["action"] and copy["action"] != "activity.start_counselling", locale
         assert "£100K" in copy["confirmation"] and "Alex" in copy["confirmation"], locale
-        assert "\n" not in copy["confirmation"], locale
+        assert "\n\n" in copy["confirmation"], locale  # backup-save reminder paragraph
 
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     metadata = script.split("activityMeta.psychological_counseling =", 1)[1].split(";", 1)[0]
@@ -142,12 +143,9 @@ console.log(JSON.stringify(messages));
 def test_career_discussion_room_uses_the_requested_name() -> None:
     output = facilities_probe()
     messages = output["messages"]
-    traditional = (ROOT / "web" / "i18n.tw.js").read_text(encoding="utf-8")
 
     assert messages["en-GB"]["activity.node_retirement"] == "Career discussion room"
     assert messages["zh-CN"]["activity.node_retirement"] == "生涯交流室"
-    assert messages["ko-KR"]["activity.node_retirement"] == "커리어 대화실"
-    assert '"activity.node_retirement": "生涯交流室"' in traditional
 
 
 def test_black_room_description_uses_the_short_random_injury_copy() -> None:
@@ -156,7 +154,6 @@ def test_black_room_description_uses_the_short_random_injury_copy() -> None:
 
     assert messages["en-GB"]["activity.black_room_description"] == "Add a random injury to the player"
     assert messages["zh-CN"]["activity.black_room_description"] == "为球员添加随机伤病"
-    assert messages["ko-KR"]["activity.black_room_description"] == "선수에게 무작위 부상을 추가합니다"
 
 
 def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_allowlist() -> None:
@@ -167,9 +164,32 @@ def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_all
         'uiText("canteen.per_game_day"',
         'uiText("canteen.open", {name:uiText(plan.nameKey)})',
         'uiText("canteen.ban_all_confirm", {count:players.length})',
-        'uiText("training.no_available_position_players", {position:restrictedPositionLabel})',
-        'uiText("training.active_attribute_status"',
-        'uiText("training.estimated_over_pa"',
+        'setAttribute("aria-label", uiText("training.modules"))',
+        'labelKey:"training.module.player_training"',
+        'labelKey:"training.module.position_training"',
+        'labelKey:"training.module.staff_training"',
+        'uiText(kind === "staff" ? "training.roster.staff_title" : "training.roster.player_title")',
+        'uiPlural(kind === "staff" ? "training.roster.staff_count" : "training.roster.player_count", people.length)',
+        'uiText("training.roster.loading")',
+        'uiText("training.roster_empty")',
+        'uiText("training.roster_error")',
+        'uiText("training.roster_retry")',
+        'uiText("training.select_person")',
+        'uiText(module === "staff_training" ? "training.select_staff_hint" : "training.select_player_hint")',
+        'uiText("training.project_label")',
+        'uiText("training.fee_label")',
+        'uiText("training.estimated_time")',
+        'uiText("training.current_target_label")',
+        'uiText("training.arrange")',
+        'uiText("training.active_task")',
+        'uiText("training.cancel_task")',
+        'uiText("training.reason_active")',
+        'uiText("training.staff_ineligible")',
+        'uiText("training.reason_no_project")',
+        'uiText("training.not_eligible")',
+        'uiText("training.idle")',
+        'uiText("training.arranged")',
+        'uiText("training.arrange_failed")',
         'uiPlural("training.position_roster_count", filteredPlayers.length)',
         'uiText(group.labelKey)',
         'uiText("activity.floor_entertainment_eyebrow")',
@@ -188,18 +208,21 @@ def test_migrated_facility_renderers_use_semantic_messages_with_bounded_data_all
     ):
         assert literal not in script
 
-    # These three migrated renderers may retain only API/user values (names,
+    # These migrated renderers may retain only API/user values (names,
     # descriptions, and fixture data) and stable CSS/data attributes. None is
     # a Chinese UI literal, so the explicit allowlist is intentionally empty.
     allowed_game_or_user_data: tuple[str, ...] = ()
-    for function in ("canteenRosterPanel", "renderHospital", "renderInventory"):
+    for function in (
+        "canteenRosterPanel", "renderHospital", "renderInventory",
+        "renderTrainingModuleTabs", "renderTrainingRoster", "renderTrainingPersonDetail",
+    ):
         body = re.search(rf"function {function}\([^)]*\) \{{(.*?)(?=\nfunction |\Z)", script, re.S)
         assert body, function
         residual = re.findall(r"[一-龥]+", body.group(1))
         assert residual == list(allowed_game_or_user_data), (function, residual)
 
 
-def test_training_ground_catalog_and_renderers_use_current_facility_semantic_keys() -> None:
+def test_training_ground_catalog_and_renderers_use_current_project_semantic_keys() -> None:
     output = facilities_probe()
     expected = {
         f"training.facility.{sku}.{field}"
@@ -207,16 +230,16 @@ def test_training_ground_catalog_and_renderers_use_current_facility_semantic_key
         for field in ("name", "description")
     }
     assert expected
-    for locale in ("en-GB", "zh-CN", "ko-KR"):
+    for locale in ("en-GB", "zh-CN"):
         assert expected <= set(output["keys"][locale]), locale
         assert all(str(output["messages"][locale][key]).strip() for key in expected), locale
 
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     for call in (
-        "trainingFacilityName(item.sku,item)",
-        "trainingFacilityDescription(item.sku,item)",
-        "trainingFacilityDescription(facility.sku,item)",
-        "trainingFacilityName(facility.sku,product)",
+        "trainingProjectOptionLabel(row)",
+        "trainingProjectName(project)",
+        "trainingFacilityName(project?.sku, project || {})",
+        "trainingFacilityDescription(project?.sku, project || {})",
         "trainingArchiveFacilityLabel(details.facility_sku,details.facility_name)",
     ):
         assert call in script
@@ -226,3 +249,64 @@ def test_training_ground_catalog_and_renderers_use_current_facility_semantic_key
         "<span>${escapeHtml(product.name || facility.sku)}</span>",
     ):
         assert bypass not in script
+    for stale in (
+        "training.equipment_shop",
+        "training.equipment_storage",
+        "training.floor_unlock_confirm",
+        "training.buy",
+        "training.place",
+        "training.sell",
+        "training.available_equipment",
+        "training.sell_confirm",
+        "training.repeat",
+    ):
+        assert stale not in script, stale
+        for locale in ("en-GB", "zh-CN"):
+            assert stale not in output["keys"][locale], (locale, stale)
+
+
+def test_three_module_training_copy_is_bilingual_and_cancel_copy_warns_no_refund() -> None:
+    output = facilities_probe()
+    messages = output["messages"]
+    expected = {
+        "training.modules": ("Training modules", "训练模块"),
+        "training.module.player_training": ("Player training", "球员训练"),
+        "training.module.position_training": ("Position training", "位置训练"),
+        "training.module.staff_training": ("Staff training", "职员训练"),
+        "training.roster.player_title": ("First-team players", "一线队球员"),
+        "training.roster.staff_title": ("Club staff", "球队职员"),
+        "training.fee_label": ("Fixed fee", "单次费用"),
+        "training.free": ("Free", "免费"),
+        "training.cancel_title": ("Cancel training task?", "取消训练任务？"),
+        "training.cancel_message": (
+            "Cancel this training task? The fee for this task will not be refunded.",
+            "取消这次训练任务？取消后不会退还本次训练费用。",
+        ),
+        "training.cancel_confirm": ("Confirm cancellation", "确认取消"),
+        "training.cancel_keep": ("Keep training", "继续训练"),
+        "training.active_summary": (
+            "{speed} {action} {attribute}{range}{guidance} · {status}",
+            "{speed}{action}{attribute}{range}{guidance} · {status}",
+        ),
+    }
+    for key, (english, chinese) in expected.items():
+        assert messages["en-GB"][key] == english, key
+        assert messages["zh-CN"][key] == chinese, key
+    for base in ("training.roster.player_count", "training.roster.staff_count"):
+        for suffix in ("one", "other"):
+            assert messages["en-GB"][f"{base}.{suffix}"].strip()
+            assert messages["zh-CN"][f"{base}.{suffix}"].strip()
+
+    # Cancel confirmation must pass the warning copy first and the keep-training
+    # action last; the fee must never be described as refundable.
+    script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+    assert (
+        'uiText("training.cancel_message"),\n'
+        '    uiText("training.cancel_confirm"),\n'
+        '    uiText("training.cancel_title"),\n'
+        '    uiText("training.cancel_keep"),'
+    ) in script
+    assert "will not be refunded" in messages["en-GB"]["training.cancel_message"]
+    assert "不会退还" in messages["zh-CN"]["training.cancel_message"]
+    assert 'const key = "training.active_summary";' in script
+    assert "return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);" in script

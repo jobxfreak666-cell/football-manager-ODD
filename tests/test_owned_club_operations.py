@@ -1024,7 +1024,7 @@ def test_owned_club_rename_ui_only_submits_short_name():
     assert "short_name:shortName" in script
     assert "name, short_name:shortName" not in script
     assert "result.native?.after?.short_name" in script
-    assert "club.renamed_short_name || club.short_name" in script
+    assert "club.renamed_short_name || club.short_name" in " ".join(script.split())
     assert "display_name:detail.club.short_name" in script
 
 
@@ -1085,7 +1085,6 @@ def test_owned_club_rename_uses_quick_target_and_updates_name_caches(monkeypatch
 def test_fm26_name_editing_and_transfer_controls_are_available():
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
-    assert "function selectedGameIsFm26()" in script
     assert 'ownedClubAction("暂未实装","pencil-line","rename-club","",true)' not in script
     assert 'ownedClubAction("暂未实装", "pencil-line", "stadium-rename", "", true)' not in script
     assert 'ownedClubAction("转会","arrow-right-left","player-transfer")' in script

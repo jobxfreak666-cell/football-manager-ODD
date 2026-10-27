@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from conftest import legacy_web_source
+from frontend_source import legacy_web_source, raw_web_source
 
 from tools import club_economy, club_policies, training_ground
 from tools.club_policy_hooks import (
@@ -369,9 +370,10 @@ def test_verified_policy_rva_reads_only_the_target_signature():
 
 def test_activity_centre_exposes_salary_policy_without_departure_entry():
     script = legacy_web_source("web/app.js")
-    app_script = open("web/app.js", encoding="utf-8").read()
-    server = open("fm_odds_web.py", encoding="utf-8").read()
-    catalogue = open("web/i18n.facilities.js", encoding="utf-8").read()
+    app_script = raw_web_source("web/app.js")
+    source_root = Path(__file__).resolve().parents[1] / "src"
+    server = (source_root / "fm_odds_web.py").read_text(encoding="utf-8")
+    catalogue = raw_web_source("web/i18n.facilities.js")
     salary_effect = (
         "会议结束后，获得持续 15 个游戏日的特别授权："
         "任何球员都不会拒绝薪资谈判时的任何要求。"

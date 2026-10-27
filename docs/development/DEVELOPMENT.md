@@ -110,6 +110,33 @@ git diff --check
 
 修改 `src/tools/*.py` 时可检查实际变更模块。优先运行相关行为回归；涉及共享契约时覆盖受影响调用方，不自动运行全套。已通过的检查仅在新增改动、失败或明确未解决风险时重复/扩大。只使用已确认隔离的测试数据；真实 FM、账户数据或外部服务操作另需相应授权。
 
+### 4.5 前端、训练与原生回归
+
+GitHub Actions 的 [Frontend checks](../../.github/workflows/frontend-checks.yml) 在每次 push 和 pull request 上运行 Windows 专项、Windows 全量和 Linux 便携回归。Windows 使用 Node.js 24 和 Python 3.10。`frontend-regressions` 运行集团出售确认、货币缩写、球员卡片、前端视觉、训练交互、本地化及字号回归。该 job 不依赖原生核心，可在仓库根目录复现：
+
+```powershell
+python -m pip install pytest tomli
+python -m pytest tests/test_owned_club_sell_confirm_frontend.py tests/test_money_abbreviations_frontend.py tests/test_my_group_visual_fixes_frontend.py tests/test_player_card_frontend.py tests/test_i18n_frontend.py tests/test_i18n_catalog_contract.py tests/test_i18n_locale_packs.py tests/test_i18n_settings.py tests/test_i18n_dynamic_enums.py tests/test_settings_frontend_optimization.py tests/test_frontend_font_sizes.py tests/test_relationship_training_frontend.py tests/test_training_roster_attributes_frontend.py tests/test_relationship_frontend.py tests/test_training_task_frontend.py tests/test_i18n_relationship.py -q
+```
+
+`native-regressions` 使用 runner 的 Rust MSVC 工具链与 Visual C++ Build Tools，从当前提交源码构建 Rust、C++ 两个核心，再运行完整 Windows 测试集。它覆盖全部默认测试，包括扣费幂等、崩溃恢复、头像、审计、存储锁、任务和档案规则，以及冠军盘开关等刷新契约。构建结果留在 runner 的 `src/build/` 和 Rust crate 的 `src/native/fmodd_native_core/target/` 中；账户数据根通过 `FMODD_DATA_ROOT` 指向 runner 临时目录。测试使用隔离账户文档和测试进程内存，不启动产品或连接 FM，也不依赖游戏或编辑器的专有二进制。复现前先按 4.0 节准备原生工具链，并给本次测试选择独立的临时数据目录：
+
+```powershell
+python -m pip install pytest tomli
+python scripts/build_rust_native.py
+python scripts/build_cpp_hook_core.py
+$env:FMODD_DATA_ROOT = Join-Path ([System.IO.Path]::GetTempPath()) ("fmodd-ci-" + [guid]::NewGuid().ToString("N"))
+python -m pytest tests -q
+```
+
+`native-regressions` 保留原检查名称以兼容既有检查配置。CI 的隔离数据根使用 runner 的 `fmodd-full-windows-tests` 临时目录；前端 job 提供较快的专项反馈。
+
+`portable-regressions` 在 Ubuntu 的 Python 3.10/3.13 上运行头像解析、姓名本地化、i18n 审计、前端刷新契约和两个原子文件写入测试。它按可移植职责明确选择测试，不跳过或伪造 Windows 原生库，也不代表 FMODD 运行时支持 Linux。Windows 专用 Web/内存集成和会话级跨进程互斥仍由完整 Windows job 验证。所有 job 均通过才表示本 workflow 通过；这些静态、模拟和进程内测试不替代真实 FM build 的实机验证。
+
+此 lane 是隔离的源码回归，不证明实时 FM 行为。
+
+Windows 测试结束后若 `TemporaryDirectory.cleanup` 因错误 145 无法删除已确认空的根目录，测试夹具最多以 20ms 间隔尝试 10 次 `rmdir`，成功时记录 `PytestWarning`。错误路径必须匹配该临时根，且目录不能是符号链接或 reparse point；新文件、其他错误、检查失败或超限仍使测试失败。该处理仅用于测试收尾，不重复递归删除、不重跑业务操作，也不改变生产存储锁或 `shutil`。
+
 检查通过不等于已经实机验证 FM 内存功能。涉及新偏移、Hook、伤病、属性或比赛状态时，必须区分 FM24、FM26 以及 Steam、Epic、XGP，不允许在版本未通过校验时复用其他版本地址。
 
 ## 5. FM24 与 FM26 修改原则

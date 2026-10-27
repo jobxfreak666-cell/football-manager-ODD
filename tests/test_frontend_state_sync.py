@@ -17,7 +17,7 @@ function between(start, end) {
   assert.ok(finish > offset);
   return source.slice(offset, finish);
 }
-const loader = between("async function loadState({fresh = false} = {})", "function freeServicesEnabled");
+const loader = between("async function loadState({fresh = false} = {})", "function disableFaEnabled");
 const binding = between('$("#apply-saved-account").addEventListener', '$("#merge-same-manager-accounts")');
 const deferred = [];
 const toasts = [];

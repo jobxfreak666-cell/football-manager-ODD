@@ -124,20 +124,31 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 
 | 领域 | 所有者 |
 | --- | --- |
-| 训练设施、任务、楼层与公共投影 | `src/tools/training_ground.py` |
+| 训练项目目录、三模块归属与单次固定费用 | `src/tools/training_catalog.py`；纯规则，只做模块归属与费用投影，不扣费、不读写 FM |
+| 训练任务、一次性旧任务迁移、公共目录投影与旧记录兼容 | `src/tools/training_ground.py` |
 | 训练结算期间的队伍索引和对象回绑 | `src/tools/training_runtime.py` |
-| 关系综训房间规则与专项进度 | `src/tools/relationship_training.py` |
+| 团队训练（原关系综训）房间规则、按次收费幂等、训练目标与预计结算日、到期/补扫领取与专项进度 | `src/tools/relationship_training.py` |
 | 版本化训练档案、关系摘要索引与关系时间线 | `src/tools/training_archive.py` |
 | 双向人物关系读取、保类别写入与精确回滚 | `src/tools/person_relationships.py`、`src/tools/relationship_network.py` |
 | 青训计划与名单事务 | `src/tools/youth_intake.py` |
 | 原生青训生成 Hook | `src/tools/youth_generation_hook.py` |
 | 活动中心楼层、冷却、语言课程、医疗策略、治疗任务与扣费 | `src/tools/club_economy.py` |
+| 单次心理辅导的余额校验、钱包付费、效果恢复、退款与响应编排 | `src/tools/counseling_application.py`；`LocalOddsState` 保留兼容门面和唯一运行时状态，通过显式 `CounselingIO` 在每次调用时绑定当前依赖；固定清除不满且亲密度变化为零，不写关系档案。辅导保存异常由 `club_economy` 严格核对主容器，提交未确认时不补偿；恢复未完成时停止退款，退款失败保留双重原因，均返回不可重试的错误分类 |
+| 手动/默认治疗及按游戏日推进的医疗编排 | `src/tools/medical_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、名单快照和 `club_medical_auto_result`，通过显式 `MedicalIO` 在每次调用时绑定当前依赖；默认治疗仍经 `_apply_default_medical_treatments` 替换点，治疗存储、扣费与游戏日调度仍归 `club_economy.py` 和现有刷新流程 |
+| 食堂单人/批量海参奖励编排 | `src/tools/canteen_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、账户/地址绑定和实时目标解析，通过显式 `CanteenIO` 在每次调用时绑定当前依赖；批量仍使用一个短生命周期写会话和逐人独立事务，经 `_canteen_sea_cucumber_context`/`_canteen_sea_cucumber_one` 替换点调用；`canteen_plan_update`、CA Hook 方案、底层写会话与 `commit_player_effect` 未迁移 |
 | 球员/职员 Person 语言 vector 读取、验证式写入与回滚 | `src/tools/player_languages.py`；职员写入能力由 `src/tools/game_layout.py` 按实机证据门控 |
 | 2F 球员离队模拟报价、估值与账户报价轮次 | `src/tools/player_departure.py`；所有权校验、当前原生样本与成交编排由 `src/tools/player_departure_application.py` 负责，实际合同/名单及卖方财政写入复用 `src/tools/player_movement.py` |
 | 活动效果、伤病读取及治疗天数原生事务 | `src/tools/club_reader.py` |
 | 退役计划与不退役 Hook | `src/tools/retirement.py` |
-| 情报中心候选赛程、手动/后台有界探测、私有赛果证据及情报退款核对 | `src/tools/preview_cup_odds.py`、`src/tools/club_economy.py`、`src/fm_odds_web.py` |
+| 情报中心候选赛程、私有赛果证据及情报退款核对 | `src/tools/preview_cup_odds.py`、`src/tools/club_economy.py` |
+| 比赛情报后台探测、主动获取、公共状态与购买用例 | `src/tools/match_intelligence_application.py`；`LocalOddsState` 保留门面、后台循环和唯一运行时状态，通过显式 `MatchIntelligenceIO` 提供调用依赖；手动与后台探测共享单航班、存档作用域及游戏时钟校验，公共投影与刷新共用运行时锁保护候选和缓存发布，主动获取不改变固定情报定价 |
 | 比赛/球员道具 | `src/tools/*hook*.py`、`src/tools/*nuclear*.py` |
+
+训练接口失败以稳定语义键返回：服务端提供 `message_key`（训练为 `training.error.*`）与 `message_params`，按请求头 `X-FMODD-Locale` 渲染 `message`（仅 `en-GB`、`zh-CN`）；保留的中文 legacy `error` 仅作诊断，前端优先显示 `message`。
+
+训练创建在绑定当前账户后，经 `betting_account.account_transaction` 按钱包进程锁、账户文档进程锁、账户文件跨进程锁的顺序加锁；任务/经济文档读取、重复请求与占用校验、资金分配、任务追加和最终单次账户写入均在锁内完成。提交后释放账户锁，再进行成长 Hook 同步和公共响应投影。
+
+训练场和团队训练房间分别在自己的账户文档记录 `task_rules_version`，迁移独立判断、在同一账户事务保存，不能用训练场标记跳过旧房间占用。读取、安排（含重复请求）及房间结算（手动、到期自动、14 天补扫）均先处理迁移。训练任务仅裁剪最近记录窗口之外的非 active 记录；裁剪前将任务与付款凭证保存到 `training_ground.submission_receipts`，请求幂等不随 500 条窗口失效，公共投影仍只返回 active 任务和最近记录。
 
 业务文档、原生对象地址和前端选中状态属于不同层。训练、活动或医疗优化不能通过复用旧地址、吞掉等待状态、缓存伤病真值或绕过写后回读来换取速度。
 
@@ -146,7 +157,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 路径 | 所有权 |
 | --- | --- |
 | `src/web/index.html` | 页面和对话框结构 |
-| `src/web/i18n.js`、`src/web/i18n.ko.js` | 前端界面语言运行时、英文基准/中文过渡目录与韩语目录；界面语言不承载 FM 业务真值，缺失翻译统一回退英文 |
+| `src/web/i18n.js`、`src/web/i18n.<domain>.js` | 前端界面语言运行时及领域中英文目录；仅支持 `en-GB`、`zh-CN`，界面语言不承载 FM 业务真值，缺失翻译统一回退英文 |
 | `src/web/app.css` | 布局、主题、状态和动画 |
 | `src/web/app.js` | 状态同步、页面渲染和用户交互 |
 | `src/web/bet_analysis_page.js` | 收益分析只读视图；显式接收数据、范围、线模式和格式化能力，不访问全局应用状态或发起请求，历史控制器与事件仍由 `app.js` 持有 |

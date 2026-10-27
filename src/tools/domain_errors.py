@@ -42,6 +42,27 @@ class ValidationError(DomainError):
         super().__init__(code, message, HTTPStatus.BAD_REQUEST, phase, False, details or {}, message_key, message_params or {})
 
 
+class CounselingCommitUnknownError(DomainError):
+    """Counseling commit/finalisation cannot safely enter compensation."""
+
+    def __init__(
+        self, operation_error: Exception, verification_error: Exception | None = None,
+        *, commit_state: str = "unknown",
+    ) -> None:
+        super().__init__(
+            "commit_unknown", "心理辅导提交状态未能确认，请勿重复操作",
+            HTTPStatus.INTERNAL_SERVER_ERROR, "commit", False,
+            {
+                "economy_commit_state": commit_state,
+                "native_restored": False, "wallet_debited": True,
+                "refund_attempted": False, "refund_state": "not_attempted",
+            },
+            "error.request_failed",
+        )
+        self.operation_error = operation_error
+        self.verification_error = verification_error
+
+
 class ConflictError(DomainError):
     def __init__(self, message: str, *, code: str = "state_conflict", phase: str = "commit", retryable: bool = True, details: Mapping[str, Any] | None = None, message_key: str = "error.request_failed", message_params: Mapping[str, Any] | None = None) -> None:
         super().__init__(code, message, HTTPStatus.CONFLICT, phase, retryable, details or {}, message_key, message_params or {})

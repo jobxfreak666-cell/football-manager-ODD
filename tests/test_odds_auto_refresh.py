@@ -86,10 +86,24 @@ class OddsAutoRefreshTests(unittest.TestCase):
             path = Path(directory) / "settings.json"
             with patch.object(app_settings, "SETTINGS_PATH", path):
                 self.assertEqual(app_settings.load_settings()["ui_locale"], "en-GB")
-                for locale in ("zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"):
+                for locale in ("en-GB", "zh-CN"):
                     saved = app_settings.set_ui_locale(locale)
                     self.assertEqual(saved["ui_locale"], locale)
                     self.assertEqual(app_settings.load_settings()["ui_locale"], locale)
+
+    def test_removed_saved_ui_locale_falls_back_to_english(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            with patch.object(app_settings, "SETTINGS_PATH", path):
+                for locale in (
+                    "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU",
+                    "ja-JP", "pt-BR", "pt-PT",
+                ):
+                    with self.subTest(locale=locale):
+                        path.write_text(
+                            f'{{"ui_locale":"{locale}"}}', encoding="utf-8",
+                        )
+                        self.assertEqual(app_settings.load_settings()["ui_locale"], "en-GB")
 
     def test_ui_locale_preserves_chinese_for_legacy_settings_without_locale(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -102,8 +116,9 @@ class OddsAutoRefreshTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
             with patch.object(app_settings, "SETTINGS_PATH", path):
-                with self.assertRaisesRegex(ValueError, "en-GB, zh-CN, zh-TW, ko-KR, de-DE, es-ES, fr-FR, ru-RU, ja-JP, pt-BR or pt-PT"):
-                    app_settings.set_ui_locale("it-IT")
+                with self.assertRaises(ValueError) as context:
+                    app_settings.set_ui_locale("zh-TW")
+                self.assertEqual(str(context.exception), "ui locale must be en-GB or zh-CN")
 
     def test_frontend_exposes_all_interval_options(self) -> None:
         source = (ROOT / "web" / "app.js").read_text(encoding="utf-8")

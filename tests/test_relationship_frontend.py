@@ -101,7 +101,7 @@ def test_relationship_frontend_uses_scoped_single_page_apis():
         assert endpoint in JS
     assert "page:1, all:true" in JS
     current_renderer = JS.split("function renderRelationsPage()", 1)[1].split(
-        "function relationGraphData", 1,
+        "function updateManagedStaff", 1,
     )[0]
     assert "relations-pagination" not in current_renderer
     assert "squad_team_id:Number(state.squadTeamId" in JS
@@ -214,25 +214,22 @@ def test_2d_more_button_expands_in_the_same_scope_key():
     assert JS.count(scope_key) >= 2
 
 
-def test_relationship_room_rename_matches_212_storage_and_icon_contract():
-    assert 'localStorage.getItem("fmodd.trainingRoomNames")' in JS
-    assert 'id="training-room-rename-dialog"' in HTML
-    assert 'id="training-room-rename-form"' in HTML
-    assert 'localStorage.setItem("fmodd.trainingRoomNames",JSON.stringify(names))' in JS
-    assert 'data-relationship-room-rename' in JS
-    assert 'data-lucide="pencil"' in JS
-    assert '${room.name} ${roomNumber} 号间' in JS
+def test_team_training_rooms_have_no_rename_or_room_numbers():
+    # Team training has one session per room; the 8F room-instance rename is gone.
+    assert 'fmodd.trainingRoomNames' not in JS
+    assert 'id="training-room-rename-dialog"' not in HTML
+    assert 'id="training-room-rename-form"' not in HTML
+    assert 'data-relationship-room-rename' not in JS
+    assert 'data-team-room="${escapeHtml(room.sku)}"' in JS
 
 
-def test_relationship_training_separates_club_and_national_candidates():
+def test_team_training_candidates_come_from_current_team_and_backend_staff_list():
+    # The archive still groups managed people; team training picks from the
+    # current team and only offers staff the backend lists as eligible.
     assert 'function relationshipTrainingManagedPeople(kind)' in JS
     assert 'rows.set(`${candidate.training_team_type}:${teamId}:${personId}`,candidate)' in JS
-    assert '[["club","俱乐部"],["national","国家队"]]' in JS
-    assert 'class="training-player-group team-group"' in JS
-    assert '.training-player-group.team-group' in CSS
-    assert "function relationshipTrainingGuidanceAllowed" in JS
-    assert "training_squad_team_id" in JS
-    assert "一线队可向下指导青训" in JS
+    assert 'room.eligible_staff_ids?.[role.key] ?? trainingData().eligible_staff_ids?.[role.key]' in JS
+    assert 'team_id:trainingCurrentTeamId()' in JS
 
 
 def test_training_archive_groups_people_by_position_and_staff_team():
@@ -308,15 +305,15 @@ def test_3d_custom_selects_keep_their_full_available_width():
     assert '.relations3d-overlay .fmodd-select { flex: 1 1 0; width: auto; min-width: 8em;' in CSS
 
 
-def test_training_room_unlock_scope_heading_matches_legacy_copy():
-    assert '"relationship.room.scope_card"' in JS
-    assert '"relationship.room.focus_hint"' in JS
+def test_team_training_has_no_unlock_copy():
+    assert '"relationship.room.unlock_action"' not in JS
+    assert '"relationship.unlock_room"' not in JS
+    assert '"training.team.per_session"' in JS
 
 
 def test_relationship_training_height_uses_chinese_label_everywhere():
     assert '=== "physical:height") return "身高"' in JS
-    assert "relationshipTrainingAttributeLabel({key:value})" in JS
-    assert "relationshipTrainingAttributeLabel(attr)" in JS
+    assert "teamTrainingAttrLabel(attr)" in JS
     assert "身高增长（≤24岁）" not in JS
 
 

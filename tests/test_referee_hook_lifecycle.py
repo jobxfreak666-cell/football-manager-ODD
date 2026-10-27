@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+import subprocess
 import threading
 from unittest.mock import MagicMock, call, patch
 
@@ -238,8 +240,20 @@ def test_frontend_and_all_locales_cover_pending_referee_activation() -> None:
     root = (Path(__file__).resolve().parents[1] / "src")
     script = (root / "web" / "app.js").read_text(encoding="utf-8")
     assert 'refereeActivationState === "pending" ? "inventory.referee_pending"' in script
-    for name in (
-        "i18n.facilities.js", "i18n.tw.js", "i18n.de.js", "i18n.es.js",
-        "i18n.fr.js", "i18n.ru.js", "i18n.ja.js", "i18n.pt-BR.js", "i18n.pt-PT.js",
-    ):
-        assert '"inventory.referee_pending"' in (root / "web" / name).read_text(encoding="utf-8")
+    probe = r'''
+const fs = require("fs"), vm = require("vm");
+const context = {window:{FMODDI18nModules:[]}};
+vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), context);
+const catalogs = context.window.FMODDI18nModules[0].messages;
+console.log(JSON.stringify(Object.fromEntries(
+  Object.entries(catalogs).map(([locale, messages]) => [locale, messages["inventory.referee_pending"]]),
+)));
+'''
+    result = subprocess.run(
+        ["node", "-e", probe, str(root / "web" / "i18n.facilities.js")],
+        check=True, capture_output=True, text=True, encoding="utf-8", timeout=10,
+    )
+    translations = json.loads(result.stdout)
+    assert set(translations) == {"en-GB", "zh-CN"}
+    for locale, message in translations.items():
+        assert isinstance(message, str) and message.strip(), locale

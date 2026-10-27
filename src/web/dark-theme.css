@@ -178,7 +178,7 @@
 :root[data-theme="dark"] :is(.odds-reading-setting button,.full-refresh-setting button,.save-account-setting button,.storage-setting #choose-storage-root) {
   background:#20362c; border-color:#3b604e; color:#8ed3b2;
 }
-:root[data-theme="dark"] :is(.cheat-actions button,.betting-limit-setting,.cheat-actions .free-shop-option) { background:var(--night-raised); border-color:#334a3f; color:#d6e3dc; }
+:root[data-theme="dark"] :is(.cheat-actions button,.betting-limit-setting,.cheat-actions .cheat-toggle-option) { background:var(--night-raised); border-color:#334a3f; color:#d6e3dc; }
 :root[data-theme="dark"] :is(.cheat-actions .danger,.storage-setting button) { background:#34211f; border-color:#6f403c; color:#ff9b92; }
 :root[data-theme="dark"] .support-setting button { background:#392f1b; border-color:#735f2f; color:#f0ce72; }
 :root[data-theme="dark"] .settings-content .author-update-note { background:#202824; color:#abb8b2; }
@@ -314,7 +314,7 @@
   .club-legacy-player-identity>div>b,.club-legacy-detail-tabs,.club-legacy-source-note,
   .club-legacy-achievement-list.after li,.club-legacy-source-pill
 ) { background:#1c2b25; border-color:#344a40; color:#a9b9b1; }
-:root[data-theme="dark"] :is(.world-club-card,.owned-club-row-card,.portfolio-person-row,.club-legacy-metric,.club-legacy-transfer-card) { box-shadow:0 8px 24px #0005; }
+:root[data-theme="dark"] :is(.world-club-card,.portfolio-person-row,.club-legacy-metric,.club-legacy-transfer-card) { box-shadow:0 8px 24px #0005; }
 :root[data-theme="dark"] :is(.world-detail-info-section h3,.club-income-report h3,.owned-club-row-identity h2,.owned-club-row-card dd,.detail-section h3,.player-detail-panel h3,.portfolio-person-row strong,.club-legacy-metric strong,.club-legacy-panel h3,.club-legacy-transfer-card strong) { color:#dceae3; }
 :root[data-theme="dark"] :is(.world-detail-info-section dt,.owned-club-row-card dt,.owned-club-row-identity span,.owned-club-row-identity small,.portfolio-person-row small,.club-legacy-metric small,.club-legacy-transfer-card small) { color:#94a79d; }
 :root[data-theme="dark"] .world-detail-profile .world-detail-acquire { background:#dcebe4; color:#124c3a; }
@@ -329,7 +329,8 @@
   border-color:#30483d;
   background:radial-gradient(1100px 420px at 88% -90px,#193329 0%,#0f1a16 60%);
 }
-:root[data-theme="dark"] .portfolio-command-deck { background:linear-gradient(180deg,#17271f,#132019); border-color:#3c6652; box-shadow:0 12px 30px #0006; }
+:root[data-theme="dark"] .portfolio-command-deck { background:#15211c; border-color:#3c6652; box-shadow:none; }
+:root[data-theme="dark"] .portfolio-command-deck .portfolio-group-title button { color:#d7efe4; }
 :root[data-theme="dark"] .portfolio-tool-content { background:#101a16; }
 :root[data-theme="dark"] :is(.club-legacy-workspace>aside,.club-legacy-workspace>aside>header,.club-legacy-curation,.club-legacy-curation-panel,.owned-manager-search-results,.owned-vision-picker-search) { background:#111c18; border-color:#34473f; }
 :root[data-theme="dark"] :is(.club-legacy-achievement-list li,.club-legacy-metric>span,.club-legacy-panel>header>span,.club-legacy-transfer-card>span) { background:#342f20; color:#e4bd61; }
@@ -648,7 +649,7 @@
   .training-relationship-summary-open,.training-room-card,.room-attr-card,
   .training-room-attr-option,.training-room-role-select,.training-room-candidate,
   .training-room-person-card,.intimacy-ranking-tab.active,.lb-stats>div,.lb-table,
-  .staff-abilities .staff-ability-empty,.training-room-rename-btn,
+  .staff-abilities .staff-ability-empty,
   .training-archive-role-empty,.training-archive-person>button
 ) { background:var(--night-surface-1); border-color:var(--night-line); color:var(--night-copy); }
 :root[data-theme="dark"] :is(
@@ -704,6 +705,9 @@
   .fmodd-confirm-actions button:hover,.portfolio-command:hover,
   .portfolio-command:focus-visible,.counseling-wheel-card-actions button:hover
 ) { background:var(--night-surface-3); border-color:#4b725f; color:#e6f2ec; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok { border-color: #c4473e; background: #c4473e; color: #fff; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-actions #fmodd-confirm-ok:hover { border-color: #a63d36; background: #a63d36; }
+:root[data-theme="dark"] .fmodd-confirm-dialog.is-danger .fmodd-confirm-brand svg { color: #ff9a92; }
 :root[data-theme="dark"] .operation-log-summary .running { background:#3a3020; border-color:#6c572b; color:#e5c979; }
 :root[data-theme="dark"] .world-acquisition-progress-track { background:#20342b; }
 :root[data-theme="dark"] .world-acquisition-progress[data-state="complete"] .world-acquisition-progress-track i { background:#65c69a; }
@@ -769,11 +773,10 @@
 :root[data-theme="dark"] .activity-page.facility-text-view .activity-scene-node span{color:#e1ece6}
 :root[data-theme="dark"] .activity-page.facility-text-view :is(.activity-scene-node b,.activity-scene-lock span){color:#94a79e}
 :root[data-theme="dark"] .activity-page.facility-text-view .activity-floor-panel{background:#111b17}
-:root[data-theme="dark"] .training-page.facility-text-view :is(.training-facility,.training-empty,.training-floor-lock){border-color:#344a3f;background:#17231e;color:#dce8e1}
+:root[data-theme="dark"] .training-page.facility-text-view :is(.training-facility,.training-empty){border-color:#344a3f;background:#17231e;color:#dce8e1}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility:hover{border-color:#55876f;background:#1d3027}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility.selected{border-color:#5aa77f;background:#1d3a2d;box-shadow:inset 3px 0 #68c99d}
 :root[data-theme="dark"] .training-page.facility-text-view .training-facility>span:last-child{color:#e1ece6}
-:root[data-theme="dark"] .training-page.facility-text-view .training-floor-lock span{color:#94a79e}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage{border-color:#344a3f;background:#111b17!important}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage-effect{border-color:#30443a;color:#dce8e1}
 :root[data-theme="dark"] .canteen-page.facility-text-view .canteen-stage-windows{background:#26362e}
@@ -788,7 +791,7 @@
   .manual-stepper button,.world-player-editor-action-row button,
   .world-player-editor-inline-action,.relations-tabs button,
   .relations-summary>button,.activity-nationality-pager>button,
-  .owned-club-row-toggle,.intelligence-refresh-button
+  .intelligence-refresh-button
 ) { background:var(--night-surface-1); border-color:var(--night-line); color:var(--night-copy); }
 :root[data-theme="dark"] :is(
   .panel-heading-actions .refresh-button:hover,.fund-options button:hover,.results-button:hover,
@@ -796,7 +799,6 @@
   .bank-statement-state button:hover,.manual-stepper button:hover:not(:disabled),
   .world-player-editor-action-row button:hover,.world-player-editor-inline-action:hover,
   .relations-summary>button:hover,.activity-nationality-pager>button:hover,
-  .owned-club-row-toggle:hover,.owned-club-row-toggle:focus-visible,
   .intelligence-refresh-button:hover
 ) { background:var(--night-surface-3); border-color:#4b725f; color:#e6f2ec; }
 :root[data-theme="dark"] :is(.manual-stepper button:disabled,.owned-club-row-actions>button:only-child:disabled) {
@@ -812,7 +814,7 @@
   .bank-statement-dialog-content,.bank-statement-month,.manager-switcher,
   .analysis-range-summary,.betting-championship-content,.manual-rule-note,
   .detail-loading-state,.detail-error-state,.activity-roster-group-section>header,
-  .credit-default-details summary,.training-floor-panel,.owned-manager-summary span,
+  .credit-default-details summary,.owned-manager-summary span,
   .world-player-editor-action-row input,.world-player-editor-action-row select,
   .activity-panel-head-aside>span,.intelligence-card-body,.training-archive-dialog,
   .relations-summary>div,.relations-card-head,.intimacy-ranking-dialog,
@@ -842,17 +844,29 @@
 }
 
 /* Portfolio cards have light child gradients that otherwise override the dark card. */
+:root[data-theme="dark"] .owned-club-row-card { background:#15211c; box-shadow:none; }
 :root[data-theme="dark"] .owned-club-row-identity {
-  background:linear-gradient(180deg,#192820,#14211b); border-color:var(--night-line-soft);
+  background:#15211c; border-color:var(--night-line-soft);
 }
-:root[data-theme="dark"] .owned-club-row-form {
-  background:linear-gradient(180deg,#14211b,#192820);
+:root[data-theme="dark"] .owned-club-row-form { background:transparent; }
+:root[data-theme="dark"] .owned-club-row-actions .owned-club-row-view {
+  background:#2f7d5e; border-color:#2f7d5e; color:#fff;
+}
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-win { background:#2f8a59; color:#fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-draw { background:#66726d; color:#fff; }
+:root[data-theme="dark"] .owned-club-row-form > div > .world-form-loss { background:#c4473e; color:#fff; }
+:root[data-theme="dark"] .owned-club-row-sell {
+  background:transparent; border-color:#c4473e; color:#ff9a92;
+}
+:root[data-theme="dark"] .owned-club-row-sell:disabled {
+  background:transparent; border-color:#6a4541; color:#c9a29e; opacity:1;
 }
 :root[data-theme="dark"] .owned-club-order-controls {
   background:var(--night-surface-2); border-color:var(--night-line); color:var(--night-copy-muted);
 }
 :root[data-theme="dark"] .owned-club-row-suspended { background:#24251d; border-color:#57513a; }
 :root[data-theme="dark"] .owned-club-row-suspended .owned-club-row-metrics div { background:#29291f; }
+:root[data-theme="dark"] .my-club-grid>.owned-club-row-card>dl.owned-club-row-metrics>div:nth-child(n+7) { background: transparent; }
 
 /* Semantic chips keep their meaning without using near-white tints. */
 :root[data-theme="dark"] .world-form-win { background:#1c3b2d; color:#78d0a7; }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import unittest
 from contextlib import nullcontext
+from pathlib import Path
 from unittest.mock import patch
 
 from conftest import legacy_web_source
@@ -292,9 +293,10 @@ class PendingResultSearchTests(unittest.TestCase):
         self.assertIn("可选择手动退款", response["message"])
 
     def test_frontend_replaces_overdue_pending_status_with_search_button(self) -> None:
+        source_root = Path(__file__).resolve().parents[1] / "src"
         script = legacy_web_source("web/app.js")
-        stylesheet = open("web/app.css", encoding="utf-8").read()
-        server = open("fm_odds_web.py", encoding="utf-8").read()
+        stylesheet = (source_root / "web" / "app.css").read_text(encoding="utf-8")
+        server = (source_root / "fm_odds_web.py").read_text(encoding="utf-8")
 
         self.assertIn("elapsedDays >= waitDays;", script)
         self.assertIn('"result_search_wait_days": RESULT_SEARCH_WAIT_DAYS', server)

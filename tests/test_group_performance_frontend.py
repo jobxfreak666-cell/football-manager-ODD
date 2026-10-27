@@ -19,7 +19,7 @@ def run_js(source):
         pytest.skip("Node.js is required for the isolated frontend harness")
     result = subprocess.run(
         [node, "-"], input="const assert = require('node:assert/strict');\n" + source,
-        capture_output=True, text=True, timeout=15,
+        capture_output=True, text=True, encoding="utf-8", timeout=15,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

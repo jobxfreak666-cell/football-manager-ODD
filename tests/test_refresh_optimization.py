@@ -6,7 +6,7 @@ import textwrap
 import unittest
 import inspect
 import struct
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
@@ -1455,6 +1455,10 @@ class RefreshOptimizationTests(unittest.TestCase):
 
         with (
             patch("fm_odds_web.set_active_save_id"),
+            patch("fm_odds_web.load_document", side_effect=AssertionError(
+                "refresh probe must not access account documents",
+            )) as account_documents,
+            patch("fm_odds_web.load_hidden_competition_ids", return_value=[]),
             patch("fm_odds_web.remember_active_save_id"),
             patch.object(state, "_data_scope_id", return_value="account-1"),
             patch.object(state, "_assign_account_scope"),
@@ -1500,6 +1504,7 @@ class RefreshOptimizationTests(unittest.TestCase):
         })
         read_club.assert_not_called()
         save_odds_mock.assert_not_called()
+        account_documents.assert_not_called()
 
     def test_refresh_trace_records_stages_memory_lock_and_completion(self):
         state = self._state(verified=True)
@@ -1941,7 +1946,6 @@ class RefreshOptimizationTests(unittest.TestCase):
     def test_disabled_championship_skips_extra_team_profiles_and_market_work(self):
         generator_source = inspect.getsource(preview_cup_odds.generate_all_odds)
         refresh_source = inspect.getsource(LocalOddsState._refresh_worker)
-        result_source = inspect.getsource(LocalOddsState._result_refresh_worker)
 
         profile_block = generator_source.rsplit(
             "if championship_enabled:", 1,
@@ -1951,8 +1955,91 @@ class RefreshOptimizationTests(unittest.TestCase):
         self.assertEqual(
             refresh_source.count("championship_enabled=championship_enabled"), 2,
         )
-        self.assertIn("if championship_enabled:", refresh_source)
-        self.assertIn("if not championship_enabled:", result_source)
+
+    def test_disabled_championship_skips_markets_unless_bets_are_pending(self):
+        fixture = {
+            "fixture_date": "2028-06-07", "competition_id": 100,
+            "home": {"id": 10}, "away": {"id": 20},
+        }
+
+        for pending_championship_bets in (False, True):
+            with self.subTest(pending_championship_bets=pending_championship_bets):
+                state = self._state(verified=True, data_version=7)
+                state.memory_lock = threading.Lock()
+                state.refreshing = True
+                state.refresh_mode = "fast"
+                state.refresh_reason = "manual_fast"
+                state.refresh_cancel_on_clock_change = True
+                state.club_refreshing = False
+                cancel_event = threading.Event()
+                state.refresh_cancel_event = cancel_event
+                state.output = {
+                    "save_instance_id": "save-123", "game_date": "2028-06-06",
+                    "odds_scope": "all", "odds_days": 14,
+                    "model_version": MODEL_VERSION, "matches": [fixture],
+                }
+                output = dict(state.output)
+
+                def cancel_after_result_settlement(*_args, **_kwargs):
+                    cancel_event.set()
+                    return {
+                        "settled": 0, "settled_records": [], "returned": 0.0,
+                    }
+
+                with (
+                    patch("fm_odds_web.set_active_save_id"),
+                    patch("fm_odds_web.load_document", side_effect=AssertionError(
+                        "refresh probe must not access account documents",
+                    )) as account_documents,
+                    patch("fm_odds_web.load_hidden_competition_ids", return_value=[]),
+                    patch.object(state, "_data_scope_id", return_value="account-1"),
+                    patch.object(state, "_settle_results_before_refresh", return_value={
+                        "settled": 0, "settled_records": [], "returned": 0.0,
+                    }),
+                    patch.object(state, "_assign_account_scope"),
+                    patch.object(state, "_apply_unemployed_confirmation_state"),
+                    patch.object(state, "_finalize_settlement"),
+                    patch("fm_odds_web.load_settings", return_value={
+                        "odds_days": 14, "odds_scope": "all",
+                        "championship_enabled": False,
+                    }),
+                    patch(
+                        "fm_odds_web.has_pending_championship_bets",
+                        return_value=pending_championship_bets,
+                    ),
+                    patch("fm_odds_web.generate_all_odds", return_value=output) as generate,
+                    patch("fm_odds_web.prepare_early_market_prices"),
+                    patch("fm_odds_web.attach_historical_market_snapshots"),
+                    patch("fm_odds_web.remember_active_save_id"),
+                    patch("fm_odds_web.result_payload", return_value=[]),
+                    patch(
+                        "fm_odds_web.settle_pending_bets",
+                        side_effect=cancel_after_result_settlement,
+                    ),
+                    patch(
+                        "fm_odds_web.publish_championship_markets",
+                        return_value=({"competitions": []}, False),
+                    ) as publish_markets,
+                    patch("fm_odds_web.settle_championship_bets", return_value={
+                        "settled": 0, "settled_records": [], "returned": 0.0,
+                    }) as settle_championship,
+                ):
+                    state._refresh_worker("manual_fast", "fast", False, cancel_event)
+
+                account_documents.assert_not_called()
+                self.assertTrue(cancel_event.is_set())
+                self.assertIsNone(state.error, state.last_refresh_traceback)
+                self.assertEqual(state.status, "游戏时间变化，已停止刷新")
+                self.assertEqual(
+                    generate.call_args.kwargs["championship_enabled"],
+                    pending_championship_bets,
+                )
+                if pending_championship_bets:
+                    publish_markets.assert_called_once()
+                    settle_championship.assert_called_once()
+                else:
+                    publish_markets.assert_not_called()
+                    settle_championship.assert_not_called()
 
     def test_disabled_championship_rejects_bets_before_payload_validation(self):
         state = LocalOddsState.__new__(LocalOddsState)
@@ -2029,38 +2116,67 @@ class RefreshOptimizationTests(unittest.TestCase):
             current["championship_markets"] = markets
             return markets, False
 
-        with (
-            patch.object(state, "_due_existing_result_keys", return_value=set()),
-            patch.object(state, "_merge_light_results", return_value=(updated, 1)),
-            patch.object(state, "_finalize_settlement"),
-            patch("fm_odds_web.read_game_clock", return_value={"date": "2028-06-06", "minutes": 0}),
-            patch("fm_odds_web.pending_due_result_keys", return_value=set()),
-            patch("fm_odds_web.settled_missing_half_score_keys", return_value=set()),
-            patch(
+        with ExitStack() as patches:
+            patches.enter_context(patch.object(
+                state, "_due_existing_result_keys", return_value=set(),
+            ))
+            patches.enter_context(patch.object(
+                state, "_merge_light_results", return_value=(updated, 1),
+            ))
+            patches.enter_context(patch.object(state, "_finalize_settlement"))
+            patches.enter_context(patch(
+                "fm_odds_web.read_game_clock",
+                return_value={"date": "2028-06-06", "minutes": 0},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.pending_due_result_keys", return_value=set(),
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.settled_missing_half_score_keys", return_value=set(),
+            ))
+            patches.enter_context(patch(
                 "fm_odds_web.pending_cup_final_result_keys",
                 return_value={final_key},
-            ),
-            patch("fm_odds_web.pending_result_fixture_hints", return_value={}),
-            patch("fm_odds_web.probe_live_completed_results", return_value={"results": []}),
-            patch(
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.pending_result_fixture_hints", return_value={},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.probe_live_completed_results",
+                return_value={"results": []},
+            ))
+            recover_mock = patches.enter_context(patch(
                 "fm_odds_web.read_completed_results", return_value=[final_result],
-            ) as recover_mock,
-            patch("fm_odds_web.settle_pending_bets", return_value={
+            ))
+            patches.enter_context(patch("fm_odds_web.settle_pending_bets", return_value={
                 "settled": 0, "returned": 0.0, "settled_records": [],
-            }),
-            patch("fm_odds_web.load_settings", return_value={"championship_enabled": True}),
-            patch("fm_odds_web.publish_championship_markets", side_effect=publish) as publish_mock,
-            patch("fm_odds_web.settle_championship_bets", return_value={
-                "settled": 1, "returned": 400.0,
-                "settled_records": [championship_record],
-            }) as settle_mock,
-            patch("fm_odds_web.archive_winning_mail") as archive_mock,
-            patch("fm_odds_web.attach_historical_market_snapshots") as attach_snapshots,
-            patch("fm_odds_web.save_odds"),
-            patch("fm_odds_web.cache_data_root", return_value=Path("cache")),
-            patch("fm_odds_web.set_active_save_id"),
-            patch("fm_odds_web.sleep"),
-        ):
+            }))
+            patches.enter_context(patch(
+                "fm_odds_web.load_settings",
+                return_value={"championship_enabled": False},
+            ))
+            patches.enter_context(patch(
+                "fm_odds_web.has_pending_championship_bets", return_value=True,
+            ))
+            publish_mock = patches.enter_context(patch(
+                "fm_odds_web.publish_championship_markets", side_effect=publish,
+            ))
+            settle_mock = patches.enter_context(patch(
+                "fm_odds_web.settle_championship_bets", return_value={
+                    "settled": 1, "returned": 400.0,
+                    "settled_records": [championship_record],
+                },
+            ))
+            archive_mock = patches.enter_context(patch("fm_odds_web.archive_winning_mail"))
+            attach_snapshots = patches.enter_context(patch(
+                "fm_odds_web.attach_historical_market_snapshots",
+            ))
+            patches.enter_context(patch("fm_odds_web.save_odds"))
+            patches.enter_context(patch(
+                "fm_odds_web.cache_data_root", return_value=Path("cache"),
+            ))
+            patches.enter_context(patch("fm_odds_web.set_active_save_id"))
+            patches.enter_context(patch("fm_odds_web.sleep"))
             state._result_refresh_worker(cancel_event, "test")
 
         publish_mock.assert_called_once()
@@ -2135,6 +2251,9 @@ class RefreshOptimizationTests(unittest.TestCase):
             }) as probe,
             patch("fm_odds_web.settle_pending_bets", return_value=settlement) as settle,
             patch("fm_odds_web.load_settings", return_value={"championship_enabled": False}),
+            patch("fm_odds_web.has_pending_championship_bets", return_value=False),
+            patch("fm_odds_web.publish_championship_markets") as publish_championship,
+            patch("fm_odds_web.settle_championship_bets") as settle_championship,
             patch("fm_odds_web.process_salary_payments", return_value={
                 "paid": 0, "amount": 0.0,
             }),
@@ -2150,6 +2269,11 @@ class RefreshOptimizationTests(unittest.TestCase):
             trusted_same_day_keys={key},
             void_missing_after_timeout=False,
         )
+        publish_championship.assert_not_called()
+        settle_championship.assert_not_called()
+        self.assertIsNone(state.error)
+        self.assertEqual(state.last_result_refresh_date, "2028-06-07")
+        self.assertEqual(state.status, "赛果已更新 0 场，结算 0 笔")
 
     def test_public_match_output_does_not_duplicate_championship_snapshot(self):
         output = {
@@ -3352,6 +3476,10 @@ class RefreshOptimizationTests(unittest.TestCase):
             patch("fm_odds_web.set_active_save_id"),
             patch.object(state, "_settle_results_before_refresh", return_value={"settled": 0}),
             patch("fm_odds_web.load_settings", return_value={"odds_days": 14, "odds_scope": "all"}),
+            patch("fm_odds_web.load_document", side_effect=AssertionError(
+                "refresh probe must not access account documents",
+            )) as account_documents,
+            patch("fm_odds_web.load_hidden_competition_ids", return_value=[]),
             patch("fm_odds_web.generate_all_odds", return_value=empty),
         ):
             state._refresh_worker("manual_fast", "fast", False, cancel_event)
@@ -3364,6 +3492,7 @@ class RefreshOptimizationTests(unittest.TestCase):
         self.assertEqual(state.last_refresh_error_stage, "validate_snapshot")
         self.assertIn("_refresh_worker", state.last_refresh_traceback)
         self.assertIn("盘口读取结果异常为空", state.last_refresh_traceback)
+        account_documents.assert_not_called()
 
     def test_completed_same_day_result_requires_fixture_to_disappear(self):
         fixture = {
@@ -4516,7 +4645,7 @@ class RefreshOptimizationTests(unittest.TestCase):
             patch("fm_odds_web.active_effect_skus", return_value=[]),
             patch("fm_odds_web.active_doping_items", return_value=[]),
             patch("fm_odds_web.active_goalkeeper_bribes", return_value=[]),
-            patch("fm_odds_web.active_referee_level", return_value=0),
+            patch("tools.club_economy.active_referee_level", return_value=0),
             patch("fm_odds_web.canteen_plan", return_value=None),
             patch(
                 "fm_odds_web.read_match_engine_state",
@@ -4680,9 +4809,17 @@ class RefreshOptimizationTests(unittest.TestCase):
     @staticmethod
     def _attribute_training_state() -> LocalOddsState:
         state = RefreshOptimizationTests._state(verified=True)
+        state.output["managed_teams"] = [{
+            "id": 100, "name": "测试队", "address": "0xteam",
+            "team_type": "club",
+        }]
         state.club_profile = None
         state.club_profiles = {
             100: {
+                "team": {
+                    "id": 100, "name": "测试队", "address": "0xteam",
+                    "team_type": "club",
+                },
                 "players": [{
                     "id": 10, "name": "A", "address": "0x1234",
                     "attributes": {"身体": {"速度": 17}}, "ca": 150, "pa": 180,
@@ -4779,13 +4916,24 @@ class RefreshOptimizationTests(unittest.TestCase):
         state.output["game_date"] = "2026-07-26"
         player = state.club_profiles[100]["players"][0]
         player["attributes"] = {"身体": {"速度": 10}}
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [],
+        }
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.assert_training_available",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
                 return_value=(
                     {"id": "facility-1", "sku": "treadmill"},
-                    {"attributes": ["身体:速度"], "session_fee": 0},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
                 ),
             ),
             patch(
@@ -4796,15 +4944,26 @@ class RefreshOptimizationTests(unittest.TestCase):
                     "model": "fm24-verified", "verified": True,
                 },
             ),
-            patch("fm_odds_web.record_training_focus") as record,
+            patch.object(
+                state, "_prepare_training_payment",
+                return_value=(
+                    {"bank": 0.0, "wallet": 0.0, "total": 0.0}, None, [],
+                ),
+            ),
+            patch("fm_odds_web.build_training_focus") as build,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
         ):
             with self.assertRaisesRegex(ValueError, "可能触发属性重新分配"):
                 state.training_run({
-                    "facility_id": "facility-1", "player_id": 10,
+                    "project_sku": "treadmill", "player_id": 10,
                     "operation": "attribute", "attribute_key": "身体:速度",
                     "duration_mode": "until_increase", "free_purchase": True,
+                    "client_submission_id": "ca-risk-a",
                 })
-        record.assert_not_called()
+        build.assert_not_called()
+        commit.assert_not_called()
 
     def test_training_run_persists_confirmed_ca_over_pa_risk(self):
         state = self._attribute_training_state()
@@ -4813,16 +4972,32 @@ class RefreshOptimizationTests(unittest.TestCase):
         state.attribute_growth_hook.status = MagicMock(return_value={"installed": False})
         player = state.club_profiles[100]["players"][0]
         player["attributes"] = {"身体": {"速度": 10}}
-        focus = {"id": "focus-1", "multiplier": 3, "expires_on": None,
-                 "duration_mode": "until_increase", "duration_days": None,
-                 "required_points": 14, "progress_points": 0}
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [],
+        }
+        focus = {
+            "id": "focus-1", "multiplier": 3, "expires_on": None,
+            "duration_mode": "until_increase", "duration_days": None,
+            "required_points": 14, "progress_points": 0,
+            "focus_type": "attribute", "status": "active", "player_id": 10,
+            "project_sku": "treadmill", "module": "player_training",
+        }
+        session = {"id": "session-1", "focus_id": "focus-1"}
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.assert_training_available",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
                 return_value=(
                     {"id": "facility-1", "sku": "treadmill"},
-                    {"attributes": ["身体:速度"], "session_fee": 0},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
                 ),
             ),
             patch(
@@ -4833,53 +5008,86 @@ class RefreshOptimizationTests(unittest.TestCase):
                     "model": "fm24-verified", "verified": True,
                 },
             ),
+            patch.object(
+                state, "_prepare_training_payment",
+                return_value=(
+                    {"bank": 0.0, "wallet": 0.0, "total": 0.0}, None, [],
+                ),
+            ),
             patch(
-                "fm_odds_web.record_training_focus",
-                return_value=(focus, {"id": "session-1"}),
-            ) as record,
+                "fm_odds_web.build_training_focus",
+                return_value=(focus, session),
+            ) as build,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
             patch("fm_odds_web.public_training_ground", return_value={}),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
             response = state.training_run({
-                "facility_id": "facility-1", "player_id": 10,
+                "project_sku": "treadmill", "player_id": 10,
                 "operation": "attribute", "attribute_key": "身体:速度",
                 "duration_mode": "until_increase", "free_purchase": True,
+                "client_submission_id": "ca-risk-b",
                 "confirm_ca_over_pa": True,
             })
 
-        record.assert_called_once_with(
-            "facility-1", 10, "A", "2026-07-26", "身体:速度", 0x35,
-            "until_increase", 10, allow_ca_over_pa=True,
-            attribute_kind="visible", direction=1,
-            player_address="0x1234", player_team_id=None,
-            player_team_name=None, player_team_type="club",
+        build.assert_called_once()
+        self.assertTrue(build.call_args.kwargs["allow_ca_over_pa"])
+        commit.assert_called_once()
+        self.assertEqual(
+            response["training_ground"]["growth_hook"],
+            {"installed": False, "error": None},
         )
-        self.assertEqual(response["training_ground"]["growth_hook"], {"installed": False})
 
     def test_training_run_retry_returns_existing_submission_without_charge(self):
         state = self._attribute_training_state()
         state.memory_lock = threading.RLock()
         state.output["game_date"] = "2026-07-26"
         state.attribute_growth_hook.status = MagicMock(return_value={"installed": False})
+        training_document = {
+            "schema_version": 12, "task_rules_version": 1,
+            "focuses": [], "sessions": [], "facilities": [],
+            "history": [],
+        }
         focus = {
             "id": "focus-1", "focus_type": "attribute", "status": "active",
-            "facility_id": "facility-1", "player_id": 10,
-            "attribute_key": "身体:速度", "duration_mode": "until_increase",
+            "task_rules_version": 1, "project_sku": "treadmill",
+            "module": "player_training", "facility_id": "facility-1",
+            "player_id": 10, "attribute_key": "身体:速度",
+            "duration_mode": "until_increase", "attribute_kind": "visible",
+            "direction": 1,
+            "payment": {"bank": 0.0, "wallet": 0.0, "total": 0.0},
         }
         session = {"id": "session-1", "focus_id": "focus-1"}
         with (
             patch.object(state, "_bind_current_save"),
             patch(
-                "fm_odds_web.find_training_submission",
+                "fm_odds_web.load_training_ground",
+                return_value=training_document,
+            ),
+            patch(
+                "fm_odds_web.training_project_for_request",
+                return_value=(
+                    {"id": "facility-1", "sku": "treadmill"},
+                    {"price": 800000.0, "attributes": ["身体:速度"],
+                     "scene": "indoor"},
+                    "player_training",
+                ),
+            ),
+            patch(
+                "fm_odds_web.find_training_submission_in",
                 return_value=(focus, session),
             ),
-            patch("fm_odds_web.assert_training_available") as available,
-            patch("fm_odds_web.charge_combined_funds") as charge,
+            patch.object(state, "_prepare_training_payment") as prepare,
+            patch(
+                "fm_odds_web.commit_documents_with_wallet_adjustments",
+            ) as commit,
             patch("fm_odds_web.public_training_ground", return_value={}),
             patch("fm_odds_web.public_economy", return_value={}),
         ):
             response = state.training_run({
-                "facility_id": "facility-1", "player_id": 10,
+                "project_sku": "treadmill", "player_id": 10,
                 "operation": "attribute", "attribute_key": "身体:速度",
                 "duration_mode": "until_increase",
                 "client_submission_id": "training-request-1",
@@ -4887,8 +5095,8 @@ class RefreshOptimizationTests(unittest.TestCase):
 
         self.assertTrue(response["duplicate"])
         self.assertEqual(response["focus"]["id"], "focus-1")
-        available.assert_not_called()
-        charge.assert_not_called()
+        prepare.assert_not_called()
+        commit.assert_not_called()
 
     def test_until_20_attribute_training_advances_without_releasing_focus(self):
         state = self._attribute_training_state()

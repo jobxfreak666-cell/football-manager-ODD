@@ -22,7 +22,6 @@ def economy_state(*, owned=None, facilities=None, balance=0.0):
         "activity_daily_usage": {},
         "activity_history": [],
         "psychological_counseling": {},
-        "free_services": False,
         "medical_treatments": {},
     }
 
@@ -194,7 +193,7 @@ def test_international_activity_uses_verified_save_identity_for_world_scan_cache
     with (
         patch("fm_odds_web.assert_activity_centre_unlocked"),
         patch("fm_odds_web.read_game_clock", return_value={"date": "2028-01-01"}),
-        patch("fm_odds_web.free_services_enabled", return_value=True),
+        patch("fm_odds_web.charge_combined_funds", return_value={"bank": 0.0, "wallet": 0.0, "total": 0.0}),
         patch("fm_odds_web.update_world_player_primary_nationality", return_value={
             "player_id": 42, "before_nation_id": 7, "nation_id": 9, "changed": True,
         }),
@@ -281,7 +280,6 @@ def test_international_activity_charges_server_price_per_player(scope, expected_
         patch("fm_odds_web.assert_activity_centre_unlocked"),
         patch("fm_odds_web.read_world_player_profile", return_value=player),
         patch("fm_odds_web.read_game_clock", return_value={"date": "2028-01-01"}),
-        patch("fm_odds_web.free_services_enabled", return_value=False),
         patch("fm_odds_web.local_purchase_price", side_effect=float),
         patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
         patch("fm_odds_web.update_world_player_primary_nationality", return_value={
@@ -327,7 +325,6 @@ def test_international_activity_refunds_when_native_write_fails():
     with (
         patch("fm_odds_web.assert_activity_centre_unlocked"),
         patch("fm_odds_web.read_game_clock", return_value={"date": "2028-01-01"}),
-        patch("fm_odds_web.free_services_enabled", return_value=False),
         patch("fm_odds_web.local_purchase_price", side_effect=float),
         patch("fm_odds_web.charge_combined_funds", return_value=payment),
         patch("fm_odds_web.update_world_player_primary_nationality", side_effect=RuntimeError("write failed")),
@@ -367,7 +364,6 @@ def test_international_activity_refunds_after_history_rollback():
     with (
         patch("fm_odds_web.assert_activity_centre_unlocked"),
         patch("fm_odds_web.read_game_clock", return_value={"date": "2028-01-01"}),
-        patch("fm_odds_web.free_services_enabled", return_value=False),
         patch("fm_odds_web.local_purchase_price", side_effect=float),
         patch("fm_odds_web.charge_combined_funds", return_value=payment),
         patch("fm_odds_web.apply_player_second_nationality", return_value=native_result),
@@ -473,8 +469,7 @@ def test_talk_room_activities_share_the_same_floor_cooldown():
     save.assert_called_once_with(state)
 
 
-def test_psychological_counseling_paid_unlock_charges_100k_and_forces_clear():
-    economy = economy_state(owned=("talk_room",), balance=100_000)
+def _counseling_host():
     state = object.__new__(LocalOddsState)
     state.memory_lock = threading.RLock()
     state.lock = threading.RLock()
@@ -490,35 +485,95 @@ def test_psychological_counseling_paid_unlock_charges_100k_and_forces_clear():
     profile = {"team": {"id": 3, "address": "0x3000"}}
     state._bind_current_save = MagicMock()
     state._live_player_profile = MagicMock(return_value=(profile, player))
-    payment = {"bank": 100_000.0, "wallet": 0.0, "total": 100_000.0}
+    state._archive_activity_relationship = MagicMock(return_value=None)
+    return state, player
+
+
+def _run_counseling(tmp_path, wallet_balance, *, apply_side_effect=None):
+    from tools import betting_account
+    from tools.money import write_minor
+
+    bank = 5_000_000.0
+    economy = economy_state(owned=("talk_room",), balance=bank)
+    state, player = _counseling_host()
     native_effect = {
         "field": "psychological_counseling",
         "effects": [{"field": "unhappiness", "before": True, "after": False}],
         "_restores": [(0x4000, b"original")],
     }
-
     with (
+        patch("tools.betting_account.save_data_root", return_value=tmp_path),
         patch.object(club_economy, "load_economy", return_value=economy),
         patch.object(club_economy, "save_economy"),
         patch("fm_odds_web.read_game_clock", return_value={"date": "2028-01-01"}),
         patch("fm_odds_web.player_has_unhappiness", return_value=True),
-        patch("fm_odds_web.free_services_enabled", return_value=False),
         patch("fm_odds_web.local_purchase_price", side_effect=float),
-        patch("fm_odds_web.charge_combined_funds", return_value=payment) as charge,
-        patch("fm_odds_web.apply_psychological_counseling_effect", return_value=native_effect),
-        patch("fm_odds_web.public_economy", return_value={"bank_balance": 0}),
+        patch("fm_odds_web.charge_combined_funds") as combined,
+        patch(
+            "fm_odds_web.apply_psychological_counseling_effect",
+            return_value=native_effect, side_effect=apply_side_effect,
+        ) as apply_effect,
+        patch("fm_odds_web.restore_player_activity_effect"),
+        patch("fm_odds_web.public_economy", return_value={}),
         patch("fm_odds_web.welfare_status", return_value={}),
     ):
-        response = state.psychological_counseling({
-            "player_id": 2, "team_id": 3, "guaranteed": True,
-        })
+        wallet = betting_account.load_wallet()
+        write_minor(wallet, "balance", to_minor_value(wallet_balance))
+        betting_account.save_wallet(wallet)
+        outcome = {"response": None, "error": None}
+        try:
+            outcome["response"] = state.psychological_counseling({"player_id": 2, "team_id": 3})
+        except Exception as error:  # surfaced to the caller for assertions
+            outcome["error"] = error
+        outcome["wallet_after"] = betting_account.available_balance()
+    outcome.update(
+        bank_after=float(economy["general_balance"]), player=player,
+        combined=combined, apply_effect=apply_effect,
+    )
+    return outcome
 
-    charge.assert_called_once()
-    assert charge.call_args.args[:2] == (100_000.0, "psychological_counseling_unlock")
-    assert response["counseling"]["outcome"] == "unlocked"
-    assert response["counseling"]["guaranteed"] is True
-    assert response["counseling"]["payment"] == payment
-    assert player["has_unhappiness"] is False
+
+def to_minor_value(amount):
+    from tools.money import to_minor
+    return to_minor(amount)
+
+
+def test_psychological_counseling_always_relieves_and_charges_wallet_only(tmp_path):
+    price = club_economy.PSYCHOLOGICAL_COUNSELING_SESSION_PRICE
+    assert price == 100_000.0
+    for _ in range(5):
+        run = _run_counseling(tmp_path, 250_000.0)
+        assert run["error"] is None
+        counseling = run["response"]["counseling"]
+        assert counseling["outcome"] == "unlocked"
+        assert counseling["outcome_name"] == "彻底释怀"
+        assert counseling["payment"] == {"bank": 0.0, "wallet": price, "total": price}
+        assert "guaranteed" not in counseling
+        assert run["wallet_after"] == 250_000.0 - price
+        assert run["bank_after"] == 5_000_000.0
+        run["combined"].assert_not_called()
+        assert run["player"]["has_unhappiness"] is False
+
+
+def test_psychological_counseling_blocks_when_wallet_below_price(tmp_path):
+    run = _run_counseling(tmp_path, 99_999.99)
+    assert isinstance(run["error"], ValueError)
+    assert "余额不足" in str(run["error"])
+    assert run["wallet_after"] == 99_999.99
+    assert run["bank_after"] == 5_000_000.0
+    run["apply_effect"].assert_not_called()
+    run["combined"].assert_not_called()
+    assert run["player"]["has_unhappiness"] is True
+
+
+def test_psychological_counseling_refunds_wallet_when_game_write_fails(tmp_path):
+    run = _run_counseling(
+        tmp_path, 150_000.0, apply_side_effect=RuntimeError("write failed"),
+    )
+    assert isinstance(run["error"], RuntimeError)
+    assert run["wallet_after"] == 150_000.0
+    assert run["bank_after"] == 5_000_000.0
+    run["combined"].assert_not_called()
 
 
 def test_failed_native_activity_can_restore_reserved_floor_cooldown():

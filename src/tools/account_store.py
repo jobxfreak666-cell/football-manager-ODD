@@ -3,6 +3,7 @@ from __future__ import annotations
 import gzip
 import json
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -435,6 +436,21 @@ def _migrate_legacy(
     return payload
 
 
+@contextmanager
+def locked_account(
+    scope_id: str | None = None, *, key: str = "", legacy_path: Path | None = None,
+):
+    """Serialize a caller's reads, validation and explicit commit for one account.
+
+    Keep the same lock order as the document helpers; both locks are reentrant
+    so existing loaders and the final multi-document save can be used inside.
+    """
+    with _LOCK:
+        path, _legacy_root = _storage_paths(scope_id, key, legacy_path)
+        with storage_lock(path):
+            yield
+
+
 def load_container(
     scope_id: str | None = None, *, key: str = "", legacy_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -472,6 +488,22 @@ def load_document(
                 )
             )
         return deepcopy(payload["documents"].get(str(key), default))
+
+
+def read_persisted_document(
+    key: str, scope_id: str | None = None, *, legacy_path: Path | None = None,
+) -> Any:
+    """Read only the current primary file, without cache, recovery or migration.
+
+    Missing, unreadable or invalid primary data raises; a backup or cached
+    document is never evidence of the outcome of a particular disk commit.
+    The decoded document is private and this read does not update the cache.
+    """
+    with _LOCK:
+        path, _legacy_root = _storage_paths(scope_id, key, legacy_path)
+        with storage_lock(path):
+            payload = _decode_container(path, path.read_bytes())
+            return payload["documents"][str(key)]
 
 
 def update_document(

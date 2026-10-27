@@ -122,9 +122,15 @@ def test_unambiguous_name_parts_are_combined_for_unknown_uid(tmp_path: Path):
     )
     profile = {"players": [{"id": 999, "name": "Terrence Boyd"}]}
 
-    with patch(
-        "tools.player_name_localization._player_name_xml_paths",
-        return_value=(source,),
+    with (
+        patch(
+            "tools.player_name_localization._active_game_identity",
+            return_value=None,
+        ),
+        patch(
+            "tools.player_name_localization._player_name_xml_paths",
+            return_value=(source,),
+        ),
     ):
         apply_installed_player_names(profile)
 
@@ -133,7 +139,8 @@ def test_unambiguous_name_parts_are_combined_for_unknown_uid(tmp_path: Path):
 
 def test_exact_name_guess_is_last_resort_and_preserves_game_name():
     profile = {"players": [{"id": 999, "name": "Deinner Ordóñez"}]}
-    apply_installed_player_names(profile)
+    with patch("tools.player_name_localization._active_game_identity", return_value=None):
+        apply_installed_player_names(profile)
     assert profile["players"][0]["name"] == "戴内尔·奥尔多涅斯"
     assert profile["players"][0]["game_name"] == "Deinner Ordóñez"
 
@@ -145,7 +152,8 @@ def test_generic_phonetic_fallback_covers_unmatched_multisegment_names():
             {"id": 1000, "name": "Xylophonic Qwertz"},
         ]
     }
-    apply_installed_player_names(profile)
+    with patch("tools.player_name_localization._active_game_identity", return_value=None):
+        apply_installed_player_names(profile)
 
     for player in profile["players"]:
         assert player["name"]
@@ -198,7 +206,8 @@ def test_unknown_japanese_name_is_not_phonetically_invented():
             "nationality": "日本", "nationality_code": "JPN",
         }]
     }
-    apply_installed_player_names(profile)
+    with patch("tools.player_name_localization._active_game_identity", return_value=None):
+        apply_installed_player_names(profile)
 
     assert profile["players"][0]["name"] == "Qyzablor Nembux"
     assert "game_name" not in profile["players"][0]

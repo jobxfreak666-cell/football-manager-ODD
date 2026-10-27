@@ -119,10 +119,7 @@ const USAGE_NOTICE_DISMISSED_UNTIL_STORAGE_KEY = "fmodd-usage-notice-dismissed-u
 const IGNORED_UPDATE_VERSION_STORAGE_KEY = "fmodd-ignored-update-version";
 const USAGE_NOTICE_DISMISS_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 const UI_LOCALE_NATIVE_NAMES = Object.freeze([
-  ["en-GB", "English"], ["zh-CN", "简体中文"], ["zh-TW", "繁體中文"],
-  ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["de-DE", "Deutsch"],
-  ["es-ES", "Español"], ["fr-FR", "Français"], ["ru-RU", "Русский"],
-  ["pt-BR", "Português (Brasil)"], ["pt-PT", "Português (Portugal)"],
+  ["en-GB", "English"], ["zh-CN", "简体中文"],
 ]);
 const DATA_PREWARM_DELAY_MS = 900;
 const DATA_PREWARM_RETRY_MS = 5000;
@@ -147,46 +144,18 @@ const FONT_OPTIONS = Object.freeze({
   fangsong: {source:"FangSong", labelKey:"settings.font.family.fangsong"},
   dengxian: {source:"DengXian", labelKey:"settings.font.family.dengxian"},
   "source-han-sans-sc": {source:'"Source Han Sans SC"', labelKey:"settings.font.family.source_han_sans_sc"},
-  pmingliu: {source:"PMingLiU", label:"PMingLiU"},
-  mingliu: {source:"MingLiU", label:"MingLiU"},
-  "dfkai-sb": {source:'"DFKai-SB"', label:"DFKai-SB"},
-  "noto-sans-tc": {source:'"Noto Sans TC"', label:"Noto Sans TC"},
-  "source-han-sans-tc": {source:'"Source Han Sans TC"', label:"Source Han Sans TC"},
-  "malgun-gothic": {source:'"Malgun Gothic"', label:"Malgun Gothic"},
-  gulim: {source:"Gulim", label:"Gulim"},
-  dotum: {source:"Dotum", label:"Dotum"},
-  batang: {source:"Batang", label:"Batang"},
-  "noto-sans-kr": {source:'"Noto Sans KR"', label:"Noto Sans KR"},
-  "arial-unicode-ms": {source:'"Arial Unicode MS"', label:"Arial Unicode MS"},
-  "yu-gothic-ui": {source:'"Yu Gothic UI"', label:"Yu Gothic UI"},
-  "meiryo-ui": {source:'"Meiryo UI"', label:"Meiryo UI"},
-  meiryo: {source:"Meiryo", label:"Meiryo"},
-  "ms-pgothic": {source:'"MS PGothic"', label:"MS PGothic"},
-  "ms-gothic": {source:'"MS Gothic"', label:"MS Gothic"},
-  "noto-sans-jp": {source:'"Noto Sans JP"', label:"Noto Sans JP"},
-  "noto-serif-jp": {source:'"Noto Serif JP"', label:"Noto Serif JP"},
   "segoe-ui": {source:'"Segoe UI"', labelKey:"settings.font.family.segoe_ui"},
   arial: {source:"Arial", labelKey:"settings.font.family.arial"},
   tahoma: {source:"Tahoma", labelKey:"settings.font.family.tahoma"},
   verdana: {source:"Verdana", labelKey:"settings.font.family.verdana"},
   "trebuchet-ms": {source:'"Trebuchet MS"', labelKey:"settings.font.family.trebuchet_ms"},
   "times-new-roman": {source:'"Times New Roman"', labelKey:"settings.font.family.times_new_roman"},
-  calibri: {source:"Calibri", label:"Calibri"},
 });
 const LATIN_FONT_KEYS = Object.freeze(["segoe-ui", "arial", "tahoma", "verdana", "trebuchet-ms", "times-new-roman"]);
-const CJK_FONT_LOCALES = new Set(["zh-CN", "zh-TW", "ko-KR", "ja-JP"]);
+const CJK_FONT_LOCALES = new Set(["zh-CN"]);
 const LOCALE_FONT_CONFIGS = Object.freeze({
   "en-GB": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
   "zh-CN": {selectId:"chinese-font", defaultKey:"yahei-ui", keys:["yahei-ui", "simhei", "simsun", "kaiti", "fangsong", "dengxian", "source-han-sans-sc"]},
-  "zh-TW": {selectId:"chinese-font", defaultKey:"yahei", keys:["yahei", "pmingliu", "mingliu", "dfkai-sb", "noto-sans-tc", "source-han-sans-tc"]},
-  "ko-KR": {selectId:"chinese-font", defaultKey:"malgun-gothic", keys:["malgun-gothic", "arial-unicode-ms", "gulim", "dotum", "batang", "noto-sans-kr"]},
-  "de-DE": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "es-ES": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "fr-FR": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "ru-RU": {selectId:"english-font", defaultKey:"segoe-ui", keys:["segoe-ui", "calibri", "arial", "tahoma", "verdana", "times-new-roman"]},
-  "ja-JP": {selectId:"chinese-font", defaultKey:"yu-gothic-ui", keys:["yu-gothic-ui", "meiryo-ui", "meiryo", "ms-pgothic", "ms-gothic", "noto-sans-jp", "noto-serif-jp"]},
-  "pt-BR": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
-  "pt-PT": {selectId:"english-font", defaultKey:"segoe-ui", keys:LATIN_FONT_KEYS},
 });
 // Latin fonts do not occupy the same visual height as Han glyphs at an equal
 // CSS size. Keep the selected family, but normalize its visible scale so
@@ -203,54 +172,8 @@ const FONT_SIZE_ADJUST = Object.freeze({
 function localeFontConfig(locale = activeUiLocale()) {
   return LOCALE_FONT_CONFIGS[locale] || LOCALE_FONT_CONFIGS["en-GB"];
 }
-const LOCALE_FONT_AVAILABILITY_SAMPLES = Object.freeze({
-  "ko-KR": "한글 글꼴 선택",
-  "ja-JP": "日本語フォント選択",
-});
-const localeFontAvailabilityCache = new Map();
-function fontRasterSignature(fontStack, sample) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 560;
-  canvas.height = 72;
-  const context = canvas.getContext("2d", {willReadFrequently:true});
-  if (!context) return null;
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#000";
-  context.font = `48px ${fontStack}`;
-  context.textBaseline = "top";
-  context.fillText(sample, 2, 2);
-  const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-  let hash = 2166136261;
-  for (let index = 3; index < pixels.length; index += 4) {
-    hash ^= pixels[index];
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-function localeFontIsAvailable(fontKey, locale = activeUiLocale()) {
-  const sample = LOCALE_FONT_AVAILABILITY_SAMPLES[locale];
-  if (!sample) return true;
-  const cacheKey = `${locale}:${fontKey}`;
-  if (localeFontAvailabilityCache.has(cacheKey)) return localeFontAvailabilityCache.get(cacheKey);
-  const source = FONT_OPTIONS[fontKey]?.source;
-  if (!source) return false;
-  let available = true;
-  try {
-    const comparisons = ["serif", "monospace"].map((fallback) => ({
-      fallback:fontRasterSignature(fallback, sample),
-      candidate:fontRasterSignature(`${source},${fallback}`, sample),
-    }));
-    available = comparisons.some(({fallback, candidate}) => (
-      fallback != null && candidate != null && fallback !== candidate
-    ));
-  } catch (_error) { /* keep the declared list when canvas inspection is unavailable */ }
-  localeFontAvailabilityCache.set(cacheKey, available);
-  return available;
-}
 function availableLocaleFontKeys(locale = activeUiLocale()) {
-  const config = localeFontConfig(locale);
-  const available = config.keys.filter((fontKey) => localeFontIsAvailable(fontKey, locale));
-  return available.length ? available : [config.defaultKey];
+  return localeFontConfig(locale).keys;
 }
 function localeFontStorageKey(locale = activeUiLocale()) {
   return `${FONT_STORAGE_PREFIX}${locale}`;
@@ -425,11 +348,9 @@ const app = {
   favoriteScopeId: null,
   pricingMode: "casino",
   cheatMode: localStorage.getItem("fm-odds-cheat-mode") === "true",
-  freeShop: localStorage.getItem("fm-odds-free-shop") === "true",
   disableFa: localStorage.getItem("fm-odds-disable-fa") === "true",
   godMode: localStorage.getItem("fm-odds-god-mode") === "true",
   unlimitedBetting: localStorage.getItem("fm-odds-unlimited-betting") === "true",
-  compactMoney: localStorage.getItem("fm-odds-compact-money") !== "false",
   darkMode: localStorage.getItem(THEME_STORAGE_KEY) === "dark",
   reverseProfitLossColors: localStorage.getItem(PROFIT_LOSS_COLOR_STORAGE_KEY) === "true",
   interfaceFontLocale: activeUiLocale(),
@@ -712,6 +633,8 @@ const app = {
   ownedClubMetricsPromise: null,
   ownedClubMetricsForceQueued: false,
   ownedClubRefreshLoading: false,
+  ownedClubSalesAwaitingSync: new Map(),
+  ownedClubSaleSyncLoading: null,
   ownedClubMetricsScope: null,
   ownedClubMetricsRequestKey: 0,
   ownedClubDetailCache: new Map(),
@@ -722,7 +645,6 @@ const app = {
   ownedClubIndex: null,
   ownedClubIndexVersion: 0,
   ownedClubRenderSignature: null,
-  ownedClubExpandedIds: new Set(),
   ownedClubReorderMode: false,
   portfolioTool: null,
   portfolioToolRequestKey: 0,
@@ -798,7 +720,6 @@ const app = {
   shopCartDate: null,
   shopCartOpen: false,
   shopPurchaseBusy: false,
-  freeServicesSyncBusy: false,
   medicalDefaultSyncBusy: false,
   medicalTreatmentBusy: new Set(),
   unlimitedBettingSyncBusy: false,
@@ -844,14 +765,17 @@ const app = {
   activityStaffLanguageCapability: null,
   retirementReply: null,
   counselingReply: null,
-  trainingScene: "indoor",
-  trainingDock: "available",
-  trainingEditing: false,
-  trainingSelectedId: null,
-  trainingDetailId: null,
-  trainingPlayerPickerOpen: false,
-  trainingPlayerGroupState: {},
-  trainingEquipmentState: {},
+  trainingModule: "player_training",
+  trainingPersonKind: null,
+  trainingPersonId: null,
+  trainingProjectSku: null,
+  trainingRosterError: "",
+  trainingRequestSeq: 0,
+  trainingScopeKey: "",
+  trainingCancelFocusId: null,
+  trainingPositionRetries: {},
+  trainingRosterLoadPromise: null,
+  trainingHabitLoadKey: null,
   canteenDock: "roster",
   canteenPlan: "basic",
   canteenBans: {},
@@ -872,7 +796,6 @@ const app = {
   trainingTargetKey: null,
   trainingPlayerSearch: "",
   trainingPlayerPositionFilter: "all",
-  trainingRepeatTarget: null,
   trainingDirection: 1,
   trainingDurationMode: "until_increase",
   trainingSettlementReloading: false,
@@ -882,26 +805,25 @@ const app = {
   trainingRosterLoading: false,
   trainingStaffLoading: false,
   trainingActionBusy: false,
+  trainingActionRequest: null,
   trainingSubmissionRetry: null,
-  relationshipTrainingRooms: null,
-  relationshipTrainingLoading: false,
-  relationshipTrainingDetailId: null,
-  relationshipTrainingSelections: {},
-  relationshipTrainingAttributes: new Set(),
-  relationshipTrainingPickerOpen: null,
-  relationshipTrainingPreview: null,
-  relationshipTrainingPreviewSeq: 0,
+  teamTrainingRoomSku: null,
+  teamTrainingSelectionRoom: null,
+  teamTrainingSelectionScope: null,
+  teamTrainingSelections: {},
+  teamTrainingAttributes: new Set(),
+  teamTrainingTarget: "until_increase",
+  teamTrainingEstimates: null,
+  teamTrainingPreview: null,
+  teamTrainingPreviewSeq: 0,
+  teamTrainingSubmission: null,
   trainingOperation: "learn",
   trainingPreferredMoves: null,
-  trainingDrag: null,
-  trainingIgnoreFacilityClickUntil: 0,
   positionTrainingState: null,
   positionTrainingStorageKey: null,
   positionTrainingBusy: false,
   positionTrainingSlotDrag: null,
   interactiveSurfacePointer: null,
-  lotteryPanelOpen: false,
-  lotteryPurchaseQuantity: 1,
   homeConnectionStartedAt: null,
   homeManagerRecordLoadKey: null,
   homeManagerRecordLoadFailed: false,
@@ -910,7 +832,6 @@ const app = {
 };
 
 function facilityViewMode(page) {
-  if (page === "training" && app.trainingScene === "position_training") return "visual";
   return app.facilityViewModes?.[page] === "text" ? "text" : "visual";
 }
 
@@ -929,8 +850,7 @@ function syncFacilityViewMode(page) {
   root.classList.toggle("facility-text-view", mode === "text");
   root.querySelectorAll(`[data-facility-view-page="${page}"]`).forEach((checkbox) => {
     checkbox.checked = mode === "text";
-    checkbox.disabled = facilityViewBusy(page)
-      || (page === "training" && app.trainingScene === "position_training");
+    checkbox.disabled = facilityViewBusy(page);
   });
   return mode;
 }
@@ -945,7 +865,6 @@ function setFacilityViewMode(page, requestedMode) {
     app.activityRenderSignature = null;
     renderActivity();
   } else if (page === "training") {
-    if (mode === "text") app.trainingEditing = false;
     app._lastStageHash = null;
     app._lastDockHash = null;
     app._lastSelHash = null;
@@ -1481,8 +1400,9 @@ const formatGoalLine = (value) => {
   if (Number.isInteger(line)) return line.toFixed(0);
   return Number.isInteger(line * 2) ? line.toFixed(1) : line.toFixed(2);
 };
-const formatFullMoney = (value) => {
-  const amount = toDisplayMoney(value);
+const formatFullMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatExactDisplayMoney = (displayAmount) => {
+  const amount = Number(displayAmount || 0);
   const digits = moneyDecimalDigits();
   return `${moneySymbol()}${amount.toLocaleString(activeUiLocale(), {minimumFractionDigits:digits, maximumFractionDigits:digits})}`;
 };
@@ -1504,42 +1424,49 @@ const MONEY_ABBREVIATION_MULTIPLIERS = Object.freeze(Object.fromEntries(
 const moneyAbbreviationUnit = (value) => (
   MONEY_ABBREVIATION_UNITS.find(([threshold]) => Math.abs(Number(value)) >= threshold) || null
 );
-const formatGlobalStatisticMoney = (value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const number = (absolute / unit[0]).toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
+const moneyAbbreviationUnitFor = (absoluteAmount, fractionDigits) => {
+  const amount = Math.abs(Number(absoluteAmount) || 0);
+  const digits = Number(fractionDigits);
+  let selected = moneyAbbreviationUnit(amount);
+  if (!selected) {
+    const currencyDigits = moneyDecimalDigits();
+    const rounded = Number(new Intl.NumberFormat(activeUiLocale(), {
+      minimumFractionDigits:currencyDigits, maximumFractionDigits:currencyDigits, useGrouping:false,
+    }).formatToParts(amount).reduce((value, part) => (
+      part.type === "integer" || part.type === "fraction" ? value + part.value
+      : part.type === "decimal" ? `${value}.` : value
+    ), ""));
+    return rounded >= 1000 ? moneyAbbreviationUnit(1000) : null;
+  }
+  let index = MONEY_ABBREVIATION_UNITS.findIndex((unit) => unit[0] === selected[0]);
+  while (selected && Number((amount / selected[0]).toFixed(digits)) >= 1000) {
+    index -= 1;
+    if (index < 0) return selected;
+    selected = MONEY_ABBREVIATION_UNITS[index];
+  }
+  return selected;
+};
+const formatAbbreviatedDisplayMoney = (displayAmount, fractionDigits = 1) => {
+  const amount = Number(displayAmount || 0);
+  const digits = Number(fractionDigits);
+  const unit = moneyAbbreviationUnitFor(amount, digits);
+  if (!unit) return formatExactDisplayMoney(amount);
+  const compact = Math.abs(amount) / unit[0];
+  const number = digits === 1
+    ? compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1})
+    : compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:digits, maximumFractionDigits:digits});
   return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
 };
-const formatMoney = (value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  if (!app.compactMoney) return formatFullMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const compact = absolute / unit[0];
-  const number = compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
-  return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
-};
-const formatCompactMoney = (value, fractionDigits = 1) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
-  const absolute = Math.abs(amount);
-  const unit = moneyAbbreviationUnit(absolute);
-  if (!unit) return formatFullMoney(internalAmount);
-  const compact = absolute / unit[0];
-  const number = compact.toLocaleString(activeUiLocale(), {minimumFractionDigits:fractionDigits, maximumFractionDigits:fractionDigits});
-  return `${amount < 0 ? "-" : ""}${moneySymbol()}${number}${unit[1]}`;
-};
+const formatGlobalStatisticMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatMoney = (value) => formatAbbreviatedDisplayMoney(toDisplayMoney(value), 1);
+const formatCompactMoney = (value, fractionDigits = 1) => (
+  formatAbbreviatedDisplayMoney(toDisplayMoney(value), fractionDigits)
+);
 const formatChartAxisMoney = (value, scaleValue = value) => {
-  const internalAmount = Number(value || 0);
-  const amount = toDisplayMoney(internalAmount);
+  const amount = toDisplayMoney(Number(value || 0));
   const scale = Math.abs(toDisplayMoney(Number(scaleValue || 0)));
-  const unit = moneyAbbreviationUnit(scale);
-  if (!unit) return formatFullMoney(internalAmount);
+  const unit = moneyAbbreviationUnitFor(scale, 1);
+  if (!unit) return formatExactDisplayMoney(amount);
   const scaled = amount / unit[0];
   const rounded = Math.abs(scaled) < .05 ? 0 : scaled;
   const number = Math.abs(rounded).toLocaleString(activeUiLocale(), {minimumFractionDigits:1, maximumFractionDigits:1});
@@ -1613,7 +1540,7 @@ function localizedItemTier(tier) {
   return key ? uiText(key) : String(tier || "");
 }
 function moneyRenderSignature() {
-  return [moneySymbol(), moneyRate(), moneyDecimalDigits(), Boolean(app.compactMoney)].join("|");
+  return [moneySymbol(), moneyRate(), moneyDecimalDigits()].join("|");
 }
 
 function fundingPaymentSplit(price) {
@@ -1807,7 +1734,6 @@ const OPERATION_ROUTE_LABELS = [
   [/^\/api\/world-clubs\/finance-transfer$/, "operations.route.transfer_club_funds", "operations.location.group_funds"],
   [/^\/api\/shop\/buy-batch$/, "operations.route.buy_shop_items", "operations.location.shop_cart"],
   [/^\/api\/training\/purchase$/, "operations.route.buy_training_equipment", "operations.location.training_equipment"],
-  [/^\/api\/training\/floor\/purchase$/, "operations.route.unlock_training_floor", "operations.location.training_floor"],
   [/^\/api\/training\/(?:place|store|sell)$/, "operations.route.manage_training_equipment", "operations.location.training_equipment"],
   [/^\/api\/training\/run$/, "operations.route.arrange_training", "operations.location.training_tasks"],
   [/^\/api\/training\/cancel$/, "operations.route.cancel_training", "operations.location.training_tasks"],
@@ -2424,7 +2350,7 @@ async function applyStatePatchOrReload(response) {
   return true;
 }
 
-function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMODD") {
+function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMODD", cancelLabel = uiText("common.cancel")) {
   const dialog = $("#fmodd-confirm-dialog");
   const messageNode = $("#fmodd-confirm-message");
   const defaultDetails = $("#credit-default-details");
@@ -2439,7 +2365,7 @@ function fmoddConfirm(message, confirmLabel = uiText("common.ok"), title = "FMOD
   defaultDetails.hidden = true;
   defaultDetails.open = false;
   okButton.textContent = uiLegacy(confirmLabel);
-  cancelButton.textContent = uiText("common.cancel");
+  cancelButton.textContent = uiLegacy(cancelLabel);
   okButton.type = "submit";
   okButton.value = "confirm";
   cancelButton.type = "submit";
@@ -2479,9 +2405,7 @@ function fmoddPurchaseConfirm(item, payment) {
   const waiverButton = $("#integrity-waive-fourth");
   waiverButton.hidden = true;
   const price = Number(payment.price || 0);
-  const rows = payment.free
-    ? [[uiText("dialog.purchase.amount"), formatPounds(0)], [uiText("dialog.purchase.method"), uiText("dialog.purchase.free")], [uiText("dialog.purchase.total"), formatPounds(0)]]
-    : [[uiText("dialog.purchase.amount"), formatPounds(price)], [uiText("funding.bank", {amount:formatPounds(payment.bank)})], [uiText("funding.wallet", {amount:formatPounds(payment.wallet)})], [uiText("dialog.purchase.total"), formatPounds(price)]];
+  const rows = [[uiText("dialog.purchase.amount"), formatPounds(price)], [uiText("funding.bank", {amount:formatPounds(payment.bank)})], [uiText("funding.wallet", {amount:formatPounds(payment.wallet)})], [uiText("dialog.purchase.total"), formatPounds(price)]];
   messageNode.classList.remove("credit-default-message");
   messageNode.classList.add("purchase-confirm-message");
   messageNode.innerHTML = `<span class="purchase-confirm-product">${escapeHtml(uiText("dialog.purchase.product", {name:item?.name || uiText("shop.product_fallback")}))}</span><span class="purchase-confirm-breakdown">${rows.map(([label, value], index) => `<span class="${index === rows.length - 1 ? "total" : ""}"><em>${escapeHtml(label)}</em><b>${escapeHtml(value)}</b></span>`).join("")}</span>`;
@@ -2893,6 +2817,8 @@ function resetAccountScopedWorldState() {
   app.ownedClubRenderSignature = null;
   app.ownedClubMetrics.clear();
   app.ownedClubMetricsVersion = 0;
+  app.ownedClubSalesAwaitingSync.clear();
+  app.ownedClubSaleSyncLoading = null;
   app.ownedClubPortfolioSummary = null;
   app.ownedClubMetricsScope = null;
   app.ownedClubMetricsLoading = false;
@@ -2901,7 +2827,6 @@ function resetAccountScopedWorldState() {
   app.ownedClubDetailRevision += 1;
   app.ownedClubDetailCache.clear();
   app.ownedClubDetailRequests.clear();
-  app.ownedClubExpandedIds.clear();
   app.ownedClubReorderMode = false;
   app.portfolioToolRequestKey += 1;
   app.portfolioToolBusyRequestKey = app.portfolioToolRequestKey;
@@ -3053,7 +2978,6 @@ async function loadStateOnce() {
       if (migrateFavoriteTeams) saveFavoriteTeamIds(true).catch((error) => toast(error.message));
       if (migrateFavoriteMarkets) saveFavoriteMarketKeys(true).catch((error) => toast(error.message));
       syncSelectionOddsFromMatches();
-      syncFreeServices();
       syncDisableFa();
       syncGodMode();
       syncBettingLimits();
@@ -3117,8 +3041,6 @@ async function loadState({fresh = false} = {}) {
   }
 }
 
-function freeServicesEnabled() { return Boolean(app.cheatMode && app.freeShop); }
-
 function disableFaEnabled() { return Boolean(app.cheatMode && app.disableFa); }
 
 function godModeEnabled() { return Boolean(app.cheatMode && app.godMode); }
@@ -3137,24 +3059,6 @@ async function syncDisableFa() {
     return false;
   } finally {
     app.disableFaSyncBusy = false;
-  }
-}
-
-async function syncFreeServices() {
-  if (!app.state?.cache_verified || !output().save_instance_id || app.freeServicesSyncBusy) return;
-  const enabled = freeServicesEnabled();
-  if (Boolean(app.state?.welfare?.free_services) === enabled) return;
-  app.freeServicesSyncBusy = true;
-  try {
-    const response = await request("/api/cheat/free-services", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})});
-    applyEconomySnapshot(response.economy);
-    app.state.welfare = response.welfare;
-  } catch (error) {
-    toast(error.message);
-  } finally {
-    app.freeServicesSyncBusy = false;
-    renderActivity();
-    renderHospital();
   }
 }
 
@@ -3424,86 +3328,71 @@ function initializeTrainingDrag() {
   const stage = $("#training-stage");
   if (!stage) return;
   stage.addEventListener("click", (event) => {
-    if (app.trainingScene === "position_training") {
-      const preset = event.target.closest("[data-position-training-preset]");
-      const custom = event.target.closest("[data-position-training-custom]");
-      const customNew = event.target.closest("[data-position-training-custom-new]");
-      const customSelect = event.target.closest("[data-position-training-custom-select]");
-      const customSaveName = event.target.closest("[data-position-training-save-name]");
-      const customDelete = event.target.closest("[data-position-training-delete]");
-      const autoAdd = event.target.closest("[data-position-training-auto-add]");
-      const copy = event.target.closest("[data-position-training-copy]");
-      const editStart = event.target.closest("[data-position-training-edit-start]");
-      const editFinish = event.target.closest("[data-position-training-edit-finish]");
-      const setPosition = event.target.closest("[data-position-training-set-position]");
-      const unplace = event.target.closest("[data-position-training-unplace]");
-      const remove = event.target.closest("[data-position-training-remove]");
-      const slot = event.target.closest("[data-position-training-slot]");
-      const traySlot = event.target.closest("[data-position-training-tray-slot]");
-      if (preset) { positionTrainingSetPreset(preset.dataset.positionTrainingPreset); return; }
-      if (customNew) { positionTrainingCreateCustom(); return; }
-      if (customSelect) { positionTrainingSelectCustom(customSelect.dataset.positionTrainingCustomSelect); return; }
-      if (customSaveName) {
-        const input = stage.querySelector("[data-position-training-custom-name]");
-        positionTrainingSaveCustomName(input?.value);
-        return;
-      }
-      if (customDelete) { positionTrainingDeleteCustom(); return; }
-      if (custom) { positionTrainingSetPreset("custom"); return; }
-      if (autoAdd) { positionTrainingAutoAssign(); return; }
-      if (copy) { positionTrainingCopyCustom(); return; }
-      if (editStart || editFinish) {
-        const state = ensurePositionTrainingState();
-        state.editing = Boolean(editStart);
-        persistPositionTrainingState();
-        renderTraining();
-        return;
-      }
-      if (setPosition) {
-        positionTrainingSetSlotPosition(setPosition.dataset.positionTrainingSetPosition);
-        return;
-      }
-      if (unplace) {
-        event.stopPropagation();
-        positionTrainingUnplaceSlot(unplace.dataset.positionTrainingUnplace);
-        return;
-      }
-      if (remove) { event.stopPropagation(); positionTrainingAssign(remove.dataset.positionTrainingRemove,0); return; }
-      if (slot) {
-        const state = ensurePositionTrainingState();
-        if (Date.now() < Number(state.ignoreSlotClickUntil || 0)) return;
-        state.selectedSlot = slot.dataset.positionTrainingSlot;
-        persistPositionTrainingState();
-        renderTraining({skipStage:true});
-        return;
-      }
-      if (traySlot) {
-        const state = ensurePositionTrainingState();
-        state.selectedSlot = traySlot.dataset.positionTrainingTraySlot;
-        persistPositionTrainingState();
-        renderTraining();
-        return;
-      }
+    if (app.trainingModule !== "position_training") return;
+    const preset = event.target.closest("[data-position-training-preset]");
+    const custom = event.target.closest("[data-position-training-custom]");
+    const customNew = event.target.closest("[data-position-training-custom-new]");
+    const customSelect = event.target.closest("[data-position-training-custom-select]");
+    const customSaveName = event.target.closest("[data-position-training-save-name]");
+    const customDelete = event.target.closest("[data-position-training-delete]");
+    const autoAdd = event.target.closest("[data-position-training-auto-add]");
+    const copy = event.target.closest("[data-position-training-copy]");
+    const editStart = event.target.closest("[data-position-training-edit-start]");
+    const editFinish = event.target.closest("[data-position-training-edit-finish]");
+    const setPosition = event.target.closest("[data-position-training-set-position]");
+    const unplace = event.target.closest("[data-position-training-unplace]");
+    const remove = event.target.closest("[data-position-training-remove]");
+    const slot = event.target.closest("[data-position-training-slot]");
+    const traySlot = event.target.closest("[data-position-training-tray-slot]");
+    if (preset) { positionTrainingSetPreset(preset.dataset.positionTrainingPreset); return; }
+    if (customNew) { positionTrainingCreateCustom(); return; }
+    if (customSelect) { positionTrainingSelectCustom(customSelect.dataset.positionTrainingCustomSelect); return; }
+    if (customSaveName) {
+      const input = stage.querySelector("[data-position-training-custom-name]");
+      positionTrainingSaveCustomName(input?.value);
+      return;
     }
-    const room = event.target.closest("[data-relationship-room-detail]");
-    if (room) {
-      app.relationshipTrainingDetailId = room.dataset.relationshipRoomDetail;
-      app.relationshipTrainingSelections = {};
-      app.relationshipTrainingAttributes = new Set();
-      app.relationshipTrainingPreview = null;
-      app.relationshipTrainingPreviewSeq += 1;
-      app.trainingDock = "available";
+    if (customDelete) { positionTrainingDeleteCustom(); return; }
+    if (custom) { positionTrainingSetPreset("custom"); return; }
+    if (autoAdd) { positionTrainingAutoAssign(); return; }
+    if (copy) { positionTrainingCopyCustom(); return; }
+    if (editStart || editFinish) {
+      const state = ensurePositionTrainingState();
+      state.editing = Boolean(editStart);
+      persistPositionTrainingState();
       renderTraining();
       return;
     }
-    const button = event.target.closest("[data-training-floor-unlock]");
-    if (button) requestTrainingFloorUnlock(button.dataset.trainingFloorUnlock, button);
+    if (setPosition) {
+      positionTrainingSetSlotPosition(setPosition.dataset.positionTrainingSetPosition);
+      return;
+    }
+    if (unplace) {
+      event.stopPropagation();
+      positionTrainingUnplaceSlot(unplace.dataset.positionTrainingUnplace);
+      return;
+    }
+    if (remove) { event.stopPropagation(); positionTrainingAssign(remove.dataset.positionTrainingRemove,0); return; }
+    if (slot) {
+      const state = ensurePositionTrainingState();
+      if (Date.now() < Number(state.ignoreSlotClickUntil || 0)) return;
+      state.selectedSlot = slot.dataset.positionTrainingSlot;
+      persistPositionTrainingState();
+      renderTraining();
+      return;
+    }
+    if (traySlot) {
+      const state = ensurePositionTrainingState();
+      state.selectedSlot = traySlot.dataset.positionTrainingTraySlot;
+      persistPositionTrainingState();
+      renderTraining();
+    }
   });
   stage.addEventListener("pointerdown", (event) => {
     const positionSlot = event.target.closest("[data-position-training-slot]");
     const positionState = ensurePositionTrainingState();
     if (
-      app.trainingScene === "position_training" && positionSlot
+      app.trainingModule === "position_training" && positionSlot
       && positionState.preset === "custom" && positionState.editing
       && !event.target.closest("[data-position-training-remove]")
       && !event.target.closest("[data-position-training-unplace]")
@@ -3518,57 +3407,20 @@ function initializeTrainingDrag() {
       positionSlot.setPointerCapture(event.pointerId);
       positionSlot.classList.add("dragging");
       event.preventDefault();
-      return;
     }
-    const node = event.target.closest("[data-training-facility]");
-    if (!node || !app.trainingEditing || event.button !== 0) return;
-    const facility = trainingFacility(node.dataset.trainingFacility);
-    if (!facility) return;
-    app.trainingSelectedId = facility.id;
-    app.trainingDrag = {pointerId:event.pointerId,node,facility,originalX:Number(facility.x),originalY:Number(facility.y),moved:false};
-    node.setPointerCapture(event.pointerId);
-    node.classList.add("dragging");
-    event.preventDefault();
   });
   stage.addEventListener("pointermove", (event) => {
     const positionDrag = app.positionTrainingSlotDrag;
-    if (positionDrag && positionDrag.pointerId === event.pointerId) {
-      const pitch = stage.querySelector(".position-training-pitch");
-      if (!pitch) return;
-      const rect = pitch.getBoundingClientRect();
-      const x = Math.max(8,Math.min(92,(event.clientX-rect.left)/rect.width*100));
-      const y = Math.max(7,Math.min(93,(event.clientY-rect.top)/rect.height*100));
-      positionDrag.moved ||= Math.abs(x-positionDrag.originalX)>.4 || Math.abs(y-positionDrag.originalY)>.4;
-      positionDrag.slot.x=round(x);positionDrag.slot.y=round(y);
-      positionDrag.node.style.left=`${x}%`;positionDrag.node.style.top=`${y}%`;
-      return;
-    }
-    const drag = app.trainingDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const rect = stage.getBoundingClientRect();
-    const x = Math.max(5,Math.min(95,(event.clientX-rect.left)/rect.width*100));
-    const y = Math.max(8,Math.min(92,(event.clientY-rect.top)/rect.height*100));
-    drag.moved ||= Math.abs(x-drag.originalX)>.5 || Math.abs(y-drag.originalY)>.5;
-    drag.facility.x=round(x); drag.facility.y=round(y);
-    drag.node.style.left=`${x}%`; drag.node.style.top=`${y}%`; drag.node.style.zIndex=String(Math.round(y*10));
+    if (!positionDrag || positionDrag.pointerId !== event.pointerId) return;
+    const pitch = stage.querySelector(".position-training-pitch");
+    if (!pitch) return;
+    const rect = pitch.getBoundingClientRect();
+    const x = Math.max(8,Math.min(92,(event.clientX-rect.left)/rect.width*100));
+    const y = Math.max(7,Math.min(93,(event.clientY-rect.top)/rect.height*100));
+    positionDrag.moved ||= Math.abs(x-positionDrag.originalX)>.4 || Math.abs(y-positionDrag.originalY)>.4;
+    positionDrag.slot.x=round(x);positionDrag.slot.y=round(y);
+    positionDrag.node.style.left=`${x}%`;positionDrag.node.style.top=`${y}%`;
   });
-  const finish = async (event) => {
-    const drag = app.trainingDrag;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    app.trainingDrag=null; drag.node.classList.remove("dragging");
-    if (!drag.moved) {
-      if (event.type === "pointercancel") renderTraining();
-      return;
-    }
-    app.trainingIgnoreFacilityClickUntil = Date.now() + 180;
-    try {
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:drag.facility.id,scene:drag.facility.scene,x:drag.facility.x,y:drag.facility.y,rotation:drag.facility.rotation,scale:drag.facility.scale||1})});
-      updateTrainingResponse(response);
-    } catch (error) {
-      drag.facility.x=drag.originalX; drag.facility.y=drag.originalY;
-      renderTraining(); toast(error.message);
-    }
-  };
   const finishPositionSlot = (event) => {
     const drag = app.positionTrainingSlotDrag;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -3578,24 +3430,22 @@ function initializeTrainingDrag() {
       const state = ensurePositionTrainingState();
       state.ignoreSlotClickUntil = Date.now() + 180;
       persistPositionTrainingState();
-      renderTraining({skipStage:true});
+      renderTraining();
     }
   };
   stage.addEventListener("pointerup",finishPositionSlot);
   stage.addEventListener("pointercancel",finishPositionSlot);
-  stage.addEventListener("pointerup",finish);
-  stage.addEventListener("pointercancel",finish);
   stage.addEventListener("dragstart",(event)=>{
     const traySlot=event.target.closest("[data-position-training-tray-slot]");
     const state=ensurePositionTrainingState();
-    if(app.trainingScene!=="position_training"||!traySlot||state.preset!=="custom"||!state.editing)return;
+    if(app.trainingModule!=="position_training"||!traySlot||state.preset!=="custom"||!state.editing)return;
     const slot=state.customSlots.find((row)=>row.id===traySlot.dataset.positionTrainingTraySlot);
     if(!slot?.position){event.preventDefault();toast(uiText("position.choose_first"));return;}
     event.dataTransfer.effectAllowed="move";
     event.dataTransfer.setData("application/x-fmodd-position-slot",slot.id);
   });
   stage.addEventListener("dragover",(event)=>{
-    if(app.trainingScene!=="position_training")return;
+    if(app.trainingModule!=="position_training")return;
     const pitch=event.target.closest(".position-training-pitch");
     const playerSlot=event.target.closest("[data-position-training-slot]");
     const positionSlot=Array.from(event.dataTransfer.types || []).includes("application/x-fmodd-position-slot");
@@ -3605,7 +3455,7 @@ function initializeTrainingDrag() {
     event.dataTransfer.dropEffect="move";
   });
   stage.addEventListener("drop",(event)=>{
-    if(app.trainingScene!=="position_training")return;
+    if(app.trainingModule!=="position_training")return;
     const pitch=event.target.closest(".position-training-pitch");
     const positionSlotId=event.dataTransfer.getData("application/x-fmodd-position-slot");
     if(pitch&&positionSlotId){
@@ -3621,21 +3471,14 @@ function initializeTrainingDrag() {
     positionTrainingAssign(slot.dataset.positionTrainingSlot,playerId);
   });
   stage.addEventListener("keydown",(event)=>{
-    if(app.trainingScene!=="position_training"||!["Enter"," "].includes(event.key))return;
+    if(app.trainingModule!=="position_training"||!["Enter"," "].includes(event.key))return;
     const slot=event.target.closest("[data-position-training-slot]");
     const traySlot=event.target.closest("[data-position-training-tray-slot]");
     if(!slot&&!traySlot)return;
     event.preventDefault();
     const state=ensurePositionTrainingState();
     state.selectedSlot=slot?.dataset.positionTrainingSlot || traySlot.dataset.positionTrainingTraySlot;
-    persistPositionTrainingState();renderTraining({skipStage:true});
-  });
-  stage.addEventListener("click",(event)=>{
-    const node=event.target.closest("[data-training-facility]");
-    if (!node || app.trainingDrag) return;
-    if (Date.now() < Number(app.trainingIgnoreFacilityClickUntil || 0)) return;
-    app.trainingSelectedId=node.dataset.trainingFacility;
-    openTrainingDetail(node.dataset.trainingFacility).catch((error)=>toast(error.message));
+    persistPositionTrainingState();renderTraining();
   });
 }
 
@@ -3724,17 +3567,19 @@ async function loadClub() {
       app.clubSquadTeamId = Number(selectedSquad?.team_id || 0) || null;
       app.clubStatus = clubStatusSnapshot(payload);
       if (app.state) app.state.club_status = {...app.clubStatus};
-      app.trainingRosterLoading = Boolean(payload.refreshing && !allManagedPlayers().length);
+      app.trainingRosterLoading = Boolean(
+        payload.refreshing && !allManagedPlayers().length
+        && app.trainingModule !== "position_training"
+      );
       app.trainingStaffLoading = Boolean(
-        payload.refreshing
-        && trainingFacility(app.trainingDetailId)?.sku === "coaching_desk"
+        payload.refreshing && app.trainingModule === "staff_training"
         && !managedCoachingRostersAreCurrent()
       );
       if (!background || app.page === "club") renderClub();
       if (!background || app.page === "activity") renderActivity();
       if (!background || app.page === "hospital") renderHospital();
       if (app.page === "home") renderHome();
-      if (app.page === "training" && app.trainingDetailId) renderTraining();
+      if (app.page === "training") renderTraining();
       if (payload.refreshing) {
         if (!app.clubPoll) app.clubPoll = setInterval(loadClub, CLUB_REFRESH_POLL_MS);
       } else if (app.clubPoll) {
@@ -3756,28 +3601,6 @@ async function loadClub() {
       app.clubLoadPromise = null;
       app.clubLoadIncludesTrainingCa = false;
     }
-  }
-}
-
-async function requestTrainingFloorUnlock(scene, button) {
-  const floor = trainingFloor(scene);
-  if (!floor || floor.unlocked !== false || app.trainingActionBusy) return;
-  const floorName = trainingFloorLabel(scene, floor);
-  if (!await fmoddConfirm(uiText("training.floor_unlock_confirm", {name:floorName, amount:formatPounds(Number(floor.price || 0))}), uiText("training.floor_unlock_title"))) return;
-  app.trainingActionBusy = true;
-  if (button) button.disabled = true;
-  try {
-    const response = await request("/api/training/floor/purchase", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({scene}),
-    });
-    updateTrainingResponse(response);
-    toast(uiText("training.floor_unlocked", {name:floorName}));
-  } catch (error) {
-    toast(error.message || uiText("training.floor_unlock_failed"));
-  } finally {
-    app.trainingActionBusy = false;
-    renderTraining();
   }
 }
 
@@ -3876,13 +3699,20 @@ function ensureTrainingRosterLoaded(waitForResult = false, forceRefresh = false)
   return ensureManagedRostersLoaded(waitForResult, forceRefresh);
 }
 
-async function ensureTrainingCoachingRosterLoaded() {
+async function ensureTrainingCoachingRosterLoaded(waitForResult = false) {
   let status = await loadClub();
   if (!managedCoachingRostersAreCurrent() && !status?.refreshing) {
     await request("/api/club/refresh", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
     status = await loadClub();
   }
-  return managedCoachingRostersAreCurrent();
+  if (!waitForResult) return managedCoachingRostersAreCurrent();
+  for (let attempt = 0; attempt < CLUB_REFRESH_POLL_ATTEMPTS; attempt += 1) {
+    if (managedCoachingRostersAreCurrent() && !status?.refreshing) return true;
+    if (status && !status.refreshing && status.error) throw new Error(status.error);
+    await new Promise((resolve) => setTimeout(resolve, CLUB_REFRESH_POLL_MS));
+    status = await loadClub();
+  }
+  throw new Error(uiText("training.managed_team_timeout"));
 }
 
 function output() { return app.state?.output || {}; }
@@ -3985,14 +3815,6 @@ function allManagedPlayers() {
     }
   }
   return [...rows.values()].map((row) => row.player);
-}
-function managedClubPlayers() {
-  const rows = new Map();
-  for (const profile of app.clubProfiles) {
-    if (String(profile.team?.team_type || "club") !== "club") continue;
-    for (const player of profile.players || []) rows.set(Number(player.id), player);
-  }
-  return [...rows.values()];
 }
 function trainingManagedPlayers() {
   const rows = new Map();
@@ -4143,6 +3965,10 @@ const COACHING_LICENSE_NAMES = {
   0:"training.licence.none", 7:"training.licence.national_c", 6:"training.licence.national_b", 5:"training.licence.national_a",
   4:"training.licence.continental_c", 3:"training.licence.continental_b", 2:"training.licence.continental_a", 1:"training.licence.continental_pro",
 };
+function coachingLicenceLabel(code, fallback) {
+  const key = COACHING_LICENSE_NAMES[Number(code)];
+  return code != null && key ? uiText(key) : uiLegacy(fallback || "");
+}
 const COACHING_STAFF_JOB_TYPES = new Set([2,20,22,26,34,64]);
 function trainingManagedStaff() {
   const rows = new Map();
@@ -4985,7 +4811,6 @@ function renderCurrentPage(page = app.page) {
     },
     league: () => renderLeague(),
     shop: () => renderShop(),
-    lottery: () => renderLottery(),
     inventory: () => renderInventory(),
     bank: () => renderBank(),
     activity: () => renderActivity(),
@@ -5011,14 +4836,6 @@ const TRAINING_ARCHIVE_FACILITY_KEYS = Object.freeze({
   review_desk:"training.archive.facility.review_desk", high_ball_frame:"training.archive.facility.high_ball_frame", advance_runway:"training.archive.facility.advance_runway", punching_pad:"training.archive.facility.punching_pad", handling_net:"training.archive.facility.handling_net", command_console:"training.archive.facility.command_console",
   mind_room:"training.archive.facility.mind_room", mentoring_room:"training.archive.facility.mentoring_room", tactical_room:"training.archive.facility.tactical_room", video_analysis_room:"training.archive.facility.video_analysis_room", sports_science_room:"training.archive.facility.sports_science_room",
 });
-const TRAINING_FLOOR_LABEL_KEYS = Object.freeze({
-  outdoor:"training.scene.outdoor_1", outdoor_2:"training.scene.outdoor_2",
-  position_training:"training.scene.position", indoor:"training.scene.indoor_1",
-  indoor_2f:"training.scene.indoor_2", indoor_3f:"training.scene.indoor_3",
-  indoor_4f:"training.scene.indoor_4", indoor_5f:"training.scene.indoor_5",
-  office_6f:"training.scene.office_6", comprehensive_7f:"training.scene.lab_7",
-  relationship_8f:"training.scene.comprehensive_8", office_3f:"training.scene.office_3",
-});
 const TRAINING_ARCHIVE_TYPE_KEYS = Object.freeze({equipment:"training.archive.type.equipment",coaching:"training.archive.type.coaching",comprehensive:"training.archive.type.comprehensive"});
 const RELATION_REASON_KEYS = Object.freeze({0:"relations.reason.club_member",1:"relations.reason.parents",2:"relations.reason.siblings",3:"relations.reason.children",4:"relations.reason.relative",7:"relations.reason.student",8:"relations.reason.coaching_staff",9:"relations.reason.idol",10:"relations.reason.friend",11:"relations.reason.youth_staff",12:"relations.reason.knowledge"});
 const RELATION_POSITION_GROUP_KEYS = Object.freeze({forwards:"relations.timeline.category.player_forwards",midfielders:"relations.timeline.category.player_midfielders",defenders:"relations.timeline.category.player_defenders",goalkeepers:"relations.timeline.category.player_goalkeepers",unclassified:"relations.timeline.category.unclassified"});
@@ -5038,11 +4855,9 @@ function trainingArchiveFacilityLabel(sku,fallback=""){
   return legacyKey?uiText(legacyKey):String(fallback||sku||uiText("training.archive.facility.unknown"));
 }
 function relationReasonText(reason){const value=Number(reason||0),key=RELATION_REASON_KEYS[value];return key?uiText(key):value?uiText("relations.reason.unknown",{value}):uiText("relations.reason.club_member");}
-function relationSentimentText(score){return Number(score||0)<0?uiText("relations.reason.negative"):uiText("relations.reason.positive");}
 function relationshipStaffCategoryText(label){const index=STAFF_JOB_CATEGORY_GROUPS.findIndex((group)=>group.label===String(label||""));return uiText(index>=0?`training.archive.category.staff_${index}`:"training.archive.category.other_staff");}
 function trainingArchiveCategoryText(label){const value=String(label||"");if(value.startsWith("training.archive."))return uiText(value);const key=TRAINING_ARCHIVE_CATEGORY_KEYS[value];return key?uiText(key):relationshipStaffCategoryText(value);}
 function relationshipPositionGroupText(key){return uiText(RELATION_POSITION_GROUP_KEYS[key]||"relations.timeline.category.unclassified");}
-function relationshipKindText(kind){return uiText(kind==="staff"?"relations.role.staff":kind==="player"?"relations.role.player":"relations.unknown_person");}
 function relationshipPlayerPositionText(position){const value=String(position||"");return RELATION_PLAYER_POSITION_KEYS[value]?uiText(RELATION_PLAYER_POSITION_KEYS[value]):(value||uiText("relations.position.unread"));}
 function relationshipStaffRoleText(role, person){const value=String(role||"");const category=staffJobCategory(person||{});const index=STAFF_JOB_CATEGORY_GROUPS.findIndex((group)=>group.label===value);if(index>=0)return uiText(`training.archive.category.staff_${index}`);if(!value&&category)return relationshipStaffCategoryText(category);return localizedStaffRole(person);}
 function trainingArchiveContentLabel(event,type){
@@ -5057,7 +4872,7 @@ function trainingArchiveContentLabel(event,type){
 }
 function trainingArchiveContextHtml(event,type){
   const details=event.details||{},facility=trainingArchiveFacilityLabel(details.facility_sku,details.facility_name);
-  const location=[facility,details.floor].filter(Boolean).join(" · ");
+  const location=facility;
   const actualDays=Math.max(0,Number(details.actual_days||0));
   const started=String(event.game_date_started||uiText("training.archive.date_unread")),completed=String(event.game_date_completed||uiText("training.archive.date_unread"));
   return `<section class="training-archive-context"><div><small>${uiText("training.archive.context.facility")}</small><b>${escapeHtml(location||uiText("training.archive.location_unread"))}</b></div><div><small>${uiText("training.archive.context.content")}</small><b>${escapeHtml(trainingArchiveContentLabel(event,type))}</b></div><div class="training-archive-session-time"><span><i data-lucide="timer"></i><span><small>${uiText("training.archive.context.session")}</small><b>${actualDays}<em>${uiText("training.archive.context.game_days")}</em></b></span></span><time><span>${escapeHtml(started)}</span><i data-lucide="arrow-right"></i><span>${escapeHtml(completed)}</span></time></div></section>`;
@@ -5408,11 +5223,6 @@ async function loadRelationNetwork({force=false, background=false}={}) {
   return await task;
 }
 
-function relationTone(score) {
-  const value = Number(score || 0);
-  return value < 0 ? "negative" : value >= 80 ? "best" : value >= 50 ? "close" : value >= 20 ? "good" : "neutral";
-}
-
 function relationshipPermanentIcon(score, permanent) {
   return permanent || Number(permanent) === 79 ? (Number(score || 0) < 0 ? "💀" : "★") : "";
 }
@@ -5538,27 +5348,6 @@ function relationScopeOptions() {
   return [...managed,...acquired].join("");
 }
 
-function renderRelationCards(people) {
-  return people.map((person) => {
-    const details = Object.entries(person.person_relations_detail || {});
-    const rows = details.sort((a,b) => Math.abs(Number(b[1].score || 0)) - Math.abs(Number(a[1].score || 0))).map(([key, rel]) => { const target=relationState().entities?.[key]; return `<li><span title="${escapeHtml(key)}">${escapeHtml(target?.name || uiText("relations.unknown_person"))}</span><em class="${relationTone(rel.score)}">${Number(rel.score) > 0 ? "+" : ""}${Number(rel.score || 0)}</em><small>${escapeHtml(target?.role || target?.club || uiText("relations.reason.unknown",{value:Number(rel.reason||0)}))}${Number(rel.permanence) === 79 ? ` · ${uiText("relations.permanent")}` : ""}</small></li>`; }).join("");
-    return `<article class="relation-person-card"><header><span>${escapeHtml(String(person.name || "?").slice(0,1))}</span><div><strong>${escapeHtml(person.name || uiText("relations.unknown_person"))}</strong><small>${escapeHtml(person.person_kind === "staff" ? localizedStaffRole(person) : (person.primary_positions || person.positions || []).join(" / ") || uiText("relations.role.player"))}</small></div><b>${details.length}</b></header>${person.relationship_error ? `<p>${escapeHtml(person.relationship_error)}</p>` : details.length ? `<ul>${rows}</ul>` : `<div class="relation-none">${uiText("relations.card.no_relationships")}</div>`}</article>`;
-  }).join("");
-}
-
-function renderRelationsPageLegacy() {
-  const root = $("#relations-content"); if (!root) return;
-  const state = relationState(), scope = selectedRelationScope(), page = state.page;
-  if (!state.scopes && !state.loading) { loadRelationScopes().then(() => loadRelationNetwork()).catch(() => {}); }
-  const squads = state.scopeKind === "acquired" ? [] : (scope?.squads || []);
-  root.setAttribute("aria-busy", String(state.loading));
-  const command=`<div class="relations-command"><label><span>${uiText("relations.control.scope")}</span><select data-relation-scope>${relationScopeOptions()}</select></label><label><span>${uiText("relations.control.team")}</span><select data-relation-squad><option value="0">${uiText("relations.control.first_team")}</option>${squads.map((row) => `<option value="${Number(row.team_id)}" ${Number(state.squadTeamId) === Number(row.team_id) ? "selected" : ""}>${escapeHtml(row.label)} (${Number(row.person_count || 0)})</option>`).join("")}</select></label><div class="relations-segment"><button type="button" data-relation-kind="player" class="${state.personKind === "player" ? "active" : ""}">${uiText("relations.control.player")}</button><button type="button" data-relation-kind="staff" class="${state.personKind === "staff" ? "active" : ""}">${uiText("relations.control.staff")}</button></div><label class="relations-search"><i data-lucide="search"></i><input type="search" value="${escapeHtml(state.search)}" data-relation-search placeholder="${uiText("relations.control.search")}"></label><button type="button" class="relations-3d-open" data-relations-3d ${!page?.people?.length ? "disabled" : ""}><i data-lucide="orbit"></i><span>${uiText("relations.control.relationship_3d")}</span></button></div>`;
-  const fallbackScope=page?.source?.club_name||scope?.team_name||uiText("relations.control.current_scope");
-  const loading=state.loading&&!page?`<div class="relations-loading"><span class="spinner"></span>${uiText("relations.control.loading")}</div>`:"";
-  const content=state.error?`<div class="relations-error">${escapeHtml(state.error)}</div>`:loading||`<div class="relations-summary-line"><span>${escapeHtml(fallbackScope)}</span><b>${uiText("relations.control.people_count",{count:Number(page?.total||0)})}</b><small>${uiText("relations.control.page_summary",{page:Number(page?.page||1),pages:Number(page?.pages||1)})}</small></div><div class="relation-person-grid">${renderRelationCards(page?.people||[])}</div><nav class="relations-pagination"><button type="button" data-relation-page="${Number(page?.page||1)-1}" ${Number(page?.page||1)<=1?"disabled":""}><i data-lucide="chevron-left"></i></button><span>${uiText("relations.control.page_summary",{page:Number(page?.page||1),pages:Number(page?.pages||1)})}</span><button type="button" data-relation-page="${Number(page?.page||1)+1}" ${Number(page?.page||1)>=Number(page?.pages||1)?"disabled":""}><i data-lucide="chevron-right"></i></button></nav>`;
-  root.innerHTML=command+content;
-  renderIcons(root);
-}
 
 function relationshipWorkspaceNav(state) {
   const views=[
@@ -5909,19 +5698,6 @@ function renderRelationsPage() {
   renderIcons(root);
 }
 
-function relationGraphData(people) {
-  const nodes = new Map(), edges = [], edgeKeys = new Set();
-  people.forEach((person) => {
-    if (person.person_key) nodes.set(person.person_key, {key:person.person_key,name:person.name,kind:person.person_kind,external:false});
-  });
-  people.forEach((person) => Object.entries(person.person_relations_detail || {}).forEach(([target, rel]) => {
-    if (!nodes.has(target)) { const resolved=relationState().entities?.[target] || {}; nodes.set(target,{key:target,name:resolved.name || uiText("relations.unknown_person"),kind:resolved.kind || "person",external:true}); }
-    const pair = [person.person_key,target].sort().join(":");
-    if (!person.person_key || edgeKeys.has(pair)) return;
-    edgeKeys.add(pair); edges.push({from:person.person_key,to:target,score:Number(rel.score || 0),reason:Number(rel.reason || 0)});
-  }));
-  return {nodes:[...nodes.values()],edges};
-}
 function updateManagedStaff(staffId, changes) {
   for (const profile of app.clubProfiles) {
     const staff = (profile.staff || []).find((row) => Number(row.id) === Number(staffId));
@@ -9750,8 +9526,9 @@ document.addEventListener("input", (event) => {
 function settingsRenderStateSignature(settings) {
   return JSON.stringify([
     String(app.state?.data_scope_id || ""),
-    app.cheatMode, app.freeShop, app.disableFa, app.godMode,
-    app.compactMoney, app.darkMode, app.reverseProfitLossColors,
+    String(app.state?.app_version || ""),
+    app.cheatMode, app.disableFa, app.godMode,
+    app.darkMode, app.reverseProfitLossColors,
     String(settings.ui_locale || activeUiLocale()), storedLocaleFontKey(settings.ui_locale || activeUiLocale()),
     app.fontSizeStep, app.showHiddenAttributes,
     settings.player_name_localization !== false,
@@ -9799,10 +9576,12 @@ function renderSettingsControls({force = false} = {}) {
   app.settingsRenderSignature = signature;
   $("#cheat-mode").checked = app.cheatMode;
   $("#cheat-actions").classList.toggle("visible", app.cheatMode);
-  $("#free-shop").checked = app.freeShop;
+  const developmentWalletTools = String(app.state?.app_version || "").toLowerCase().endsWith("-dev");
+  document.querySelectorAll("[data-wallet-debug]").forEach((node) => {
+    node.hidden = !developmentWalletTools;
+  });
   $("#disable-fa").checked = app.disableFa;
   if ($("#god-mode")) $("#god-mode").checked = app.godMode;
-  $("#compact-money").checked = app.compactMoney;
   $("#dark-mode").checked = app.darkMode;
   $("#reverse-profit-loss-colors").checked = app.reverseProfitLossColors;
   syncLocaleFontControls(settings.ui_locale || activeUiLocale());
@@ -10364,7 +10143,6 @@ function showPage(page, {silent = false} = {}) {
   app.page = page;
   renderTopbarRefreshStatus();
   if (page !== "shop") app.shopCartOpen = false;
-  if (page !== "lottery") app.lotteryPanelOpen = false;
   const navigationSignature=page==="relations"?`${page}:${relationState().view}`:page;
   if (app.navigationRenderSignature !== navigationSignature) {
     const dom = shellDomIndex();
@@ -10458,39 +10236,6 @@ function showInitialUsageNotice() {
   }
   syncCustomSelects(languageSetting || dialog);
   dialog.showModal();
-}
-
-function lotteryData() {
-  return app.state?.lottery || {};
-}
-
-function renderLottery() {
-  const root = $("#page-lottery");
-  if (!root) return;
-  const data = lotteryData();
-  const tickets = Math.max(0, Number(data.tickets || 0));
-  const ticketPrice = Number(data.ticket_price);
-  const priced = Number.isFinite(ticketPrice) && ticketPrice > 0;
-  const poolReady = Boolean(data.pool_ready);
-  $("#lottery-ticket-count").textContent = String(tickets);
-  $("#lottery-ticket-panel-count").textContent = String(tickets);
-  $("#lottery-ticket-balance").textContent = formatFullMoney(app.state?.economy?.total_balance || 0);
-  $("#lottery-ticket-unit-price").textContent = priced ? formatFullMoney(ticketPrice) : uiText("lottery.not_configured");
-  document.querySelectorAll("[data-lottery-ticket-quantity]").forEach((button) => {
-    const quantity = Number(button.dataset.lotteryTicketQuantity || 0);
-    button.classList.toggle("active", quantity === app.lotteryPurchaseQuantity);
-    button.disabled = !priced;
-    const price = button.querySelector("[data-lottery-ticket-price]");
-    if (price) price.textContent = priced ? formatFullMoney(ticketPrice * quantity) : "--";
-  });
-  $("#lottery-ticket-buy").disabled = !priced;
-  $("#lottery-probability").disabled = !poolReady;
-  $("#lottery-history").disabled = !poolReady;
-  $("#lottery-single").disabled = !poolReady || tickets < 1;
-  $("#lottery-ten").disabled = !poolReady || tickets < 10;
-  $("#lottery-ticket-panel").classList.toggle("open", app.lotteryPanelOpen);
-  $("#lottery-ticket-panel").setAttribute("aria-hidden", String(!app.lotteryPanelOpen));
-  $("#lottery-ticket-button").setAttribute("aria-expanded", String(app.lotteryPanelOpen));
 }
 
 function leagueData() {
@@ -11060,7 +10805,7 @@ function positionTrainingAutoAssign() {
   const state = ensurePositionTrainingState();
   if (state.preset === "custom") return;
   const slots = positionTrainingSlots(state).filter((slot) => positionTrainingSlotPlaced(slot,state) && slot.position);
-  const players = trainingManagedPlayers().filter((player) => !activeTrainingFocus(player.id));
+  const players = trainingPositionPlayers().filter((player) => !activeTrainingFocus(player.id));
   const primaryById = new Map(players.map((player) => [Number(player.id), String(primaryPlayerPosition(player) || "").toUpperCase()]));
   const topById = new Map(players.map((player) => [Number(player.id), positionTrainingTopRatings(player).map((row) => row.position)]));
   const candidates = slots.flatMap((slot) => players.map((player) => {
@@ -11199,128 +10944,94 @@ function positionTrainingUnplaceSlot(slotId) {
   persistPositionTrainingState();
   renderTraining();
 }
+function positionTrainingPayload(player, slot, durationMode) {
+  return {
+    project_sku:"position_training_area",
+    module:"position_training",
+    player_id:Number(player.id),
+    team_id:Number(player.training_team_id || trainingCurrentTeamId()),
+    operation:"position",
+    position_key:String(slot.position || "").toUpperCase(),
+    duration_mode:String(durationMode || "until_increase"),
+  };
+}
+function positionTrainingSubmissionFor(payload) {
+  const fingerprint = JSON.stringify(payload);
+  const retries = app.trainingPositionRetries || (app.trainingPositionRetries = {});
+  if (!retries[fingerprint]) retries[fingerprint] = clientSubmissionId();
+  if (Object.keys(retries).length > 60) {
+    Object.keys(retries).slice(0, 20).forEach((key) => { delete retries[key]; });
+  }
+  return retries[fingerprint];
+}
 async function startPositionTrainingAssignments(button) {
   if (app.positionTrainingBusy) return;
   const state = ensurePositionTrainingState();
-  const slots = positionTrainingSlots(state);
-  const players = trainingManagedPlayers();
+  const players = trainingPositionPlayers();
   const playersById = new Map(players.map((player) => [Number(player.id),player]));
-  const rows = slots.flatMap((slot) => {
-    const player = positionTrainingAssignedPlayer(slot.id,playersById);
-    if (!player || !positionTrainingSlotPlaced(slot,state) || !slot.position || activeTrainingFocus(player.id)) return [];
-    const current = positionTrainingPlayerRating(player,slot.position);
-    if (!positionTrainingTargetRating(current,state.durationMode)) return [];
-    return [{slot,player}];
-  });
+  const rows = positionTrainingRows(state, playersById);
   if (!rows.length) { toast(uiText("training.no_position_rows")); return; }
+  const scopeAtStart = trainingScopeKey();
   app.positionTrainingBusy = true;
   button?.setAttribute("aria-busy","true");
-  renderTraining({skipStage:true});
+  renderTraining();
   let latest = null;
   const errors = [];
   let completed = 0;
   for (const {slot,player} of rows) {
+    if (scopeAtStart !== trainingScopeKey()) break;
+    const payload = positionTrainingPayload(player, slot, state.durationMode);
+    const fingerprint = JSON.stringify(payload);
+    payload.client_submission_id = positionTrainingSubmissionFor(payload);
     try {
       latest = await request("/api/training/run",{
         method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          facility_id:POSITION_TRAINING_AREA_ID,player_id:Number(player.id),
-          team_id:Number(player.training_team_id || 0),operation:"position",
-          position_key:slot.position,duration_mode:state.durationMode,
-          client_submission_id:crypto.randomUUID(),
-        }),
+        body:JSON.stringify(payload),
       });
+      const retries = app.trainingPositionRetries || {};
+      delete retries[fingerprint];
       completed += 1;
-    } catch (error) { errors.push(`${player.name}：${error.message}`); }
+    } catch (error) {
+      if (scopeAtStart === trainingScopeKey()) errors.push(`${player.name}：${error.message}`);
+    }
   }
   app.positionTrainingBusy = false;
   button?.removeAttribute("aria-busy");
+  if (scopeAtStart !== trainingScopeKey()) return;
   if (latest) updateTrainingResponse(latest); else renderTraining();
   if (completed) toast(uiText("training.position_scheduled", {completed, errors:errors.length ? uiPlural("training.position_errors", errors.length) : ""}));
   if (!completed && errors.length) toast(errors[0]);
 }
 
-async function cancelPositionTraining(focus, button) {
-  if (!focus || focus.focus_type !== "position" || !focus.id) return;
-  if (app.positionTrainingBusy) return;
-  button?.setAttribute("aria-busy", "true");
-  button?.setAttribute("disabled", "disabled");
-  try {
-    const response = await request("/api/training/cancel", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({focus_id: focus.id}),
-    });
-    updateTrainingResponse(response);
-    toast(uiText("training.cancelled"));
-  } catch (error) {
-    button?.removeAttribute("disabled");
-    toast(error.message || uiText("training.cancel_failed"));
-  } finally {
-    button?.removeAttribute("aria-busy");
-  }
-}
-
-const EMPTY_TRAINING_DATA = {catalog:[],facilities:[],sessions:[],focuses:[],preferred_moves:[],floors:[]};
+const EMPTY_TRAINING_DATA = {catalog:[],facilities:[],sessions:[],focuses:[],preferred_moves:[],team_rooms:[]};
 function trainingData() { return app.state?.training_ground || EMPTY_TRAINING_DATA; }
 function trainingDataIndex() {
   const data = trainingData();
   if (app.trainingIndexSource === data && app.trainingIndex) return app.trainingIndex;
   const productsBySku = new Map();
-  const floorsByScene = new Map();
   for (const item of data.catalog || []) {
     if (!productsBySku.has(item.sku)) productsBySku.set(item.sku,item);
   }
-  for (const item of data.floors || []) {
-    if (!floorsByScene.has(item.scene)) floorsByScene.set(item.scene,item);
-  }
-  const facilitiesById = new Map();
-  const facilitiesBySku = new Map();
-  const facilityOrdinalById = new Map();
-  for (const facility of data.facilities || []) {
-    if (!facilitiesById.has(facility.id)) facilitiesById.set(facility.id,facility);
-    const siblings = facilitiesBySku.get(facility.sku) || [];
-    siblings.push(facility);
-    facilitiesBySku.set(facility.sku,siblings);
-  }
-  facilitiesBySku.forEach((siblings) => siblings.forEach(
-    (facility,index) => {
-      if (!facilityOrdinalById.has(facility.id)) facilityOrdinalById.set(facility.id,index);
-    },
-  ));
   const activeFocusByPlayer = new Map();
-  const activeFocusesByFacility = new Map();
-  const lastCompletedByFacility = new Map();
+  const activeFocusByStaff = new Map();
   for (const focus of data.focuses || []) {
-    if (focus.status === "active") {
-      const playerId = Number(focus.player_id);
-      if (!Number.isNaN(playerId) && !activeFocusByPlayer.has(playerId)) {
-        activeFocusByPlayer.set(playerId,focus);
-      }
-      const rows = activeFocusesByFacility.get(focus.facility_id) || [];
-      rows.push(focus);
-      activeFocusesByFacility.set(focus.facility_id,rows);
-    } else if (
-      focus.status === "completed" && focus.focus_type === "attribute"
-      && !lastCompletedByFacility.has(focus.facility_id)
-    ) {
-      lastCompletedByFacility.set(focus.facility_id,focus);
+    if (focus.status !== "active") continue;
+    if (focus.focus_type === "coaching_license") {
+      const staffId = Number(focus.staff_id || 0);
+      if (staffId && !activeFocusByStaff.has(staffId)) activeFocusByStaff.set(staffId,focus);
+      continue;
+    }
+    const playerId = Number(focus.player_id);
+    if (!Number.isNaN(playerId) && !activeFocusByPlayer.has(playerId)) {
+      activeFocusByPlayer.set(playerId,focus);
     }
   }
   app.trainingIndexSource = data;
-  app.trainingIndex = {
-    productsBySku, floorsByScene, facilitiesById, facilitiesBySku,
-    facilityOrdinalById, activeFocusByPlayer, activeFocusesByFacility,
-    lastCompletedByFacility,
-  };
+  app.trainingIndex = {productsBySku, activeFocusByPlayer, activeFocusByStaff};
   return app.trainingIndex;
 }
+
 function trainingProduct(sku) { return trainingDataIndex().productsBySku.get(sku) || null; }
-function trainingFloor(scene) { return trainingDataIndex().floorsByScene.get(scene) || null; }
-function trainingFloorLabel(scene, floor = trainingFloor(scene)) {
-  const key = TRAINING_FLOOR_LABEL_KEYS[scene];
-  return key ? uiText(key) : String(floor?.name || floor?.floor || uiText("training.floor"));
-}
 function trainingFacilityName(sku, product = trainingProduct(sku) || {}) {
   const key = `training.facility.${sku}.name`;
   const localized = uiText(key);
@@ -11331,42 +11042,18 @@ function trainingFacilityDescription(sku, product = trainingProduct(sku) || {}) 
   const localized = uiText(key);
   return localized === key ? String(product?.description || "") : localized;
 }
-function trainingSceneUnlocked(scene) { return trainingFloor(scene)?.unlocked !== false; }
-function trainingSceneAcceptsProduct(scene, productScene) {
-  if (productScene === "indoor") return ["indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f"].includes(scene);
-  if (productScene === "office_6f") return ["office_3f", "office_6f"].includes(scene);
-  if (productScene === "comprehensive_7f") return scene === "comprehensive_7f";
-  if (productScene === "outdoor") return ["outdoor", "outdoor_2"].includes(scene);
-  return scene === productScene;
-}
-function trainingFacility(id) { return trainingDataIndex().facilitiesById.get(id) || null; }
 function activeTrainingFocus(playerId) {
   return trainingDataIndex().activeFocusByPlayer.get(Number(playerId)) || null;
 }
-function trainingFacilityFocuses(facilityId) {
-  return trainingDataIndex().activeFocusesByFacility.get(facilityId) || [];
+function activeTrainingStaffFocus(staffId) {
+  return trainingDataIndex().activeFocusByStaff.get(Number(staffId)) || null;
 }
-function trainingFacilityLastCompleted(facilityId) {
-  return trainingDataIndex().lastCompletedByFacility.get(facilityId) || null;
-}
-function trainingFacilityLabel(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const name = trainingFacilityName(facility.sku, product);
-  const index = trainingDataIndex();
-  const siblings = index.facilitiesBySku.get(facility.sku) || [];
-  if (siblings.length < 2) return name;
-  return `${name} #${Number(index.facilityOrdinalById.get(facility.id) ?? -1) + 1}`;
-}
-function trainingIsUnlimited(product) { return product?.unlimited === true; }
-function trainingIsFull(product, used) {
-  return !trainingIsUnlimited(product) && Number(used || 0) >= Number(product?.capacity || 1);
-}
-function trainingCapacityIcons(capacity, used, unlimited = false) {
-  if (unlimited) {
-    const occupied = Array.from({length:Math.min(Number(used || 0),6)},() => `<span class="training-person occupied"><i data-lucide="user-round"></i></span>`).join("");
-    return `${occupied}<span class="training-person open training-person-unlimited"><i data-lucide="infinity"></i></span>`;
-  }
-  return Array.from({length:Math.max(Number(capacity || 1),Number(used || 0))},(_,index) => `<span class="training-person ${index < used ? "occupied" : "open"}"><i data-lucide="user-round"></i></span>`).join("");
+
+function trainingFocusSummaryText(speed, action, attribute, range, guidance, status) {
+  const key = "training.active_summary";
+  const localized = uiText(key, {speed, action, attribute, range, guidance, status});
+  if (localized && localized !== key && !/\{[a-z_]+\}/i.test(localized)) return localized;
+  return `${speed} ${action} ${attribute}${range}${guidance} · ${status}`;
 }
 function trainingFocusUsage(focus) {
   const days = Number(focus.days_used || 0);
@@ -11413,26 +11100,10 @@ function trainingFocusUsage(focus) {
     const remaining = estimatedDays > 0
       ? uiText("training.until_target", {target, days:totalDays})
       : uiText("training.until_settling", {target});
-    return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
+    return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
   }
   const remaining = estimatedDays > 0 ? uiText("training.about_days", {days:estimatedDays}) : uiText("training.points_settling");
-  return `${speed}${action}${attribute}${attributeRange}${guidance} · ${remaining}`;
-}
-function trainingMemberRows(focuses, facilityId) {
-  const activeRows = focuses.map((focus) => {
-    const team = focus.player_team_type === "national" && focus.player_team_name
-      ? ` · ${escapeHtml(focus.player_team_name)}` : "";
-    const name = focus.focus_type === "coaching_license"
-      ? (focus.staff_name || focus.staff_id) : (focus.player_name || focus.player_id);
-    const badge = ["preferred_move","coaching_license"].includes(focus.focus_type)
-      ? "" : `<b>x${Number(focus.multiplier || 3)}</b>`;
-    return `<div class="training-member-row"><span class="training-member-copy"><strong>${escapeHtml(name)}${team}</strong><small>${trainingFocusUsage(focus)}</small></span><span class="training-member-actions">${badge}<button class="training-cancel-use" type="button" data-training-cancel="${escapeHtml(focus.id)}" aria-label="${uiText("training.cancel_use")}" title="${uiText("training.cancel_use")}"><i data-lucide="x"></i></button></span></div>`;
-  }).join("");
-  const previous = trainingFacilityLastCompleted(facilityId);
-  if (!previous) return activeRows || `<div class="training-member-empty">${uiText("training.no_one")}</div>`;
-  const attribute = localizedTrainingAttribute(previous.attribute_key);
-  const previousRow = `<div class="training-member-row training-member-completed"><span class="training-member-copy"><strong>${escapeHtml(previous.player_name || previous.player_id)}</strong><small>${uiText("training.last_complete", {attribute:escapeHtml(attribute), before:Number(previous.initial_attribute || 0), after:Number(previous.attribute_after || previous.target_attribute || 0)})}</small></span><button class="training-repeat-use" type="button" data-training-repeat="${escapeHtml(previous.id)}"><i data-lucide="rotate-cw"></i><span>${uiText("training.repeat")}</span></button></div>`;
-  return `${activeRows}${previousRow}`;
+  return trainingFocusSummaryText(speed, action, attribute, attributeRange, guidance, remaining);
 }
 async function settleTrainingProgress({forceRoster = false, notify = false} = {}) {
   if (app.trainingSettlementReloading) return;
@@ -11463,6 +11134,7 @@ async function settleTrainingProgress({forceRoster = false, notify = false} = {}
     const errors = [settlement.progress_error,
       ...(settlement.habit_errors || []),
       ...(settlement.coaching_license_errors || []),
+      ...(settlement.team_training?.errors || []),
     ].filter(Boolean);
     if (notify) {
       if (errors.length) toast(uiText("training.settlement_failed", {error:errors[0]}));
@@ -11525,132 +11197,6 @@ function updateTrainingResponse(response) {
   applyEconomySnapshot(response.economy);
   renderTraining();
 }
-function firstTrainingPosition(facility) {
-  const candidates = [[24,35],[48,35],[72,35],[30,60],[55,60],[78,62],[42,78],[68,78]];
-  const placed = (trainingData().facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene).length;
-  const [x,y] = candidates[placed % candidates.length];
-  return {...facility,x,y,status:"placed",scene:app.trainingScene};
-}
-function trainingSprite(sku, product = null) {
-  return `/assets/training/${encodeURIComponent(product?.image_sku || sku)}.webp`;
-}
-function trainingFacilityVisual(product, sku) {
-  return product?.built_in
-    ? `<span class="training-area-icon"><i data-lucide="${escapeHtml(product.icon || "flag-triangle-right")}"></i></span>`
-    : `<img src="${trainingSprite(sku, product)}" alt="">`;
-}
-
-function trainingAttributeWords(product) {
-  return trainingFacilityDescription(product?.sku, product);
-}
-
-function trainingAvailableItem(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const unlimited = trainingIsUnlimited(product);
-  const capacity = Number(product.capacity || 1);
-  const members = trainingMemberRows(focuses, facility.id);
-  const attributes = trainingAttributeWords(product);
-  return `<article class="training-available-item ${product.built_in ? "built-in" : ""}"><button class="training-available-head" type="button" data-training-open="${escapeHtml(facility.id)}"><span class="training-available-copy"><span class="training-available-title"><strong>${escapeHtml(trainingFacilityLabel(facility))}</strong><span class="training-capacity-badge">${unlimited ? uiText("training.unlimited") : `${focuses.length}/${capacity}`}</span></span>${attributes ? `<small class="training-available-attributes">${escapeHtml(attributes)}</small>` : ""}</span><span class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</span><i data-lucide="chevron-right"></i></button><div class="training-member-list">${members}</div></article>`;
-}
-
-function renderTrainingEquipmentList(facilities) {
-  const state = app.trainingEquipmentState;
-  if (state.available === undefined) state.available = true;
-  if (state.unavailable === undefined) state.unavailable = true;
-
-  const totalBySku = new Map();
-  facilities.forEach((facility) => {
-    totalBySku.set(facility.sku, Number(totalBySku.get(facility.sku) || 0) + 1);
-  });
-  const rows = facilities.map((facility) => {
-    const used = trainingFacilityFocuses(facility.id).length;
-    const product = trainingProduct(facility.sku) || {};
-    const capacity = Number(product.capacity || 1);
-    return {
-      facility,
-      used,
-      capacity,
-      partial: trainingIsUnlimited(product) ? used > 0 : capacity > 1 && used > 0 && used < capacity,
-      full: trainingIsFull(product, used),
-    };
-  });
-  const available = rows.filter((row) => !row.full);
-  const unavailable = rows.filter((row) => row.full);
-
-  function renderCategory(key, title, categoryRows) {
-    if (!categoryRows.length) return "";
-    const expanded = state[key] === true;
-    let html = `<button class="training-equipment-group main-group" type="button" data-training-equipment-toggle="${key}" aria-expanded="${expanded}"><span>${title} (${categoryRows.length})</span><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-    if (!expanded) return html;
-
-    const bySku = new Map();
-    categoryRows.forEach((row) => {
-      if (!bySku.has(row.facility.sku)) bySku.set(row.facility.sku, []);
-      bySku.get(row.facility.sku).push(row);
-    });
-    const sortedGroups = [...bySku.entries()].sort((left, right) => {
-      const partialDifference = Number(right[1].some((row) => row.partial))
-        - Number(left[1].some((row) => row.partial));
-      if (partialDifference) return partialDifference;
-      const totalDifference = Number(totalBySku.get(right[0]) || 0)
-        - Number(totalBySku.get(left[0]) || 0);
-      if (totalDifference) return totalDifference;
-      return String(trainingProduct(left[0])?.name || left[0]).localeCompare(
-        String(trainingProduct(right[0])?.name || right[0]), activeUiLocale(),
-      );
-    });
-    sortedGroups.forEach(([sku, skuRows]) => {
-      const skuKey = `${key}:${sku}`;
-      if (state[skuKey] === undefined) state[skuKey] = true;
-      const skuExpanded = state[skuKey] === true;
-      const product = trainingProduct(sku) || {};
-      html += `<button class="training-equipment-group sub-group" type="button" data-training-equipment-toggle="${escapeHtml(skuKey)}" aria-expanded="${skuExpanded}"><span>${escapeHtml(trainingFacilityName(sku,product))} (${skuRows.length}/${Number(totalBySku.get(sku) || 0)})</span><i data-lucide="${skuExpanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-      if (skuExpanded) {
-        skuRows
-          .sort((left, right) => Number(right.partial) - Number(left.partial))
-          .forEach((row) => { html += trainingAvailableItem(row.facility); });
-      }
-    });
-    return html;
-  }
-
-  return renderCategory("available", uiText("training.available"), available)
-    + renderCategory("unavailable", uiText("training.unavailable"), unavailable)
-    || `<div class="training-dock-empty"><i data-lucide="dumbbell"></i><strong>${uiText("training.no_equipment")}</strong></div>`;
-}
-
-function trainingCoachingDeskPanel(facility) {
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const capacity = Number(product.capacity || 1);
-  const staff = trainingManagedStaff();
-  const activeStaffIds = new Set(
-    (trainingData().focuses || [])
-      .filter((focus) => focus.status === "active" && focus.focus_type === "coaching_license")
-      .map((focus) => Number(focus.staff_id || 0)),
-  );
-  const eligible = staff.filter((row) => !row.coaching_license?.maximum && !activeStaffIds.has(Number(row.id)));
-  if (!eligible.some((row) => Number(row.id) === Number(app.trainingStaffId))) {
-    app.trainingStaffId = Number(eligible[0]?.id || 0);
-  }
-  const selected = eligible.find((row) => Number(row.id) === Number(app.trainingStaffId)) || null;
-  const license = selected?.coaching_license || {};
-  const durationDays = Number(trainingData().coaching_license_course_days?.[license.code] || 0);
-  const full = focuses.length >= capacity;
-  const disabled = app.trainingActionBusy || !selected || full;
-  const options = staff.map((row) => {
-    const current = row.coaching_license || {};
-    const active = activeStaffIds.has(Number(row.id));
-    const unavailable = current.maximum || active;
-    const suffix = current.maximum ? ` · ${uiText("training.max_level")}` : (active ? ` · ${uiText("training.studying")}` : "");
-    return `<option value="${Number(row.id)}" ${Number(row.id) === Number(app.trainingStaffId) ? "selected" : ""} ${unavailable ? "disabled" : ""}>${escapeHtml(row.name)} · ${escapeHtml(localizedStaffRole(row))} · ${escapeHtml(current.name || uiText("training.licence_unread"))}${suffix}</option>`;
-  }).join("");
-  const summary = selected ? `<div class="training-coach-summary"><span><small>${uiText("training.current_licence")}</small><strong>${escapeHtml(license.name || uiText("hospital.loading_short"))}</strong></span><i data-lucide="arrow-right"></i><span><small>${uiText("training.graduation_target")}</small><strong>${escapeHtml(license.next_name || uiText("training.max_level"))}</strong></span></div>` : "";
-  const emptyOption = app.trainingStaffLoading ? uiText("training.sync_roster") : uiText("training.no_staff");
-  return `<div class="training-use-panel coaching-desk-panel"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_facilities")}" title="${uiText("training.back_facilities")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${uiText("training.people_studying", {count:`${focuses.length}/${capacity}`})}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length)}</div></div></div><section class="training-use-members"><h3>${uiText("training.study_people")}</h3>${trainingMemberRows(focuses,facility.id)}</section><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}"><label>${uiText("training.staff_or_manager")}<select id="training-inline-staff" ${disabled ? "disabled" : ""}>${options || `<option value="">${emptyOption}</option>`}</select></label>${summary}<label>${uiText("training.licence_target")}<select id="training-inline-target" ${disabled ? "disabled" : ""}><option value="${Number(license.next_code || 0)}">${escapeHtml(license.next_name || uiText("training.no_next_licence"))}</option></select></label><label>${uiText("training.expected_course")}<select id="training-inline-duration" disabled><option>${durationDays ? uiText("training.game_days", {days:durationDays}) : uiText("training.pending_read")}</option></select></label><p class="training-coaching-note">${uiText("training.coaching_note")}</p><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : uiText("training.start_licence")}</button></form></div>`;
-}
-
 function trainingPlayerMatchesPositionGroup(player, positionGroup) {
   if (positionGroup === "goalkeepers") {
     if (Number(player?.position_ratings?.GK || 0) > 1) return true;
@@ -11658,143 +11204,6 @@ function trainingPlayerMatchesPositionGroup(player, positionGroup) {
       .some((position) => String(position || "").toUpperCase() === "GK");
   }
   return playerPositionGroup(player) === positionGroup;
-}
-
-function trainingUsePanel(facility) {
-  if (facility.sku === "coaching_desk") return trainingCoachingDeskPanel(facility);
-  const product = trainingProduct(facility.sku) || {};
-  const focuses = trainingFacilityFocuses(facility.id);
-  const unlimited = trainingIsUnlimited(product);
-  const capacity = Number(product.capacity || 1);
-  const activeUsageLabel = (focus) => {
-    let target = localizedTrainingAttribute(focus.attribute_key) || uiText("training.attribute");
-    let remainingDays = ["until_increase","until_decrease"].includes(focus.duration_mode)
-      ? Number(focus.estimated_days || 0)
-      : Number(focus.estimated_total_days || focus.estimated_days || 0);
-    if (focus.focus_type === "preferred_move") {
-      target = localizedPreferredMove(focus);
-      remainingDays = Math.max(0, 7 - Number(focus.days_used || 0));
-    } else if (focus.focus_type === "position") {
-      target = focus.position_key || uiText("training.position");
-    }
-    return uiText("training.player_active_summary", {
-      name:escapeHtml(focus.player_name || focus.player_id),
-      target:escapeHtml(target),
-      days:Math.max(0, remainingDays),
-    });
-  };
-  const usageLabel = focuses.length === 1
-    ? activeUsageLabel(focuses[0])
-    : unlimited
-      ? `${focuses.length ? uiPlural("training.people_studying", focuses.length) : uiText("training.current_no_one")} · ${uiText("training.unlimited")}`
-      : uiText("training.people_training", {used:focuses.length, capacity});
-  const players = trainingManagedPlayers();
-  const eligiblePlayers = product.position_group
-    ? players.filter((player) => trainingPlayerMatchesPositionGroup(player, product.position_group))
-    : players;
-  const positionOrder = {forwards:0, midfielders:1, defenders:2, goalkeepers:3};
-  const positionLabels = {forwards:uiText("training.position_group.forwards"), midfielders:uiText("training.position_group.midfielders"), defenders:uiText("training.position_group.defenders"), goalkeepers:uiText("training.position_group.goalkeepers")};
-  const sortedPlayers = [...eligiblePlayers].sort((left, right) => {
-    const groupDifference = positionOrder[playerPositionGroup(left)] - positionOrder[playerPositionGroup(right)];
-    if (groupDifference) return groupDifference;
-    const positionDifference = String(primaryPlayerPosition(left)).localeCompare(String(primaryPlayerPosition(right)), activeUiLocale());
-    return positionDifference || String(left.name || "").localeCompare(String(right.name || ""), activeUiLocale());
-  });
-  if (!eligiblePlayers.some((player) => Number(player.id) === Number(app.trainingPlayerId))) app.trainingPlayerId = Number(sortedPlayers[0]?.id || 0);
-  const habit = facility.sku === "habit_lab";
-  const disabled = app.trainingActionBusy || !eligiblePlayers.length;
-  const selectedPlayer = sortedPlayers.find((player) => Number(player.id) === Number(app.trainingPlayerId)) || null;
-  const availableTargetKeys = !habit && selectedPlayer
-    ? trainingAttributeKeysForPlayer(product, selectedPlayer) : [];
-  const requestedTargetKey = app.trainingRepeatTarget || app.trainingTargetKey;
-  const selectedTargetKey = availableTargetKeys.includes(requestedTargetKey)
-    ? requestedTargetKey
-    : String(availableTargetKeys[0] || "");
-  if (!habit) app.trainingTargetKey = selectedTargetKey;
-  const playerSearch = String(app.trainingPlayerSearch || "").trim().toLocaleLowerCase();
-  const playerPositionFilter = String(app.trainingPlayerPositionFilter || "all");
-
-  function trainingPlayerStatus(player, focus) {
-    if (focus.focus_type === "preferred_move") {
-      const action = focus.operation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn");
-      const remainingDays = Math.max(0, 7 - Number(focus.days_used || 0));
-      return uiText("training.habit_study", {action:focus.operation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn"), move:escapeHtml(localizedPreferredMove(focus)), days:Math.max(0, 7 - remainingDays)});
-    }
-    const attributeName = escapeHtml(localizedTrainingAttribute(focus.attribute_key) || uiText("training.position"));
-    const current = playerAttributeValue(player, focus.attribute_key)
-      || Number(focus.initial_attribute || 0);
-    const direction = Number(focus.direction || 1) < 0 ? -1 : 1;
-    const target = Number(
-      focus.target_attribute
-      || (["until_increase","until_decrease"].includes(focus.duration_mode)
-        ? current + direction : current),
-    );
-    const remainingDays = ["until_increase","until_decrease"].includes(focus.duration_mode)
-      ? Number(focus.estimated_days || 0)
-      : Number(focus.estimated_total_days || focus.estimated_days || 0);
-    return uiText("training.position_progress", {position:attributeName, current, target, status:remainingDays > 0 ? uiText("training.about_days", {days:remainingDays}) : uiText("training.almost_done")});
-  }
-
-  function renderPlayerOption(player, playerFocus) {
-    const selected = Number(player.id) === Number(app.trainingPlayerId);
-    const source = player.training_team_type === "national"
-      ? (player.training_team_name || uiText("training.national_team")) : uiText("training.club");
-    const activeFacility = playerFocus ? trainingFacility(playerFocus.facility_id) : null;
-    const trainingLocation = playerFocus
-      ? trainingFacilityLabel(activeFacility || {sku:"", id:""}) || uiText("training.other_equipment")
-      : "";
-    const detailLine = selectedTargetKey
-      ? `<small class="training-target-attribute">${escapeHtml(localizedTrainingAttribute(selectedTargetKey))} · ${playerAttributeValue(player, selectedTargetKey)}</small>`
-      : (playerFocus ? `<small class="training-active-detail">${trainingPlayerStatus(player, playerFocus)}</small>` : "");
-    const abilityLine = app.showHiddenAttributes
-      ? `<small>CA ${Number(player.ca || 0)} | PA ${Number(player.pa || 0)}</small>`
-      : "";
-    return `<button class="training-player-option ${selected ? "selected" : ""} ${playerFocus ? "training" : "idle"}" type="button" role="option" aria-selected="${selected}" data-training-player-option="${Number(player.id)}"><span class="training-player-radio" aria-hidden="true"></span><span><strong>${escapeHtml(player.name)}${trainingLocation ? `<i class="training-location-tag">[${escapeHtml(trainingLocation)}]</i>` : ""}</strong><small>${escapeHtml(primaryPlayerPosition(player))} · ${escapeHtml(source)}</small>${abilityLine}${detailLine}</span>${selected ? '<i data-lucide="check"></i>' : ""}</button>`;
-  }
-
-  const filteredPlayers = sortedPlayers.filter((player) => {
-    if (playerPositionFilter !== "all" && playerPositionGroup(player) !== playerPositionFilter) return false;
-    if (!playerSearch) return true;
-    const source = player.training_team_type === "national"
-      ? (player.training_team_name || uiText("training.national_team")) : uiText("training.club");
-    return [player.name, primaryPlayerPosition(player), source]
-      .some((value) => String(value || "").toLocaleLowerCase().includes(playerSearch));
-  });
-  const playerRows = filteredPlayers.map((player) => renderPlayerOption(
-    player, activeTrainingFocus(player.id),
-  )).join("");
-  const idleCount = sortedPlayers.filter((player) => !activeTrainingFocus(player.id)).length;
-  const positionFilters = [["all", uiText("training.all_people")], ...Object.entries(positionLabels)];
-  const selectedTargetSummary = selectedPlayer && selectedTargetKey
-    ? ` · ${escapeHtml(localizedTrainingAttribute(selectedTargetKey))} ${playerAttributeValue(selectedPlayer, selectedTargetKey)}`
-    : (habit && app.showHiddenAttributes && selectedPlayer
-      ? ` · CA ${Number(selectedPlayer.ca || 0)}/PA ${Number(selectedPlayer.pa || 0)}`
-      : "");
-  const restrictedPositionLabel = product.position_group === "goalkeepers" ? uiText("training.position_group.goalkeepers")
-    : product.position_group === "defenders" ? uiText("training.position_group.defenders") : "";
-  const playerPickerCard = app.trainingPlayerPickerOpen
-    ? `<div class="training-player-picker-layer" data-training-player-picker-layer><section class="training-player-picker-card" role="dialog" aria-labelledby="training-player-picker-title"><header><div><small>${uiText("training.personnel")}</small><h3 id="training-player-picker-title">${uiText("training.choose_player")}</h3><span>${selectedTargetKey ? uiText("training.current_target", {target:escapeHtml(localizedTrainingAttribute(selectedTargetKey))}) : uiText("training.choose_trainable_player")}</span></div><button class="icon-button" type="button" data-training-player-close aria-label="${uiText("common.close")}" title="${uiText("common.close")}"><i data-lucide="x"></i></button></header><label class="training-player-search"><i data-lucide="search"></i><input id="training-player-search" type="search" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.search_players")}" autocomplete="off"></label><div class="training-player-picker-filters" role="tablist" aria-label="${uiText("training.position_filter")}">${positionFilters.map(([key,label]) => `<button type="button" role="tab" aria-selected="${playerPositionFilter === key}" class="${playerPositionFilter === key ? "active" : ""}" data-training-player-position="${key}">${label}</button>`).join("")}</div><div class="training-player-picker-meta"><span>${uiText("training.shown_people", {count:filteredPlayers.length})}</span><span>${uiText("training.idle_people", {count:idleCount})}</span></div><div class="training-player-picker-list" role="listbox" aria-label="${uiText("training.personnel")}">${playerRows || `<div class="training-player-empty">${uiText("training.no_matching_players")}</div>`}</div></section></div>`
-    : "";
-  const playerPicker = `<div class="training-player-field"><span>${uiText("training.player_label")}</span><input type="hidden" id="training-inline-player" value="${Number(selectedPlayer?.id || 0)}"><button class="training-player-trigger" type="button" data-training-player-toggle aria-expanded="${app.trainingPlayerPickerOpen}" ${disabled ? "disabled" : ""}><span>${selectedPlayer ? `<strong>${escapeHtml(selectedPlayer.name)}</strong><small>${escapeHtml(selectedPlayer.training_team_type === "national" ? (selectedPlayer.training_team_name || uiText("training.national_team")) : uiText("training.club"))}${selectedTargetSummary}</small>` : `<strong>${app.trainingRosterLoading ? uiText("training.team_loading") : restrictedPositionLabel ? uiText("training.no_available_position_players", {position:restrictedPositionLabel}) : uiText("training.no_available_players")}</strong>`}</span><i data-lucide="chevron-down"></i></button>${playerPickerCard}</div>`;
-  const durationOptions = habit ? `<option value="week">${uiText("training.week")}</option>` : "";
-  const membersSection = `<section class="training-use-members"><h3>${uiText("training.personnel")}</h3>${trainingMemberRows(focuses, facility.id)}</section>`;
-  const operationToggle = `<div class="training-operation-toggle" id="training-inline-operation" ${habit ? "" : "hidden"}><button class="${app.trainingOperation === "learn" ? "active" : ""}" type="button" data-training-operation="learn" ${disabled ? "disabled" : ""}>${uiText("training.learn")}</button><button class="${app.trainingOperation === "unlearn" ? "active" : ""}" type="button" data-training-operation="unlearn" ${disabled ? "disabled" : ""}>${uiText("training.unlearn")}</button></div>`;
-  const targetField = `<label class="training-target-field">${uiText("training.target_label")}<select id="training-inline-target" ${disabled ? "disabled" : ""}></select></label>`;
-  const labHiddenTraining = product.attribute_kind === "hidden" && product.scene === "comprehensive_7f";
-  const directionField = labHiddenTraining
-    ? `<label>${uiText("training.direction_label")}<select id="training-inline-direction" ${disabled ? "disabled" : ""}><option value="1" ${app.trainingDirection > 0 ? "selected" : ""}>${uiText("training.direction_increase")}</option><option value="-1" ${app.trainingDirection < 0 ? "selected" : ""}>${uiText("training.direction_decrease")}</option></select></label>`
-    : "";
-  const attributeFormFields = `${targetField}${directionField}${membersSection}${playerPicker}`;
-  const habitFormFields = `${membersSection}${playerPicker}${operationToggle}${targetField}`;
-  return `<div class="training-use-panel ${product.built_in ? "built-in-area-panel" : ""}"><button class="training-use-back icon-button" type="button" data-training-back aria-label="${uiText("training.back_training")}" title="${uiText("training.back_training")}"><i data-lucide="arrow-left"></i></button><div class="training-use-hero">${trainingFacilityVisual(product,facility.sku)}<div><h2>${escapeHtml(trainingFacilityLabel(facility))}</h2><span>${usageLabel}</span><div class="training-people">${trainingCapacityIcons(capacity,focuses.length,unlimited)}</div></div></div><form id="training-inline-form" class="training-inline-form"><input type="hidden" id="training-inline-facility" value="${escapeHtml(facility.id)}">${habit ? habitFormFields : attributeFormFields}<label id="training-inline-duration-field">${uiText("training.duration_label")}<select id="training-inline-duration" ${disabled ? "disabled" : ""}>${durationOptions}</select></label><div class="training-focus-status" id="training-inline-status" hidden></div><div class="training-current-moves" id="training-inline-current-moves" hidden></div><button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : habit ? uiText("training.start_habit") : uiText("training.start_specialist")}</button></form></div>`;
-}
-
-function selectedGameIsFm26() {
-  const status = app.state?.game_versions || {};
-  const available = status.available || [];
-  const selected = available.find((item) => item.key === status.selected) || available[0] || null;
-  return String(selected?.version || "").startsWith("26")
-    || String(selected?.key || "").toLowerCase().includes("fm26");
 }
 
 const CANTEEN_PLANS = {
@@ -11930,7 +11339,7 @@ function canteenRenderStateSignature(index, players) {
     String(app.state?.data_scope_id || ""), moneyRenderSignature(),
     funding.bank, funding.wallet, funding.total, canteenDate(),
     Number(index.teamId || 0), app.canteenSettingsKey,
-    app.canteenDock, app.canteenPlan, facilityViewMode("canteen"), Boolean(freeServicesEnabled()),
+    app.canteenDock, app.canteenPlan, facilityViewMode("canteen"),
     Boolean(app.canteenSyncPromise), app.canteenActionBusy, app.canteenActionLabel,
     Object.entries(app.canteenBans).sort(([left], [right]) => Number(left) - Number(right)),
     players.map((player) => [Number(player.id), String(player.name || "")]),
@@ -11959,7 +11368,7 @@ function renderCanteen() {
   syncStatus.hidden = !busyLabel;
   syncStatus.querySelector("span").textContent = busyLabel;
   renderFundingSummary("#canteen-balance", {
-    recurringAmount:freeServicesEnabled() ? 0 : toPurchaseInternalMoney(plan.daily_cost),
+    recurringAmount:toPurchaseInternalMoney(plan.daily_cost),
     recurringLabel:uiText("canteen.daily_cost"),
   });
   $("#canteen-window-status").textContent = uiText("canteen.open", {name:uiText(plan.nameKey)});
@@ -12184,33 +11593,6 @@ function interactiveSurfaceBusy(root) {
   return Boolean(app.page === root.closest(".app-page")?.id?.replace("page-", "") && active && root.contains(active) && active.matches("select, .fmodd-select-trigger"));
 }
 
-async function loadRelationshipTrainingRooms() {
-  if (app.relationshipTrainingLoading) return;
-  app.relationshipTrainingLoading = true;
-  renderTraining();
-  try {
-    app.relationshipTrainingRooms = await request("/api/training/relationship-rooms");
-  } catch (error) {
-    app.relationshipTrainingRooms = {error:error.message || uiText("relationship.error.rooms"),rooms:[]};
-  } finally {
-    app.relationshipTrainingLoading = false;
-    renderTraining();
-  }
-}
-
-function relationshipTrainingRoomByInstance(instanceId) {
-  const lookupId = String(instanceId ?? "");
-  for (const definition of app.relationshipTrainingRooms?.rooms || []) {
-    const instance = (definition.instances || []).find((row) => String(row.id ?? "") === lookupId);
-    if (instance) return {definition,instance};
-  }
-  return null;
-}
-
-const RELATIONSHIP_TRAINING_POSITION_ORDER = {forwards:0,midfielders:1,defenders:2,goalkeepers:3};
-const RELATIONSHIP_TRAINING_POSITION_LABELS = {forwards:"relationship.position_group.forwards",midfielders:"relationship.position_group.midfielders",defenders:"relationship.position_group.defenders",goalkeepers:"relationship.position_group.goalkeepers"};
-const RELATIONSHIP_TRAINING_INTIMACY_MULTIPLIER = {8:1,11:1,5:1,6:1.5,7:1.5,12:1.5,10:1.25,4:1.25,1:1.75,2:1.75,3:1.75,9:2};
-
 function relationshipTrainingRoleLabel(role) {
   const key = {mentor:"relationship.role.mentor",student:"relationship.role.student",coach:"relationship.role.coach",player:"relationship.role.player",analyst:"relationship.role.analyst",scientist:"relationship.role.scientist"}[String(role?.key || "")];
   return key ? uiText(key) : String(role?.label || "");
@@ -12247,655 +11629,6 @@ function relationshipTrainingManagedPeople(kind) {
   return [...rows.values()];
 }
 
-function relationshipTrainingGuidanceAllowed(mentor, student) {
-  if (!mentor || !student) return false;
-  const sameParent = mentor.training_team_type === student.training_team_type
-    && Number(mentor.training_team_id || 0) === Number(student.training_team_id || 0);
-  if (!sameParent) return false;
-  const mentorSquad = Number(mentor.training_squad_team_id || mentor.training_team_id || 0);
-  const studentSquad = Number(student.training_squad_team_id || student.training_team_id || 0);
-  if (mentorSquad === studentSquad) return true;
-  const mentorSenior = mentorSquad === Number(mentor.training_team_id || 0)
-    || Number(mentor.training_squad_type_code || 0) === 0;
-  const studentSubordinate = studentSquad !== Number(student.training_team_id || 0);
-  return mentorSenior && studentSubordinate;
-}
-
-function relationshipTrainingGuidanceRoles(room) {
-  return {
-    mentoring_room:{guide:"mentor",student:"student"},
-    tactical_room:{guide:"coach",student:"player"},
-    video_analysis_room:{guide:"analyst",student:"player"},
-    sports_science_room:{guide:"scientist",student:"player"},
-  }[room?.sku] || null;
-}
-
-function relationshipTrainingGuidanceCandidates(players, room, roleKey) {
-  const roles = relationshipTrainingGuidanceRoles(room);
-  if (!roles) return players;
-  if (roleKey === roles.student) {
-    const mentor = relationshipTrainingPersonByRef((app.relationshipTrainingSelections[roles.guide] || [])[0]);
-    return mentor ? players.filter((student)=>relationshipTrainingGuidanceAllowed(mentor,student)) : players;
-  }
-  if (roleKey === roles.guide) {
-    const students = (app.relationshipTrainingSelections[roles.student] || [])
-      .map(relationshipTrainingPersonByRef).filter(Boolean);
-    return students.length
-      ? players.filter((mentor)=>students.every((student)=>relationshipTrainingGuidanceAllowed(mentor,student)))
-      : players;
-  }
-  return players;
-}
-
-function relationshipTrainingNormalizeGuidanceSelections(room) {
-  const roles = relationshipTrainingGuidanceRoles(room);
-  if (!roles) return;
-  const mentorRef = (app.relationshipTrainingSelections[roles.guide] || [])[0];
-  const mentor = relationshipTrainingPersonByRef(mentorRef);
-  if (!mentor) return;
-  app.relationshipTrainingSelections[roles.student] = (app.relationshipTrainingSelections[roles.student] || []).filter((ref)=>{
-    const student = relationshipTrainingPersonByRef(ref);
-    return student && relationshipTrainingGuidanceAllowed(mentor,student);
-  });
-}
-
-function isStaffChief(staff) {
-  const jobType = Number(staff?.job_type || 0);
-  if ([38, 44, 50, 62].includes(jobType)) return true;
-  const role = String(staff?.role || staff?.job || "").toLowerCase();
-  return role.includes("首席") || role.includes("chief") || role.includes("head");
-}
-
-function relationshipTrainingCandidates(kind, room, roleKey) {
-  if (kind === "staff") {
-    const requiredCategory = room?.sku === "tactical_room" ? "教练团队"
-      : room?.sku === "video_analysis_room" ? "分析团队"
-      : room?.sku === "sports_science_room" ? "运动科学团队" : "";
-    return relationshipTrainingGuidanceCandidates(relationshipTrainingManagedPeople("staff").filter((row) => (!requiredCategory || staffJobCategory(row) === requiredCategory)
-      && (room?.sku !== "tactical_room" || Number(row.coaching_license?.code || 0) !== 0)),room,roleKey).sort((a,b)=>{
-      const chief=Number(isStaffChief(b))-Number(isStaffChief(a));
-      if(chief)return chief;
-      if(room?.sku==="video_analysis_room"||room?.sku==="sports_science_room"){
-        const category=room.sku==="video_analysis_room"?"分析团队":"运动科学团队";
-        const categoryMatch=Number(staffJobCategory(b)===category)-Number(staffJobCategory(a)===category);
-        if(categoryMatch)return categoryMatch;
-        const abilityName=String(room.key_staff_attribute||(room.sku==="video_analysis_room"?"数据分析":"运动科学"));
-        const ability=Number(b.abilities?.[abilityName]||0)-Number(a.abilities?.[abilityName]||0);
-        if(ability)return ability;
-      }
-      const category=staffJobCategoryIndex(staffJobCategory(a))-staffJobCategoryIndex(staffJobCategory(b));
-      if(category)return category;
-      const group=STAFF_JOB_CATEGORY_GROUPS.find((row)=>row.label===staffJobCategory(a));
-      const position=(group?.types.indexOf(Number(a.job_type))??99)-(group?.types.indexOf(Number(b.job_type))??99);
-      if(position)return position;
-      const tiers={0:1,7:2,6:3,5:4,4:5,3:6,2:7,1:8};
-      return Number(tiers[Number(b.coaching_license?.code)]||0)-Number(tiers[Number(a.coaching_license?.code)]||0)
-        || Number(b.current_reputation||0)-Number(a.current_reputation||0)
-        || Number(b.ca||0)-Number(a.ca||0)
-        || Number(b.pa||0)-Number(a.pa||0)
-        || String(a.name||"").localeCompare(String(b.name||""),activeUiLocale());
-    });
-  }
-  const attrs=room?.scope_attributes||[];
-  const average=(player,rows)=>rows.length?rows.reduce((sum,attr)=>sum+relationshipTrainingAttributeValue(player,attr.key),0)/rows.length:0;
-  const mentor=relationshipTrainingGuiderFor(room);
-  const roomCompare=(a,b)=>{
-    if(room?.sku==="mind_room")return average(b,attrs)-average(a,attrs);
-    if(room?.sku==="mentoring_room"){
-      if(roleKey==="mentor")return attrs.filter((attr)=>relationshipTrainingGuiderQualified(room,attr,b).valid).length-attrs.filter((attr)=>relationshipTrainingGuiderQualified(room,attr,a).valid).length;
-      if(mentor)return attrs.filter((attr)=>attr.direction==="dec"?relationshipTrainingAttributeValue(mentor,attr.key)<relationshipTrainingAttributeValue(b,attr.key):relationshipTrainingAttributeValue(mentor,attr.key)>relationshipTrainingAttributeValue(b,attr.key)).length-attrs.filter((attr)=>attr.direction==="dec"?relationshipTrainingAttributeValue(mentor,attr.key)<relationshipTrainingAttributeValue(a,attr.key):relationshipTrainingAttributeValue(mentor,attr.key)>relationshipTrainingAttributeValue(a,attr.key)).length;
-      return average(b,attrs)-average(a,attrs);
-    }
-    if(room?.sku==="tactical_room")return average(b,attrs.filter((attr)=>attr.key!=="精神:团队合作"))-average(a,attrs.filter((attr)=>attr.key!=="精神:团队合作"));
-    if(room?.sku==="video_analysis_room"){
-      const checked=app.relationshipTrainingAttributes.size?attrs.filter((attr)=>app.relationshipTrainingAttributes.has(attr.key)):attrs;
-      return average(a,checked)-average(b,checked);
-    }
-    if(room?.sku==="sports_science_room")return relationshipTrainingAttributeValue(b,"hidden:受伤倾向")-relationshipTrainingAttributeValue(a,"hidden:受伤倾向")||relationshipTrainingAttributeValue(a,"身体:体质")-relationshipTrainingAttributeValue(b,"身体:体质");
-    return 0;
-  };
-  return relationshipTrainingGuidanceCandidates(relationshipTrainingManagedPeople("player"),room,roleKey).sort((a,b)=>
-    (room?.sku==="sports_science_room" ? Number(a.age||0)-Number(b.age||0) : 0)
-    || (RELATIONSHIP_TRAINING_POSITION_ORDER[playerPositionGroup(a)]??99)-(RELATIONSHIP_TRAINING_POSITION_ORDER[playerPositionGroup(b)]??99)
-    || Number(b.ca||0)-Number(a.ca||0)
-    || Number(b.pa||0)-Number(a.pa||0)
-    || String(a.name||"").localeCompare(String(b.name||""),activeUiLocale())
-    || roomCompare(a,b)
-  );
-}
-
-function relationshipTrainingPersonRef(person, kind) {
-  return `${kind}:${Number(person.id)}:${Number(person.training_team_id || 0)}`;
-}
-
-function relationshipTrainingPersonByRef(ref) {
-  const [kind,idText,teamText] = String(ref || "").split(":",3);
-  const rows = relationshipTrainingManagedPeople(kind === "staff" ? "staff" : "player");
-  return rows.find((person) => Number(person.id) === Number(idText)
-    && (!Number(teamText) || Number(person.training_team_id || 0) === Number(teamText))) || null;
-}
-
-function relationshipTrainingSelectedRefs() {
-  return new Set(Object.values(app.relationshipTrainingSelections).flat());
-}
-
-function relationshipTrainingPersonDetails(person, kind, room) {
-  if (!person) return "";
-  const team = person.training_team_name || uiText("relationship.person.default_team");
-  if (kind === "staff") {
-    const abilities = person.abilities || {};
-    const keys = staffKeyAttributes(person);
-    const keyRows = keys.flatMap((name) => abilities[name] == null ? [] : [[name,abilities[name]]]);
-    const abilityName = room.sku === "video_analysis_room" ? "数据分析"
-      : (room.sku === "sports_science_room" ? "运动科学" : "");
-    const abilityValue = Number(abilities[abilityName] || 0);
-    const category = staffJobCategory(person);
-    const roomQualification = abilityName
-      ? `<span><b>${uiText("relationship.room.qualification")}</b>${escapeHtml(category)} · ${escapeHtml(abilityName)} ${abilityValue}/20 · ${uiText(abilityValue >= 12 ? "relationship.room.qualified" : "relationship.room.unqualified")}</span>`
-      : (room.sku === "tactical_room"
-        ? `<span><b>${uiText("relationship.room.guidance_qualification")}</b>${escapeHtml(person.coaching_license?.name || uiText("relationship.person.no_licence"))}</span>`
-        : "");
-    return `<div class="training-room-person-facts staff"><span><b>${uiText("relationship.role")}</b>${escapeHtml(localizedStaffRole(person))}</span><span><b>${uiText("relationship.team")}</b>${escapeHtml(relationshipStaffCategoryText(category))}</span><span><b>${uiText("relationship.person.default_team")}</b>${escapeHtml(team)}</span><span><b>CA / PA</b>${Number(person.ca || 0)} / ${Number(person.pa || 0)}</span><span><b>${uiText("relationship.licence")}</b>${escapeHtml(person.coaching_license?.name || uiText("relationship.person.no_licence"))}</span><span><b>${uiText("relationship.reputation")}</b>${Number(person.current_reputation || 0)}</span>${roomQualification}</div><div class="training-room-person-abilities">${keyRows.map(([name,value]) => `<span>${escapeHtml(name)} <b>${value}</b></span>`).join("") || uiText("relationship.person.no_role_attributes")}</div>`;
-  }
-  const selected = app.relationshipTrainingAttributes;
-  const selectedAttributes = (room.scope_attributes || []).map((attribute) => {
-    const key = String(attribute.key || "");
-    const value = relationshipTrainingAttributeValue(person,key);
-    const label = relationshipTrainingAttributeLabel(attribute);
-    return `<span>${escapeHtml(label)} ${selected.has(key) ? `<b>${value || "-"}</b>` : (value || "-")}</span>`;
-  }).join("");
-  return `<div class="training-room-person-facts"><span><b>${uiText("relationship.person.position")}</b>${escapeHtml(primaryPlayerPosition(person))}</span><span><b>${uiText("relationship.person.subject")}</b>${escapeHtml(team)}</span><span><b>${uiText("relationship.person.squad")}</b>${escapeHtml(person.training_squad_label || uiText("relationship.person.default_squad"))}</span><span><b>${uiText("relationship.person.ability")}</b>CA ${Number(person.ca || 0)} / PA ${Number(person.pa || 0)}</span><span><b>${uiText("relationship.person.age")}</b>${escapeHtml(uiText("relationship.age_value", {age:Number(person.age || 0)}))}</span></div>${selectedAttributes ? `<div class="training-room-person-abilities">${selectedAttributes}</div>` : ""}`;
-}
-
-function relationshipTrainingRoleField(role, room) {
-  const selected = app.relationshipTrainingSelections[role.key] || [];
-  const candidates = relationshipTrainingCandidates(role.kind, room, role.key);
-  const multiple = Number(role.max || 1) > 1;
-  const allSelected = relationshipTrainingSelectedRefs();
-  const chips = selected.map((ref) => {
-    const person = relationshipTrainingPersonByRef(ref);
-      return person ? `<span class="training-room-chip">${escapeHtml(person.name)}<button type="button" data-relationship-room-remove="${escapeHtml(ref)}" data-relationship-room-remove-role="${escapeHtml(role.key)}" aria-label="${escapeHtml(uiText("relationship.room.remove_person", {name:person.name}))}">×</button></span>` : "";
-  }).join("");
-  const renderOption = (person) => {
-    const value = relationshipTrainingPersonRef(person, role.kind);
-    const chosen = selected.includes(value);
-    const usedElsewhere = allSelected.has(value) && !chosen;
-    const atCapacity = !chosen && selected.length >= Number(role.max || 1);
-    const mentorBlocked = room.sku === "mentoring_room" && role.key === "mentor"
-      && !(room.scope_attributes || []).some((attribute) => relationshipTrainingGuiderQualified(room,attribute,person).valid);
-    const disabled = usedElsewhere || atCapacity || mentorBlocked;
-    if (role.kind === "staff") {
-      const category = staffJobCategory(person);
-      const abilityName = room.sku === "video_analysis_room" ? "数据分析"
-        : (room.sku === "sports_science_room" ? "运动科学" : "");
-      const abilityValue = Number(person.abilities?.[abilityName] || 0);
-      const match = abilityName
-         ? `${abilityName} ${abilityValue}/20 · ${uiText(abilityValue >= 12 ? "relationship.room.qualified" : "relationship.room.unqualified")} · ${uiText("relationship.room.role_match")}`
-         : `${person.coaching_license?.name || uiText("relationship.person.no_licence")} · ${uiText("relationship.room.reputation_value", {value:Number(person.current_reputation || 0)})}`;
-       return `<button class="training-player-option staff ${chosen ? "selected" : ""} ${disabled ? "disabled" : ""}" type="button" role="option" aria-selected="${chosen}" data-relationship-room-option="${escapeHtml(value)}" data-relationship-room-option-role="${escapeHtml(role.key)}" ${disabled ? "disabled" : ""}><span class="training-player-radio" aria-hidden="true"></span><span><strong>${escapeHtml(person.name)}</strong><span class="training-staff-option-facts"><small>${escapeHtml(localizedStaffRole(person))}</small><small>${escapeHtml(match)}</small><small>CA ${Number(person.ca || 0)} / PA ${Number(person.pa || 0)}</small></span></span>${chosen ? '<i data-lucide="check"></i>' : ""}</button>`;
-    }
-    const team = person.training_team_name ? ` · ${person.training_team_name}` : "";
-    const squad = person.training_squad_label ? ` / ${person.training_squad_label}` : "";
-     const detail = `${primaryPlayerPosition(person) || uiText("relationship.room.position_default")} · CA ${Number(person.ca||0)} / PA ${Number(person.pa||0)} · ${uiText("relationship.age_value", {age:Number(person.age||0)})}${team}${squad}`;
-     const activeFocus=activeTrainingFocus(Number(person.id));
-     const focusDetail=activeFocus?(()=>{const key=String(activeFocus.attribute_key||"");const current=relationshipTrainingAttributeValue(person,key)||Number(activeFocus.initial_attribute||0);const target=Number(activeFocus.target_attribute||(activeFocus.duration_mode==="until_increase"?current+1:current));const days=Number(activeFocus.estimated_total_days||activeFocus.estimated_days||0);const status=days>0?uiText("training.about_days", {days}):uiText("training.almost_done");return `<small class="training-active-detail">${escapeHtml(localizedTrainingAttribute(key)||uiText("training.position"))} ${current}→${target} · ${escapeHtml(status)}</small>`;})():`<small class="training-idle-attrs">${(room.scope_attributes || []).map((attribute)=>`${escapeHtml(relationshipTrainingAttributeLabel(attribute))}:${relationshipTrainingAttributeValue(person,attribute.key)||"-"}`).join(" | ")}</small>`;
-    return `<button class="training-player-option ${chosen ? "selected" : ""} ${activeFocus ? "training" : "idle"} ${disabled ? "disabled" : ""} ${multiple ? "multiple" : ""}" type="button" role="option" aria-selected="${chosen}" data-relationship-room-option="${escapeHtml(value)}" data-relationship-room-option-role="${escapeHtml(role.key)}" ${disabled ? "disabled" : ""}><span class="training-player-radio" aria-hidden="true"></span><span><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(detail)}</small>${focusDetail}</span>${chosen ? '<i data-lucide="check"></i>' : ""}</button>`;
-  };
-  const pickerOpen = app.relationshipTrainingPickerOpen === role.key;
-  let options = "";
-   [["club",uiText("training.club")],["national",uiText("training.national_team")]].forEach(([teamType,teamLabel]) => {
-    const teamCandidates = candidates.filter((person)=>person.training_team_type===teamType);
-    if (!teamCandidates.length) return;
-    const teamKey = `relationship:${room.sku}:${role.key}:team:${teamType}`;
-    if (app.trainingPlayerGroupState[teamKey] === undefined) app.trainingPlayerGroupState[teamKey] = true;
-    const teamExpanded = app.trainingPlayerGroupState[teamKey] === true;
-    options += `<button class="training-player-group team-group" type="button" data-training-player-group-toggle="${escapeHtml(teamKey)}" aria-expanded="${teamExpanded}"><span>${teamLabel} (${teamCandidates.length})</span><i data-lucide="${teamExpanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-    if (!teamExpanded) return;
-    if (role.kind === "player") {
-      const buckets = {idle:{forwards:[],midfielders:[],defenders:[],goalkeepers:[]},training:{forwards:[],midfielders:[],defenders:[],goalkeepers:[]}};
-      teamCandidates.forEach((person) => {
-        const status = activeTrainingFocus(Number(person.id)) ? "training" : "idle";
-        buckets[status][playerPositionGroup(person)]?.push(person);
-      });
-       [["idle",uiText("training.idle_people")],["training",uiText("training.people_training")]].forEach(([status,statusLabel]) => {
-        const total = Object.values(buckets[status]).reduce((sum,rows)=>sum+rows.length,0);
-        if (!total) return;
-        const stateKey = `${teamKey}:${status}`;
-        if (app.trainingPlayerGroupState[stateKey] === undefined) app.trainingPlayerGroupState[stateKey] = false;
-        const expanded = app.trainingPlayerGroupState[stateKey] === true;
-        options += `<button class="training-player-group main-group" type="button" data-training-player-group-toggle="${escapeHtml(stateKey)}" aria-expanded="${expanded}"><span>${statusLabel} (${total})</span><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-        if (!expanded) return;
-        Object.keys(RELATIONSHIP_TRAINING_POSITION_ORDER).forEach((position) => {
-          const rows = buckets[status][position];
-          if (!rows.length) return;
-          const subKey = `${stateKey}:${position}`;
-          if (app.trainingPlayerGroupState[subKey] === undefined) app.trainingPlayerGroupState[subKey] = false;
-          const subExpanded = app.trainingPlayerGroupState[subKey] === true;
-           options += `<button class="training-player-group sub-group" type="button" data-training-player-group-toggle="${escapeHtml(subKey)}" aria-expanded="${subExpanded}"><span>${uiText(RELATIONSHIP_TRAINING_POSITION_LABELS[position])} (${rows.length})</span><i data-lucide="${subExpanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-          if (subExpanded) options += rows.map(renderOption).join("");
-        });
-      });
-    } else {
-       const groups = [...STAFF_JOB_CATEGORY_GROUPS.map((group)=>({value:group.label,label:relationshipStaffCategoryText(group.label)})),{value:"其他职员",label:uiText("relationship.room.other_staff")}];
-       groups.forEach(({value,label}) => {
-         const rows = teamCandidates.filter((person)=>staffJobCategory(person)===value);
-         if (!rows.length) return;
-         const stateKey = `${teamKey}:${value}`;
-        if (app.trainingPlayerGroupState[stateKey] === undefined) app.trainingPlayerGroupState[stateKey] = true;
-        const expanded = app.trainingPlayerGroupState[stateKey] === true;
-        options += `<button class="training-player-group main-group" type="button" data-training-player-group-toggle="${escapeHtml(stateKey)}" aria-expanded="${expanded}"><span>${escapeHtml(label)} (${rows.length})</span><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-        if (expanded) options += rows.map(renderOption).join("");
-      });
-    }
-  });
-  const names = selected.map((ref)=>relationshipTrainingPersonByRef(ref)?.name).filter(Boolean).join("、");
-   const roleLabel = relationshipTrainingRoleLabel(role);
-   const trigger = `<button class="training-player-trigger" type="button" data-relationship-room-picker="${escapeHtml(role.key)}" aria-expanded="${pickerOpen}"><span>${names ? `<strong>${escapeHtml(names)}</strong><small>${uiText("relationship.room.selection_count", {selected:selected.length, max:Number(role.max||1)})}</small>` : `<strong>${escapeHtml(uiText("relationship.room.select_role", {role:roleLabel}))}</strong><small>${uiText("relationship.room.required_count", {min:Number(role.min||0), max:Number(role.max||1)})}</small>`}</span><i data-lucide="chevron-down"></i></button>`;
-   const mentorHint = relationshipTrainingGuidanceRoles(room) ? `<p class="training-room-hint guidance-rule"><b>${uiText("relationship.room.guidance_scope")}</b> ${uiText("relationship.room.guidance_rule", {mentor:room.sku === "mentoring_room" && role.key === "mentor" ? uiText("relationship.room.guidance_mentor_requirement") : ""})}</p>` : "";
-   return `<section class="training-room-section training-room-role"><h3>${escapeHtml(roleLabel)} <small>${uiText("relationship.room.selection_count", {selected:selected.length, max:Number(role.max||1)})}</small></h3>${chips ? `<div class="training-room-chips">${chips}</div>` : ""}<div class="training-player-field">${trigger}${pickerOpen ? `<div class="training-player-menu" role="listbox" aria-label="${escapeHtml(uiText("relationship.room.select_role", {role:roleLabel}))}">${options || `<div class="training-player-empty">${uiText("relationship.room.no_candidates")}</div>`}</div>` : ""}</div>${mentorHint}</section>`;
-}
-
-function relationshipTrainingAttributeValue(person,key) {
-  const [group,name]=String(key||"").split(":",2);
-  if(group==="hidden")return Number(person?.hidden_attributes?.[name]||0);
-  if(group==="physical")return Number(name==="height"?(person?.height??person?.height_cm??0):0);
-  return Number(person?.attributes?.[group]?.[name]||0);
-}
-
-function relationshipTrainingAttributeLabel(attribute) {
-   if (String(attribute?.key || "") === "physical:height") return uiText("relationship.person.height");
-  return localizedTrainingAttribute(attribute?.key);
-}
-
-function relationshipTrainingGuiderFor(room) {
-  const role=room.roles?.find((row)=>["mentor","coach"].includes(row.key));
-  const ref=(app.relationshipTrainingSelections[role?.key]||[])[0];
-  if(!ref)return null;
-  return relationshipTrainingPersonByRef(ref);
-}
-
-function relationshipTrainingGuiderQualified(room,attribute,person) {
-  if(!person)return {valid:true,value:0};
-  const key=String(attribute.key||""),direction=attribute.direction==="dec"?-1:1;
-  if(room.sku==="mentoring_room"){
-    const value=relationshipTrainingAttributeValue(person,key);
-    return {valid:direction>0?value>=15:value<=10,value};
-  }
-  return {valid:true,value:0};
-}
-
-function relationshipTrainingSelectionValid(room) {
-  const rolesValid = (room.roles || []).every((role) => {
-    const count = (app.relationshipTrainingSelections[role.key] || []).length;
-    return count >= Number(role.min || 0) && count <= Number(role.max || 1);
-  });
-  const previewRequired = relationshipTrainingPreviewRequired(room);
-  const previewValid = !previewRequired || (
-    app.relationshipTrainingPreview
-    && !app.relationshipTrainingPreview.loading
-    && !app.relationshipTrainingPreview.error
-    && !app.relationshipTrainingPreview.negative
-  );
-  const guidanceValid = room.sku !== "mentoring_room" || (() => {
-    const mentor = relationshipTrainingPersonByRef((app.relationshipTrainingSelections.mentor || [])[0]);
-    return Boolean(mentor) && (app.relationshipTrainingSelections.student || []).every((ref) => {
-      const student = relationshipTrainingPersonByRef(ref);
-      return student && relationshipTrainingGuidanceAllowed(mentor,student);
-    });
-  })();
-  return rolesValid && guidanceValid && app.relationshipTrainingAttributes.size > 0 && previewValid;
-}
-
-function relationshipTrainingSelectionCards(room) {
-  const cards = (room.roles || []).flatMap((role) => (app.relationshipTrainingSelections[role.key] || []).map((ref) => {
-    const person = relationshipTrainingPersonByRef(ref);
-    if (!person) return "";
-     return `<article class="training-room-person-card"><header><span>${escapeHtml(relationshipTrainingRoleLabel(role))}</span><strong>${escapeHtml(person.name)}</strong></header>${relationshipTrainingPersonDetails(person,role.kind,room)}</article>`;
-  })).join("");
-   return cards || `<div class="training-room-role-empty">${uiText("relationship.room.selected_people_empty")}</div>`;
-}
-
-function relationshipTrainingParticipants(room) {
-  return (room.roles || []).flatMap((role) =>
-    (app.relationshipTrainingSelections[role.key] || []).map((ref) => {
-      const [kind,idText,teamText] = String(ref).split(":",3);
-      return {role:role.key,kind,id:Number(idText),team_id:Number(teamText)};
-    })
-  );
-}
-
-function relationshipTrainingPreviewRequired(room) {
-  return relationshipTrainingParticipants(room).length > 0
-    && app.relationshipTrainingAttributes.size > 0;
-}
-
-function maybeLoadRelationshipTrainingPreview(room, instance) {
-  const participants = relationshipTrainingParticipants(room);
-  const attributes = [...app.relationshipTrainingAttributes].sort();
-  if (!participants.length || !attributes.length) {
-    if (app.relationshipTrainingPreview) {
-      app.relationshipTrainingPreview = null;
-      app.relationshipTrainingPreviewSeq += 1;
-    }
-    return;
-  }
-  const key = `${instance.id}:${JSON.stringify(participants.map((person)=>[person.role,person.kind,person.id,person.team_id]))}:${attributes.join("|")}`;
-  if (app.relationshipTrainingPreview?.key === key) return;
-  const token = ++app.relationshipTrainingPreviewSeq;
-  app.relationshipTrainingPreview = {key,loading:true,pairs:[],negative:false,error:false};
-  request("/api/training/relationship-rooms/preview",{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({room_id:instance.id,participants,attributes}),
-  }).then((response)=>{
-    if (token !== app.relationshipTrainingPreviewSeq) return;
-    app.relationshipTrainingPreview = {
-      key,loading:false,error:false,
-      pairs:Array.isArray(response.pairs) ? response.pairs : [],
-      effects:Array.isArray(response.effects) ? response.effects : [],
-      summary:response.summary || {},
-      negative:Boolean(response.negative),
-    };
-  }).catch((error)=>{
-    if (token !== app.relationshipTrainingPreviewSeq) return;
-     app.relationshipTrainingPreview = {key,loading:false,pairs:[],negative:false,error:true,message:error.message || uiText("relationship.room.preview_failed")};
-  }).finally(()=>{
-    if (token === app.relationshipTrainingPreviewSeq && app.page === "training" && app.trainingScene === "relationship_8f") renderTraining({skipStage:true});
-  });
-}
-
-function relationshipTrainingIntimacyBonus(detail) {
-  if (!detail || Number(detail.relation_type ?? 1) !== 1) return 0;
-  const level = Math.max(0,Math.min(100,Number(detail.level || 0)));
-  return level / 100 * (RELATIONSHIP_TRAINING_INTIMACY_MULTIPLIER[Number(detail.reason || 0)] || 1);
-}
-
-function relationshipTrainingDirectionalRow(from,to,detail,effectPair=true,effect=null) {
-   const checkOnly = effectPair ? "" : uiText("relationship.room.negative_check");
-  if (!detail) return "";
-  const score = Number(detail.signed_score ?? detail.score ?? detail.level ?? 0);
-  const reason = relationshipReasonLabel(detail.reason);
-  if (reason.includes("主教练") || reason.includes("前主教练")) return "";
-  if (Number(detail.relation_type ?? 1) !== 1) {
-     return `<div class="training-room-intimacy-row negative"><span>${escapeHtml(from)} → ${escapeHtml(to)}</span><span>${score} · ${escapeHtml(reason)} · ${uiText("relationship.room.cannot_pair")}</span></div>`;
-  }
-  if (!effectPair) {
-    return `<div class="training-room-intimacy-row"><span>${escapeHtml(from)} → ${escapeHtml(to)}</span><span class="intimacy-none">${score} · ${escapeHtml(reason)}${checkOnly}</span></div>`;
-  }
-  const bonus = Math.round(Number(effect?.relationship_bonus ?? relationshipTrainingIntimacyBonus(detail)) * 100);
-   const progress = effect ? uiText("relationship.room.daily_progress", {daily:Number(effect.daily||0).toFixed(2), days:Number(effect.estimated_days_to_next||0)}) : "";
-   return `<div class="training-room-intimacy-row"><span>${escapeHtml(from)} → ${escapeHtml(to)}</span><span class="intimacy-positive">${score} · ${escapeHtml(reason)} · ${uiText("relationship.room.relationship_bonus", {bonus})}${progress}</span></div>`;
-}
-
-function relationshipTrainingPreviewBlock(room) {
-  if (!relationshipTrainingPreviewRequired(room)) return "";
-  const preview = app.relationshipTrainingPreview;
-   if (!preview || preview.loading) return `<section class="training-room-intimacy"><h3>${uiText("relationship.room.preview_title")}</h3><p class="training-room-hint">${uiText("relationship.room.preview_loading")}</p></section>`;
-   if (preview.error) return `<section class="training-room-intimacy error"><h3>${uiText("relationship.room.preview_title")}</h3><p class="training-room-hint">${escapeHtml(preview.message || uiText("relationship.room.preview_failed"))}</p></section>`;
-  const rows = (preview.pairs || []).flatMap((pair) => [
-    relationshipTrainingDirectionalRow(pair.person_a?.name || "—",pair.person_b?.name || "—",pair.a_to_b,pair.effect_pair !== false,pair.a_to_b_effect),
-    relationshipTrainingDirectionalRow(pair.person_b?.name || "—",pair.person_a?.name || "—",pair.b_to_a,pair.effect_pair !== false,pair.b_to_a_effect),
-  ]).filter(Boolean).join("");
-   return `<section class="training-room-intimacy ${preview.negative ? "has-negative" : ""}"><h3>${uiText("relationship.room.preview_title")}</h3>${rows || `<p class="training-room-hint">${uiText("relationship.room.preview_empty")}</p>`}</section>`;
-}
-
-function relationshipTrainingPersonBonus(person) {
-  const identity = `${person.kind || "player"}:${Number(person.id)}`;
-  return (app.relationshipTrainingPreview?.pairs || []).reduce((total,pair) => {
-    if (pair.effect_pair === false) return total;
-    const left = `${pair.person_a?.kind}:${Number(pair.person_a?.id)}`;
-    const right = `${pair.person_b?.kind}:${Number(pair.person_b?.id)}`;
-    if (identity === left) return total + relationshipTrainingIntimacyBonus(pair.a_to_b);
-    if (identity === right) return total + relationshipTrainingIntimacyBonus(pair.b_to_a);
-    return total;
-  },0);
-}
-
-function relationshipTrainingEffectPreview(room) {
-  if (!app.relationshipTrainingAttributes.size) return "";
-  const preview = app.relationshipTrainingPreview;
-   if (!preview || preview.loading) return `<section class="training-room-section"><h3>${uiText("relationship.room.effect_title")}</h3><div class="training-room-effect-preview"><div class="room-effect-summary">${uiText("relationship.room.effect_loading")}</div></div></section>`;
-  if (preview.error) return "";
-  const effects = preview.effects || [];
-  if (!effects.length) return "";
-  const grouped = new Map();
-  effects.forEach((effect) => {
-    const key = `${effect.participant?.kind}:${Number(effect.participant?.id||0)}`;
-    if (!grouped.has(key)) grouped.set(key,{person:effect.participant,rows:[]});
-    grouped.get(key).rows.push(effect);
-  });
-  const rows = [...grouped.values()].map(({person,rows}) => {
-    const attributes = rows.map((effect) => {
-       if (!effect.eligible) return `<div class="room-effect-attribute unavailable"><b>${escapeHtml(effect.attribute_label)}</b><span>${Number(effect.current||0)} · ${escapeHtml(effect.unavailable_reason||uiText("relationship.room.effect_unavailable"))}</span></div>`;
-       if (effect.height_probability != null) return `<div class="room-effect-attribute"><b>${escapeHtml(effect.attribute_label)}</b><span>${escapeHtml(uiText("relationship.room.height_effect", {current:Number(effect.current||0), target:Number(effect.target||0), probability:(Number(effect.height_probability||0)*100).toFixed(1)}))}</span><small>${escapeHtml(uiText("relationship.room.room_bonus", {label:effect.room_multiplier_label||uiText("relationship.room.room_label"), multiplier:Number(effect.room_multiplier||1).toFixed(2)}))} · ${escapeHtml(uiText("relationship.room.relationship_percent", {bonus:Math.round(Number(effect.relationship_bonus||0)*100)}))}</small></div>`;
-       return `<div class="room-effect-attribute"><b>${escapeHtml(effect.attribute_label)}</b><span>${escapeHtml(uiText("relationship.room.attribute_effect", {current:Number(effect.current||0), target:Number(effect.target||0), daily:Number(effect.daily_points||0).toFixed(2), days:Number(effect.estimated_days||0)}))}</span><small>${escapeHtml(uiText("relationship.room.stored_points", {stored:Number(effect.stored_points||0).toFixed(2), required:Number(effect.required_points||0).toFixed(2), focus:Number(effect.focus_coefficient||1).toFixed(2), bonus:Math.round(Number(effect.relationship_bonus||0)*100), label:effect.room_multiplier_label||uiText("relationship.room.room_label"), multiplier:Number(effect.room_multiplier||1).toFixed(2)}))}</small></div>`;
-    }).join("");
-     return `<div class="room-effect-row"><strong>${escapeHtml(person?.name||uiText("relationship.room.training_player"))}</strong><div>${attributes}</div></div>`;
-  }).join("");
-  const summary = preview.summary || {};
-   return `<section class="training-room-section"><h3>${uiText("relationship.room.effect_title")}</h3><div class="training-room-effect-preview"><div class="room-effect-summary">${uiText("relationship.room.effect_summary", {daily:Number(summary.base_daily_points||0).toFixed(2), focus:Number(summary.focus_coefficient||1).toFixed(2), selected:Number(summary.selected_count||0), total:Number(summary.scope_count||0)})}</div>${rows}<div class="room-effect-relation">${uiText("relationship.room.effect_note")}</div></div></section>`;
-}
-
-function relationshipTrainingDetail(room, instance) {
-  const occupied = instance.status === "occupied" || instance.status === "settling";
-  const roomNumber = Math.max(1,(room.instances || []).findIndex((row)=>String(row.id)===String(instance.id)) + 1);
-   const roomName = relationshipTrainingRoomCustomName(instance.id) || uiText("relationship.room_number", {name:room.name, number:roomNumber});
-   const renameButton = `<button type="button" class="room-rename-btn" data-relationship-room-rename="${escapeHtml(instance.id)}" title="${escapeHtml(uiText("relationship.room.rename"))}" aria-label="${escapeHtml(uiText("relationship.room.rename_aria", {name:roomName}))}"><i data-lucide="pencil"></i></button>`;
-   if (occupied) {
-     const members = (instance.participants || []).map((person) => `<div class="training-room-member"><span class="training-room-member-role">${escapeHtml(relationshipTrainingRoleLabel({key:person.role,label:person.role_label || person.role}))}</span><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(person.team_name || uiText("relationship.person.default_team"))}</small></div>`).join("");
-     const settle = app.developerMode && instance.status === "occupied"
-       ? `<button class="primary-action relationship-room-settle" type="button" data-relationship-room-settle="${escapeHtml(instance.id)}"><i data-lucide="log-out"></i>${uiText("relationship.room.leave_settle")}</button>`
-       : `<p class="relationship-room-note">${uiText("relationship.room.release_note")}</p>`;
-     return `<div class="training-use-panel training-room-panel"><button class="training-use-back icon-button" type="button" data-relationship-room-back title="${uiText("relationship.room.back_list")}" aria-label="${uiText("relationship.room.back_list")}"><i data-lucide="arrow-left"></i></button><div class="training-room-hero"><span class="room-card-icon"><i data-lucide="${escapeHtml(room.icon || "building-2")}"></i></span><div><h2 class="room-title">${escapeHtml(roomName)}${renameButton}</h2><span>${instance.status === "settling" ? uiText("relationship.room.status_settling") : uiText("relationship.room.occupied_since", {date:escapeHtml(instance.started_on || uiText("relationship.room.date_unread"))})}</span></div></div><section class="training-room-section"><h3>${uiText("relationship.room.members_title")}</h3><div class="training-room-members">${members}</div></section><section class="training-room-section"><h3>${uiText("relationship.room.selected_attributes")}</h3><div class="room-attr-chips">${(instance.attributes || []).map((value)=>`<span class="room-attr-chip inc">${escapeHtml(relationshipTrainingAttributeLabel({key:value}))}</span>`).join("")}</div></section><div class="training-room-effect-preview occupied"><header><i data-lucide="activity"></i><strong>${uiText("relationship.room.current_training")}</strong><b>${uiText("relationship.room.people_count", {count:(instance.participants || []).length})}</b></header><span><b>${uiText("relationship.room.current_status")}</b>${instance.status === "settling" ? uiText("relationship.room.waiting_settlement") : uiText("relationship.room.in_progress")}</span><span><b>${uiText("relationship.room.training_items")}</b>${(instance.attributes || []).length}</span></div>${settle}</div>`;
-  }
-  const guider = relationshipTrainingGuiderFor(room);
-  const renderAttribute = (row) => {
-    const qualification = relationshipTrainingGuiderQualified(room,row,guider);
-    if (!qualification.valid) app.relationshipTrainingAttributes.delete(row.key);
-    const checked = qualification.valid && app.relationshipTrainingAttributes.has(row.key);
-     const value = guider ? `<small>${qualification.value||"-"} · ${qualification.valid?uiText("relationship.room.qualified"):uiText("relationship.room.unqualified")}</small>` : "";
-    return `<label class="training-room-attr-option ${row.direction==="dec"?"dec":"inc"} ${qualification.valid?"":"invalid"}"><input type="checkbox" data-relationship-room-attribute="${escapeHtml(row.key)}" ${checked ? "checked" : ""} ${qualification.valid?"":"disabled"}><span>${escapeHtml(relationshipTrainingAttributeLabel(row))}${value}</span></label>`;
-  };
-  const incAttrs = (room.scope_attributes || []).filter((row)=>row.direction!=="dec");
-  const decAttrs = (room.scope_attributes || []).filter((row)=>row.direction==="dec");
-  const attrSections = [
-     incAttrs.length ? `<div class="training-room-attr-group"><h4>${uiText("relationship.room.positive_attributes")}</h4><div class="training-room-attr-grid">${incAttrs.map(renderAttribute).join("")}</div></div>` : "",
-     decAttrs.length ? `<div class="training-room-attr-group"><h4>${uiText("relationship.room.negative_attributes")}</h4><div class="training-room-attr-grid">${decAttrs.map(renderAttribute).join("")}</div></div>` : "",
-  ].join("");
-  maybeLoadRelationshipTrainingPreview(room,instance);
-  const valid = relationshipTrainingSelectionValid(room);
-   const mentorHint = guider && room.sku === "mentoring_room" ? uiText("relationship.room.show_mentor") : "";
-   return `<div class="training-use-panel training-room-panel"><button class="training-use-back icon-button" type="button" data-relationship-room-back title="${uiText("relationship.room.back_list")}" aria-label="${uiText("relationship.room.back_list")}"><i data-lucide="arrow-left"></i></button><div class="training-room-hero"><span class="room-card-icon"><i data-lucide="${escapeHtml(room.icon || "building-2")}"></i></span><div><h2 class="room-title">${escapeHtml(roomName)}${renameButton}</h2><span>${escapeHtml(room.participant_label || "")}</span></div></div><p class="training-room-hint">${escapeHtml(room.description || "")}</p><section class="training-room-section"><h3>${uiText("relationship.room.scope_selected", {selected:app.relationshipTrainingAttributes.size, total:(room.scope_attributes||[]).length})}${mentorHint ? ` <small>${mentorHint}</small>` : ""}</h3>${attrSections}<div class="room-focus-hint">${uiText("relationship.room.focus_hint")}</div></section><div class="training-room-role-sections"><h3 class="training-room-section-title">${uiText("relationship.room.select_members")}</h3>${(room.roles || []).map((role)=>relationshipTrainingRoleField(role,room)).join("")}</div><section class="training-room-section"><h3>${uiText("relationship.room.selected_people")}</h3><div class="training-room-selected-people">${relationshipTrainingSelectionCards(room)}</div></section>${relationshipTrainingPreviewBlock(room)}${relationshipTrainingEffectPreview(room)}<button class="primary-action" type="button" data-relationship-room-enter="${escapeHtml(instance.id)}" ${valid ? "" : "disabled"}>${uiText("relationship.room.confirm_enter")}</button></div>`;
-}
-
-function relationshipTrainingRoomCustomName(instanceId) {
-  try {
-    const names = JSON.parse(localStorage.getItem("fmodd.trainingRoomNames") || "{}");
-    return String(names?.[String(instanceId)] || "").trim();
-  } catch (_error) { return ""; }
-}
-
-function relationshipTrainingRoomSetCustomName(instanceId, name) {
-  try {
-    const names = JSON.parse(localStorage.getItem("fmodd.trainingRoomNames") || "{}");
-    const value = String(name || "").trim();
-    if (value) names[String(instanceId)] = value;
-    else delete names[String(instanceId)];
-    localStorage.setItem("fmodd.trainingRoomNames",JSON.stringify(names));
-  } catch (_error) {}
-}
-
-function openRelationshipTrainingRoomRename(instanceId) {
-  const dialog = $("#training-room-rename-dialog");
-  const input = $("#training-room-rename-name");
-  if (!dialog || !input || !instanceId) return;
-  dialog.dataset.instanceId = String(instanceId);
-  input.value = relationshipTrainingRoomCustomName(instanceId);
-  if (!dialog.open) dialog.showModal();
-  requestAnimationFrame(() => { input.focus(); input.select(); });
-}
-
-document.addEventListener("submit", (event) => {
-  if (event.target?.id !== "training-room-rename-form") return;
-  event.preventDefault();
-  const dialog = $("#training-room-rename-dialog");
-  const instanceId = String(dialog?.dataset.instanceId || "");
-  const name = String($("#training-room-rename-name")?.value || "").trim();
-  if (!instanceId) return;
-  relationshipTrainingRoomSetCustomName(instanceId,name);
-  dialog.close();
-  renderTraining({skipStage:true});
-  toast(name ? uiText("relationship.room_renamed", {name}) : uiText("relationship.room_name_reset"));
-});
-
-function renderRelationshipTrainingAvailablePanel(data, allInstances) {
-  const rows = [];
-  const roomOrder = new Map();
-  (data.rooms || []).forEach((room, roomIndex) => {
-    roomOrder.set(String(room.sku || ""), roomIndex);
-    (room.instances || []).forEach((instance, instanceIndex) => {
-      rows.push({room, instance, number:instanceIndex + 1});
-    });
-  });
-  const occupied = rows.filter(({instance}) => instance.status !== "idle");
-  const idle = rows.filter(({instance}) => instance.status === "idle");
-  if (app.trainingEquipmentState.occupied === undefined) app.trainingEquipmentState.occupied = true;
-  if (app.trainingEquipmentState.idle === undefined) app.trainingEquipmentState.idle = true;
-
-  const roomItem = ({room, instance, number}) => {
-    const isOccupied = instance.status !== "idle";
-    const participants = (instance.participants || []).map((person) => String(person.name || "")).filter(Boolean).join("、");
-    const capacity = (room.roles || []).reduce((sum, role) => sum + Number(role.max || role.count || 1), 0);
-    const used = (instance.participants || []).length;
-    const description = isOccupied
-      ? `${participants || uiText("relationship.members")} · ${escapeHtml(String(instance.started_on || uiText("relationship.training")))}`
-      : escapeHtml(room.participant_label || uiText("relationship.enter_to_arrange"));
-     const members = isOccupied ? `<div class="training-member-list">${(instance.participants || []).map((person) => `<div class="training-member-row"><span class="training-member-copy"><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(relationshipTrainingRoleLabel({key:person.role,label:person.role_label || person.role || uiText("relationship.members")}))} · ${escapeHtml(person.team_name || uiText("relationship.team_unread"))}</small></span></div>`).join("")}</div>` : "";
-    const displayName = relationshipTrainingRoomCustomName(instance.id) || uiText("relationship.room_number", {name:room.name, number});
-    return `<article class="training-available-item training-room-item"><button class="training-available-head" type="button" data-relationship-room-detail="${escapeHtml(instance.id)}"><span class="training-available-copy"><span class="training-available-title"><strong>${escapeHtml(displayName)}</strong><span class="training-capacity-badge ${isOccupied ? "occupied" : "idle"}">${uiText(isOccupied ? "relationship.occupied" : "relationship.idle")}</span></span><small class="training-available-attributes">${description}</small></span><span class="training-people">${trainingCapacityIcons(Math.max(1,capacity),Math.min(used,capacity))}</span><i data-lucide="chevron-right"></i></button><button type="button" class="training-room-rename-btn" data-relationship-room-rename="${escapeHtml(instance.id)}" title="${uiText("relationship.rename")}" aria-label="${uiText("relationship.rename_aria", {name:displayName})}"><i data-lucide="pencil"></i></button>${members}</article>`;
-  };
-  const category = (key, title, categoryRows) => {
-    if (!categoryRows.length) return "";
-    const expanded = app.trainingEquipmentState[key] === true;
-    let html = `<button class="training-equipment-group main-group" type="button" data-training-equipment-toggle="${key}" aria-expanded="${expanded}"><span>${title} (${categoryRows.length})</span><i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-    if (!expanded) return html;
-    const grouped = new Map();
-    categoryRows.forEach((row) => {
-      const sku = String(row.room.sku || "");
-      if (!grouped.has(sku)) grouped.set(sku, []);
-      grouped.get(sku).push(row);
-    });
-    [...grouped.entries()].sort((a,b) => (roomOrder.get(a[0]) ?? 99) - (roomOrder.get(b[0]) ?? 99)).forEach(([sku, roomRows]) => {
-      const stateKey = `${key}:${sku}`;
-      if (app.trainingEquipmentState[stateKey] === undefined) app.trainingEquipmentState[stateKey] = true;
-      const roomExpanded = app.trainingEquipmentState[stateKey] === true;
-      html += `<button class="training-equipment-group sub-group" type="button" data-training-equipment-toggle="${escapeHtml(stateKey)}" aria-expanded="${roomExpanded}"><span>${escapeHtml(roomRows[0]?.room.name || sku)} (${roomRows.length})</span><i data-lucide="${roomExpanded ? "chevron-down" : "chevron-right"}"></i></button>`;
-      if (roomExpanded) html += roomRows.map(roomItem).join("");
-    });
-    return html;
-  };
-  return category("occupied", uiText("relationship.occupied_group"), occupied) + category("idle", uiText("relationship.idle"), idle)
-    || `<div class="training-dock-empty"><i data-lucide="building-2"></i><strong>${uiText("relationship.no_rooms")}</strong></div>`;
-}
-
-function renderRelationshipTrainingFloor({floorLocked = false} = {}) {
-  const stage = $("#training-stage");
-  const content = $("#training-dock-content");
-  stage.querySelector("#training-stage-items").innerHTML = "";
-  $("#training-edit-toggle").disabled = true;
-  $("#training-rotate").disabled = true;
-  $("#training-store-selected").disabled = true;
-  $("#training-selection").hidden = true;
-  $("#training-empty").hidden = true;
-  document.querySelectorAll("[data-training-dock]").forEach((button) => {
-    const storage = button.dataset.trainingDock === "storage";
-    button.disabled = storage;
-    button.classList.toggle("active", button.dataset.trainingDock === app.trainingDock);
-  });
-  if (floorLocked) { renderIcons(); return; }
-  if (app.relationshipTrainingLoading || !app.relationshipTrainingRooms) {
-    stage.querySelector("#training-stage-items").innerHTML = "";
-    content.innerHTML = `<div class="training-dock-empty"><span class="spinner"></span><strong>${uiText("relationship.loading_rooms")}</strong></div>`;
-    if (!app.relationshipTrainingLoading) queueMicrotask(loadRelationshipTrainingRooms);
-    return;
-  }
-  const data = app.relationshipTrainingRooms;
-  if (data.error) {
-    content.innerHTML = `<div class="training-dock-empty"><i data-lucide="triangle-alert"></i><strong>${escapeHtml(data.error)}</strong></div>`;
-    return;
-  }
-  const allInstances = (data.rooms || []).flatMap((room) => (room.instances || []).map((instance) => ({room,instance})));
-  const selected = relationshipTrainingRoomByInstance(app.relationshipTrainingDetailId);
-  if (selected) {
-    content.innerHTML = relationshipTrainingDetail(selected.definition,selected.instance);
-  } else if (app.trainingDock === "shop") {
-    content.innerHTML = `<div class="training-room-usage"><i data-lucide="building-2"></i><span>${uiText("relationship.unlocked_rooms", {used:Number(data.unlocked_total||0), limit:Number(data.floor_limit||15)})}</span></div>` + (data.rooms || []).map((room) => {
-      const scope=room.scope_attributes||[];
-      const scopeAttrs=scope.map((attr)=>`<span class="room-attr-chip ${attr.direction==="dec"?"dec":"inc"}">${escapeHtml(relationshipTrainingAttributeLabel(attr))}</span>`).join("");
-      const unavailable=room.available===false, full=Number(data.unlocked_total||0)>=Number(data.floor_limit||15);
-       return `<article class="training-room-card"><header class="training-room-card-head"><span class="room-card-icon"><i data-lucide="${escapeHtml(room.icon||"building-2")}"></i></span><div><strong>${escapeHtml(room.name)}</strong><small>${escapeHtml(room.description||"")}</small><small>${escapeHtml(room.participant_label||"")}</small></div></header><div class="training-room-card-body"><div class="room-card-facts"><span class="room-card-cost">${formatPounds(Number(room.unlock_cost||0))}</span><span class="room-card-owned">${uiText("relationship.room.rooms_owned", {count:Number(room.instances?.length||0)})}</span></div><div class="room-card-condition"><small>${escapeHtml(room.unlock_condition||room.unavailable_reason||uiText("relationship.room.requirement_default"))}</small><span class="room-condition-badge ${unavailable?"unmet":"met"}">${unavailable?uiText("relationship.room.requirement_unmet"):uiText("relationship.room.requirement_met")}</span></div><div class="room-attr-card"><div class="room-attr-card-head">🟠 ${uiText("relationship.room.scope_card", {count:scope.length})}</div><div class="room-attr-chips">${scopeAttrs}</div><div class="room-focus-hint">${uiText("relationship.room.focus_hint")}</div></div></div><button class="training-room-unlock-btn" type="button" data-relationship-room-unlock="${escapeHtml(room.sku)}" ${unavailable||full?"disabled":""}>${unavailable?uiText("relationship.room.unlock_not_open"):full?uiText("relationship.room.unlock_full"):uiText("relationship.room.unlock_action")}</button></article>`;
-    }).join("");
-  } else {
-    content.innerHTML = renderRelationshipTrainingAvailablePanel(data, allInstances);
-  }
-  renderIcons();
-}
-
-async function unlockRelationshipTrainingRoom(sku, button) {
-  if (app.trainingActionBusy) return;
-  const room=(app.relationshipTrainingRooms?.rooms||[]).find((row)=>String(row.sku||"")===String(sku||""));
-  const cost=freeServicesEnabled()?0:Number(room?.unlock_cost||0);
-  if(!await fmoddConfirm(uiText("relationship.room_unlock_confirm", {name:room?.name || uiText("relationship.default_room"), amount:formatPounds(cost)}),uiText("relationship.confirm_unlock")))return;
-  app.trainingActionBusy = true;
-  button?.setAttribute("aria-busy","true");
-  try {
-    const response = await request("/api/training/relationship-rooms/unlock",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({room_sku:sku}),
-    });
-    app.relationshipTrainingRooms = response.rooms;
-    if (response.economy) applyEconomySnapshot(response.economy);
-    toast(uiText("relationship.room_unlocked"));
-  } catch (error) { toast(error.message); }
-  finally {
-    app.trainingActionBusy = false;
-    button?.removeAttribute("aria-busy");
-    renderTraining();
-  }
-}
-
-async function enterRelationshipTrainingRoom(instanceId, button) {
-  if (app.trainingActionBusy) return;
-  const selected = relationshipTrainingRoomByInstance(instanceId);
-  if (!selected) return;
-  if (!relationshipTrainingSelectionValid(selected.definition)) {
-    toast(uiText("relationship.selection_invalid"));
-    return;
-  }
-  const participants = relationshipTrainingParticipants(selected.definition);
-  app.trainingActionBusy = true;
-  button?.setAttribute("aria-busy","true");
-  try {
-    const response = await request("/api/training/relationship-rooms/enter",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
-        room_id:instanceId,participants,
-        attributes:[...app.relationshipTrainingAttributes],
-        client_submission_id:crypto.randomUUID(),
-      }),
-    });
-    app.relationshipTrainingRooms = response.rooms;
-    app.relationshipTrainingSelections = {};
-    app.relationshipTrainingAttributes = new Set();
-    app.relationshipTrainingPreview = null;
-    app.relationshipTrainingPreviewSeq += 1;
-    toast(uiText("relationship.entered_room"));
-  } catch (error) { toast(error.message); }
-  finally {
-    app.trainingActionBusy = false;
-    button?.removeAttribute("aria-busy");
-    renderTraining();
-  }
-}
 
 function renderPositionTrainingStudio() {
   const stage = $("#training-stage");
@@ -12905,7 +11638,7 @@ function renderPositionTrainingStudio() {
   const slots = positionTrainingSlots(state);
   if (!slots.some((slot) => slot.id === state.selectedSlot)) state.selectedSlot = slots[0]?.id || "";
   const selectedSlot = slots.find((slot) => slot.id === state.selectedSlot) || slots[0] || null;
-  const players = trainingManagedPlayers();
+  const players = trainingPositionPlayers();
   const playersById = new Map(players.map((player) => [Number(player.id),player]));
   const validPlayerIds = new Set(playersById.keys());
   Object.keys(state.assignments || {}).forEach((slotId) => {
@@ -12932,12 +11665,6 @@ function renderPositionTrainingStudio() {
   }).join("");
    stageItems.innerHTML = `<div class="position-training-studio">${formationControls}<div class="position-training-workspace ${state.preset==="custom"?"custom":"preset"}">${trayHtml}<div class="position-training-pitch" role="listbox" aria-label="${uiText("position.slots")}"><div class="position-pitch-markings" aria-hidden="true"><i></i><b></b><span></span><u></u></div>${slotHtml}</div></div></div>`;
   stage.classList.toggle("position-editing", state.preset === "custom" && state.editing);
-  $("#training-empty").hidden = true;
-  $("#training-floor-lock").hidden = true;
-  $("#training-selection").hidden = true;
-  $("#training-edit-toggle").disabled = true;
-  $("#training-rotate").disabled = true;
-  $("#training-store-selected").disabled = true;
 
   if (!selectedSlot) {
      content.innerHTML = `<div class="training-dock-empty">${uiText("position.no_slots")}</div>`;
@@ -12978,15 +11705,17 @@ function renderPositionTrainingStudio() {
   renderIcons();
 }
 
-function renderTraining({skipStage = false} = {}) {
+function renderTraining() {
   const root = $("#page-training");
   if (!root) return;
   if (interactiveSurfaceBusy($("#training-dock-content"))) return;
-  const viewMode = syncFacilityViewMode("training");
+  const scope = trainingScopeKey();
+  if (app.trainingScopeKey !== scope) {
+    app.trainingScopeKey = scope;
+    resetTrainingWorkspaceState();
+  }
   syncTrainingStatus();
   const data = trainingData();
-  const currentFloor = trainingFloor(app.trainingScene);
-  const floorLocked = Boolean(currentFloor && currentFloor.unlocked === false);
   const settlingFocusIds = (data.focuses || [])
     .filter((focus) => focus.status === "active" && ["attribute","position"].includes(focus.focus_type)
       && Number(focus.required_points || 0) > 0
@@ -13011,209 +11740,42 @@ function renderTraining({skipStage = false} = {}) {
   }
   if (data.growth_hook?.completed_habit_focus_ids?.length) {
     app.trainingPreferredMoves = null;
+    app.trainingHabitLoadKey = null;
     data.growth_hook.completed_habit_focus_ids = [];
   }
   renderFundingSummary("#training-balance");
-  $("#training-stage").className = `training-stage ${app.trainingScene} ${app.trainingEditing ? "editing" : ""} ${floorLocked ? "locked" : ""}`;
-  const floorLock = $("#training-floor-lock");
-  if (floorLock) {
-    floorLock.hidden = !floorLocked;
-    floorLock.innerHTML = floorLocked
-      ? `<i data-lucide="lock-keyhole"></i><strong>${escapeHtml(trainingFloorLabel(app.trainingScene,currentFloor))}</strong><span>${uiText("training.floor_unlock_note")}</span><button type="button" data-training-floor-unlock="${escapeHtml(app.trainingScene)}">${uiText("training.unlock_price", {amount:formatPounds(Number(currentFloor.price || 0))})}</button>`
-      : "";
+  renderTrainingModuleTabs();
+  const stage = $("#training-stage");
+  const roster = $("#training-roster");
+  const stageItems = $("#training-stage-items");
+  const positionModule = app.trainingModule === "position_training";
+  root.classList.toggle("position-training-active", positionModule);
+  if (stage) {
+    stage.className = positionModule ? "training-stage position_training" : "training-stage roster";
+    stage.dataset.module = app.trainingModule;
   }
-  document.querySelectorAll("[data-training-scene]").forEach((button) => {
-    const floor = trainingFloor(button.dataset.trainingScene);
-    button.classList.toggle("active", button.dataset.trainingScene === app.trainingScene);
-    button.classList.toggle("locked", floor?.unlocked === false);
-    button.title = floor?.unlocked === false ? uiText("training.unlock_price", {amount:trainingFloorLabel(button.dataset.trainingScene,floor)}) : "";
-  });
-  const relationshipFloor = app.trainingScene === "relationship_8f";
-  const positionFloor = app.trainingScene === "position_training";
-  root.classList.toggle("position-training-active",positionFloor);
-  const dockTabs = $("#training-dock-tabs");
-  const dockMode = positionFloor ? "position" : relationshipFloor ? "rooms" : "equipment";
-  if (dockTabs?.dataset.mode !== dockMode) {
-    dockTabs.dataset.mode = dockMode;
-    dockTabs.innerHTML = positionFloor
-      ? `<button class="active" data-training-dock="available"><i data-lucide="users-round"></i><span>${uiText("training.formation_roster")}</span></button>`
-      : relationshipFloor
-      ? `<button data-training-dock="available"><i data-lucide="door-open"></i><span>${uiText("training.available_rooms")}</span></button><button data-training-dock="shop"><i data-lucide="key-round"></i><span>${uiText("training.room_unlocks")}</span></button>`
-      : `<button data-training-dock="available"><span>${uiText("training.available_equipment")}</span></button><button data-training-dock="shop"><span>${uiText("training.equipment_shop")}</span></button><button data-training-dock="storage"><span>${uiText("training.equipment_storage")}</span></button>`;
-  }
-  const toolbarActions = document.querySelector("#page-training .training-toolbar-actions");
-  if (toolbarActions) toolbarActions.hidden = relationshipFloor || positionFloor || viewMode === "text";
-  if (positionFloor) {
-    app.trainingDock = "available";
-    app.trainingDetailId = null;
-    app.trainingSelectedId = null;
-    app._lastStageHash = null;
-    app._lastDockHash = null;
+  if (roster) roster.hidden = positionModule;
+  if (stageItems) stageItems.hidden = !positionModule;
+  if (positionModule) {
+    app.trainingPersonKind = null;
+    app.trainingPersonId = null;
+    app.trainingProjectSku = null;
+    app._lastRosterSignature = null;
+    app._lastDetailSignature = null;
+    ensureTrainingWorkspaceRosterLoaded();
     renderPositionTrainingStudio();
     return;
   }
-  if (relationshipFloor) {
-    if (app.trainingDock === "storage") app.trainingDock = "available";
-    renderRelationshipTrainingFloor({floorLocked});
+  if (app.trainingModule === "team_training") {
+    renderTeamTrainingRoster();
+    renderTeamTrainingDetail();
+    ensureTrainingWorkspaceRosterLoaded();
+    renderIcons();
     return;
   }
-  $("#training-edit-toggle").disabled = false;
-  document.querySelectorAll("[data-training-dock]").forEach((button) => { button.disabled = false; });
-  document.querySelectorAll("[data-training-dock]").forEach((button) => button.classList.toggle("active", button.dataset.trainingDock === app.trainingDock));
-  $("#training-edit-toggle").classList.toggle("active", app.trainingEditing);
-  $("#training-edit-toggle").setAttribute("aria-pressed", String(app.trainingEditing));
-  const placed = (data.facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene);
-  $("#training-empty").hidden = placed.length > 0;
-  const visiblePlaced = placed.filter((facility) => !trainingProduct(facility.sku)?.built_in);
-  const selected = trainingFacility(app.trainingSelectedId);
-  if (!selected || selected.status !== "placed" || selected.scene !== app.trainingScene) app.trainingSelectedId = null;
-  if (!skipStage) {
-    const stageHash = JSON.stringify({
-      viewMode,
-      selectedId: app.trainingSelectedId,
-      scene: app.trainingScene,
-      editing: app.trainingEditing,
-      facilities: visiblePlaced.map((facility) => {
-        const product = trainingProduct(facility.sku) || {};
-        return {
-          id: facility.id, sku: facility.sku, x: facility.x, y: facility.y,
-          scale: facility.scale, rotation: facility.rotation,
-          name: trainingFacilityName(facility.sku,product), productScene: product.scene, size: product.size,
-        };
-      }),
-    });
-    if (app._lastStageHash !== stageHash) {
-      app._lastStageHash = stageHash;
-      $("#training-stage-items").innerHTML = visiblePlaced.map((facility) => {
-        const product = trainingProduct(facility.sku) || {};
-        const isSelected = facility.id === app.trainingSelectedId;
-        const width = Number(product.size?.[0] || 18) * Number(facility.scale || 1);
-        const visual = `<img src="${trainingSprite(facility.sku, product)}" alt="">`;
-        return `<button class="training-facility ${product.scene === "outdoor" ? "outdoor-equipment" : "indoor-equipment"} ${isSelected ? "selected" : ""}" type="button" data-training-facility="${escapeHtml(facility.id)}" style="left:${Number(facility.x)}%;top:${Number(facility.y)}%;z-index:${Math.round(Number(facility.y)*10)};--facility-width:${width}%;--facility-rotation:${facility.rotation ? -1 : 1}">${visual}<span>${escapeHtml(trainingFacilityName(facility.sku,product))}</span></button>`;
-      }).join("");
-    }
-  }
-  $("#training-rotate").disabled = floorLocked || !app.trainingEditing || !app.trainingSelectedId;
-  $("#training-store-selected").disabled = floorLocked || !app.trainingEditing || !app.trainingSelectedId || trainingFacilityFocuses(app.trainingSelectedId).length > 0;
-  const stored = (data.facilities || []).filter((item) => {
-    const product = trainingProduct(item.sku);
-    return item.status === "stored" && trainingSceneAcceptsProduct(app.trainingScene, product?.scene);
-  });
-  const content = $("#training-dock-content");
-  let detail = trainingFacility(app.trainingDetailId);
-  if (app.trainingDock === "available" && (!detail || detail.status !== "placed" || detail.scene !== app.trainingScene)) {
-    app.trainingDetailId = null;
-    detail = null;
-  }
-  const dockHash = JSON.stringify({
-    viewMode,
-    dock: app.trainingDock,
-    detailId: app.trainingDetailId,
-    scene: app.trainingScene,
-    selectedId: app.trainingSelectedId,
-    equipmentState: app.trainingEquipmentState,
-    playerPickerOpen: app.trainingPlayerPickerOpen,
-    playerGroupState: app.trainingPlayerGroupState,
-    playerId: app.trainingPlayerId,
-    showHiddenAttributes: app.showHiddenAttributes,
-    staffId: app.trainingStaffId,
-    durationMode: app.trainingDurationMode,
-    operation: app.trainingOperation,
-    actionBusy: app.trainingActionBusy,
-    submissionRetry: app.trainingSubmissionRetry,
-    rosterLoading: app.trainingRosterLoading,
-    staffLoading: app.trainingStaffLoading,
-    targetKey: app.trainingTargetKey,
-    trainingPlayerSearch: app.trainingPlayerSearch,
-    trainingPlayerPositionFilter: app.trainingPlayerPositionFilter,
-    repeatTarget: app.trainingRepeatTarget,
-    preferredMoves: app.trainingPreferredMoves,
-    gameDate: String(app.gameClock?.date || app.state?.game_clock?.date || output().game_date || ""),
-    clubPolicies: data.club_policies,
-    facilities: (data.facilities || []).map((facility) => ({
-      id: facility.id, sku: facility.sku, status: facility.status,
-      scene: facility.scene, x: facility.x, y: facility.y,
-      rotation: facility.rotation, scale: facility.scale,
-    })),
-    focuses: (data.focuses || []).map((focus) => ({
-      id: focus.id, status: focus.status, focusType: focus.focus_type,
-      facilityId: focus.facility_id, playerId: focus.player_id,
-      playerName: focus.player_name, playerTeamName: focus.player_team_name,
-      playerTeamType: focus.player_team_type, attributeKey: focus.attribute_key,
-      initialAttribute: focus.initial_attribute, targetAttribute: focus.target_attribute,
-      attributeAfter: focus.attribute_after, multiplier: focus.multiplier,
-      requiredPoints: focus.required_points, progressPoints: focus.progress_points,
-      estimatedDays: focus.estimated_days, estimatedTotalDays: focus.estimated_total_days,
-      durationMode: focus.duration_mode, daysUsed: focus.days_used,
-      operation: focus.operation, preferredMoveName: focus.preferred_move_name,
-      staffId: focus.staff_id, staffName: focus.staff_name,
-      initialLicenseCode: focus.initial_license_code,
-      targetLicenseCode: focus.target_license_code,
-      dueOn: focus.due_on, remainingDays: focus.remaining_days,
-    })),
-    catalog: (data.catalog || []).map((item) => ({
-      sku: item.sku, name: trainingFacilityName(item.sku,item), description: trainingFacilityDescription(item.sku,item),
-      price: item.price, available: item.available, scene: item.scene,
-      capacity: item.capacity, unlimited: item.unlimited,
-      builtIn: item.built_in, icon: item.icon,
-      trainingMultiplier: item.training_multiplier, attributes: item.attributes,
-    })),
-    floors: (data.floors || []).map((floor) => ({
-      scene: floor.scene, unlocked: floor.unlocked, price: floor.price,
-    })),
-    players: trainingManagedPlayers().map((player) => ({
-      id: player.id, name: player.name, ca: player.ca, pa: player.pa,
-      primaryPositions: player.primary_positions, positions: player.positions,
-      positionRatings: player.position_ratings, attributes: player.attributes,
-      trainingTeamId: player.training_team_id,
-      trainingTeamName: player.training_team_name,
-      trainingTeamType: player.training_team_type,
-    })),
-  });
-  if (app._lastDockHash !== dockHash) {
-    app._lastDockHash = dockHash;
-    if (floorLocked) {
-       content.innerHTML = `<div class="training-floor-panel"><strong>${escapeHtml(trainingFloorLabel(app.trainingScene,currentFloor))}</strong><span>${uiText("training.floor_locked_note", {amount:formatPounds(Number(currentFloor.price || 0))})}</span><button type="button" data-training-floor-unlock="${escapeHtml(app.trainingScene)}"><i data-lucide="lock-keyhole"></i><span>${uiText("training.unlock_now")}</span></button></div>`;
-    } else if (app.trainingDock === "available") {
-      if (detail) content.innerHTML = trainingUsePanel(detail);
-      else {
-        const available = (data.facilities || []).filter((item) => item.status === "placed" && item.scene === app.trainingScene);
-        content.innerHTML = renderTrainingEquipmentList(available);
-      }
-    } else if (app.trainingDock === "shop") {
-      content.innerHTML = (data.catalog || []).filter((item) => !item.built_in && item.available !== false && trainingSceneAcceptsProduct(app.trainingScene, item.scene)).map((item) => {
-        const owned = (data.facilities || []).filter((facility) => facility.sku === item.sku).length;
-         const unit = item.facility_kind === "room" ? uiText("training.room_unit") : uiText("training.equipment_unit");
-         return `<article class="training-dock-item">${trainingFacilityVisual(item,item.sku)}<div><strong>${escapeHtml(trainingFacilityName(item.sku,item))}</strong><small>${escapeHtml(trainingFacilityDescription(item.sku,item))}</small><span>${owned ? `${uiText("training.owned_count", {count:owned, unit})} · ` : ""}${formatPounds(item.price)}</span></div><button type="button" data-training-buy="${escapeHtml(item.sku)}">${uiText("training.buy")}</button></article>`;
-      }).join("");
-    } else {
-       content.innerHTML = stored.map((facility) => { const item=trainingProduct(facility.sku)||{}; return `<article class="training-dock-item">${trainingFacilityVisual(item,facility.sku)}<div><strong>${escapeHtml(trainingFacilityLabel(facility))}</strong><small>${escapeHtml(trainingFacilityDescription(facility.sku,item))}</small></div><button type="button" data-training-place="${escapeHtml(facility.id)}">${uiText("training.place")}</button></article>`; }).join("") || `<div class="training-dock-empty"><i data-lucide="package-open"></i><strong>${uiText("training.no_equipment")}</strong></div>`;
-    }
-  }
-  const selection = $("#training-selection");
-  const active = trainingFacility(app.trainingSelectedId);
-  selection.hidden = !active || Boolean(app.trainingDetailId);
-  if (active) {
-    const activeFocusCount = trainingFacilityFocuses(active.id).length;
-    const selHash = JSON.stringify({
-      viewMode,
-      selectedId: active.id,
-      sku: active.sku,
-      scale: active.scale,
-      focusCount: activeFocusCount,
-      detailId: app.trainingDetailId,
-      label: trainingFacilityLabel(active),
-    });
-    if (app._lastSelHash !== selHash) {
-      app._lastSelHash = selHash;
-      const scalePercent = Math.round(Number(active.scale || 1) * 100);
-      const inUse = activeFocusCount > 0;
-       selection.innerHTML = `<div>${trainingFacilityVisual(trainingProduct(active.sku) || {},active.sku)}<span><strong>${escapeHtml(trainingFacilityLabel(active))}</strong></span></div><label class="training-scale-control"><span>${uiText("training.size")}</span><input type="range" min="50" max="200" step="5" value="${scalePercent}" data-training-scale="${escapeHtml(active.id)}"><output>${scalePercent}%</output></label><div><button type="button" data-training-use="${escapeHtml(active.id)}"><i data-lucide="play"></i><span>${uiText("training.use")}</span></button><button class="danger" type="button" data-training-sell="${escapeHtml(active.id)}" ${inUse ? `disabled title="${uiText("training.in_use")}"` : ""}><i data-lucide="badge-pound-sterling"></i><span>${uiText("training.sell")}</span></button></div>`;
-    }
-  } else {
-    app._lastSelHash = null;
-  }
-  if (app.trainingDock === "available" && app.trainingDetailId) renderTrainingTargets();
+  renderTrainingRoster();
+  renderTrainingPersonDetail();
+  ensureTrainingWorkspaceRosterLoaded();
   renderIcons();
 }
 
@@ -13290,356 +11852,1205 @@ function trainingEstimatedDays(player, attributeKey, durationMode = "until_incre
   }
   return Math.ceil(remaining / Math.max(1,Number(multiplier || 3)));
 }
-function updateTrainingDurationEstimate() {
-  const facility = trainingFacility(app.trainingDetailId);
-  if (!facility || facility.sku === "habit_lab") return;
-  const product = trainingProduct(facility.sku) || {};
-  const player = trainingPlayerContext(Number($("#training-inline-player")?.value || 0));
-  const attributeKey = $("#training-inline-target")?.value || "";
-  const multiplier = Number(product.training_multiplier || 3);
-  const direction = Number($("#training-inline-direction")?.value ?? product.direction ?? 1) < 0 ? -1 : 1;
-  const durationSelect = $("#training-inline-duration");
-  const submit = $("#training-inline-submit");
-  const current = playerAttributeValue(player, attributeKey);
-  const caSpace = Math.max(0, Number(player?.pa || 0) - Number(player?.ca || 0));
-  const caCosts = player?.training_ca?.costs?.[attributeKey] || {};
-  const caAffected = trainingAttributeAffectsCa(attributeKey, product, caCosts);
-  const defaultMode = direction < 0 ? "until_decrease" : "until_increase";
-  const previousMode = durationSelect?.value || app.trainingDurationMode || defaultMode;
-  const fixedTargets = direction < 0 ? TRAINING_REDUCTION_TARGETS : TRAINING_FIXED_TARGETS;
-   const modes = [
-     {mode:defaultMode,target:current + direction,label:direction < 0 ? uiText("training.lower_next") : uiText("training.until_next")},
-     ...fixedTargets.filter((target) => direction > 0 ? target > current : target < current).map((target) => ({
-       mode:`until_${target}`,target,label:uiText("training.until_value", {target}),
-     })),
-  ];
-  if (durationSelect) {
-    durationSelect.innerHTML = modes.map(({mode,target,label}) => {
-      const days = trainingEstimatedDays(player, attributeKey, mode, multiplier, direction);
-      const costKey = mode === "until_increase" ? "next" : `to_${target}`;
-      const requiredCa = Math.max(0, Number(caCosts[costKey] ?? Math.abs(target - current)));
-       const detail = !caAffected
-         ? uiText("training.estimated_days", {days})
-         : (caSpace < requiredCa
-           ? uiText("training.estimated_over_pa", {required:requiredCa, space:caSpace})
-           : (days > 0 ? uiText("training.estimated_ca", {days, required:requiredCa}) : uiText("training.estimated_ca_only", {required:requiredCa})));
-      return `<option value="${mode}">${label}（${detail}）</option>`;
-    }).join("");
-    durationSelect.value = modes.some(({mode}) => mode === previousMode) ? previousMode : defaultMode;
-    app.trainingDurationMode = durationSelect.value;
-  }
-  if (submit) submit.disabled = app.trainingActionBusy || !attributeKey || !durationSelect?.value;
+const TRAINING_MODULES = [
+  {key:"player_training", icon:"users", labelKey:"training.module.player_training"},
+  {key:"position_training", icon:"crosshair", labelKey:"training.module.position_training"},
+  {key:"staff_training", icon:"briefcase-business", labelKey:"training.module.staff_training"},
+  {key:"team_training", icon:"users-round", labelKey:"training.module.team_training"},
+];
+const TEAM_TRAINING_TARGETS = ["until_increase", "14", "16", "18", "20"];
+
+function trainingCurrentTeamId() {
+  const teams = managedTeams();
+  const club = teams.find((team) => String(team.team_type || "club") === "club");
+  if (club) return Number(club.id || 0);
+  const fallback = output().managed_team || {};
+  return String(fallback.team_type || "club") === "club" ? Number(fallback.id || 0) : 0;
 }
-function renderTrainingTargets() {
-  const facility = trainingFacility(app.trainingDetailId);
-  const product = trainingProduct(facility?.sku) || {};
-  const playerSelect = $("#training-inline-player");
-  const targetSelect = $("#training-inline-target");
-  const submit = $("#training-inline-submit");
-  const status = $("#training-inline-status");
-  if (!facility || !playerSelect || !targetSelect || !submit || !status) return;
-  const durationSelect = $("#training-inline-duration");
-  const directionSelect = $("#training-inline-direction");
-  targetSelect.disabled = app.trainingActionBusy;
-  if (durationSelect) durationSelect.disabled = app.trainingActionBusy;
-  if (directionSelect) directionSelect.disabled = app.trainingActionBusy;
-  app.trainingPlayerId = Number(playerSelect.value || 0);
-  const player = trainingPlayerContext(app.trainingPlayerId);
-   if (!player) {
-     targetSelect.innerHTML = `<option value="">${uiText("training.no_available_players")}</option>`;
-    submit.disabled = true;
-    return;
-  }
-  const full = trainingIsFull(product, trainingFacilityFocuses(facility.id).length);
-  if (facility.sku !== "habit_lab") {
-    const options = trainingAttributeKeysForPlayer(product, player).map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(localizedTrainingAttribute(key))}</option>`).join("");
-     targetSelect.innerHTML = options || `<option value="">${uiText("training.no_available_attribute")}</option>`;
-    const requestedTarget = app.trainingRepeatTarget || app.trainingTargetKey;
-    if (requestedTarget && [...targetSelect.options].some((option) => option.value === requestedTarget)) {
-      targetSelect.value = requestedTarget;
-    }
-    app.trainingTargetKey = targetSelect.value || null;
-    app.trainingRepeatTarget = null;
-    const active = activeTrainingFocus(player.id);
-    if (active) {
-      if (durationSelect) {
-        const durationLabel = ["until_increase","until_decrease"].includes(active.duration_mode)
-           ? (Number(active.direction || 1) < 0 ? uiText("training.lower_next") : uiText("training.until_next"))
-           : uiText("training.until_value", {target:Number(active.target_attribute || 20)});
-        durationSelect.innerHTML = `<option value="${escapeHtml(active.duration_mode || "until_increase")}">${durationLabel}</option>`;
-        durationSelect.disabled = true;
-      }
-      submit.disabled = true;
-      status.hidden = false;
-      status.classList.add("active");
-      const activeFacility = trainingFacility(active.facility_id);
-       const activeFacilityName = activeFacility ? trainingFacilityLabel(activeFacility) : uiText("training.other_equipment");
-      const activeMultiplier = Number(active.multiplier || 3);
-       const activeSpeed = uiText("training.speed", {multiplier:activeMultiplier});
-      const activeDays = Number(active.estimated_days || 0);
-      const activeTarget = Number(active.target_attribute || 0);
-       const activeRemaining = !["until_increase","until_decrease"].includes(active.duration_mode)
-         ? (activeDays > 0 ? uiText("training.until_target", {target:activeTarget, days:Number(active.estimated_total_days || 0)}) : uiText("training.until_settling", {target:activeTarget}))
-         : (activeDays > 0 ? uiText("training.about_days", {days:activeDays}) : uiText("training.points_settling"));
-       const playerSource = player.training_team_type === "national" && player.training_team_name
-         ? (activeUiLocale() === "zh-CN" ? `（${player.training_team_name}）` : ` (${player.training_team_name})`) : "";
-       status.textContent = uiText("training.active_attribute_status", {name:player.name, source:playerSource, facility:activeFacilityName, speed:activeSpeed, remaining:activeRemaining});
-      return;
-    }
-    if (full) {
-      submit.disabled = true;
-      status.hidden = false;
-      status.classList.add("active");
-       status.textContent = uiText("training.full_capacity_status", {used:trainingFacilityFocuses(facility.id).length, capacity:Number(product.capacity || 1)});
-      return;
-    }
-    status.hidden = true;
-    status.classList.remove("active");
-    const currentAttribute = playerAttributeValue(player, targetSelect.value);
-    const direction = Number(product.direction || 1) < 0 ? -1 : 1;
-    const atLimit = direction > 0 ? currentAttribute >= 20 : currentAttribute <= 1;
-    if (currentAttribute <= 0 || atLimit) {
-       const attributeName = localizedTrainingAttribute(targetSelect.value) || uiText("training.attribute");
-       if (durationSelect) {
-         durationSelect.innerHTML = `<option value="">${atLimit ? (direction > 0 ? uiText("training.attribute_at_max") : uiText("training.attribute_at_min")) : uiText("training.attribute_untrainable")}</option>`;
-        durationSelect.disabled = true;
-      }
-      submit.disabled = true;
-      status.hidden = false;
-       const statusText = atLimit
-         ? uiText(direction > 0 ? "training.attribute_reached_max" : "training.attribute_reached_min")
-         : uiText("training.attribute_unavailable");
-       status.textContent = `${player.name} ${attributeName} ${statusText}`;
-      return;
-    }
-    submit.disabled = app.trainingActionBusy || !options;
-    updateTrainingDurationEstimate();
-    return;
-  }
-  const active = activeTrainingFocus(player.id);
-  status.hidden = !active && !full;
-  status.classList.toggle("active", Boolean(active || full));
-  if (active) {
-    const activeFacility = trainingFacility(active.facility_id);
-     const activeName = activeFacility ? trainingFacilityLabel(activeFacility) : uiText("training.other_equipment");
-     status.textContent = uiText("training.active_habit_status", {name:player.name, facility:activeName, days:Number(active.days_used || 0)});
-   } else if (full) status.textContent = uiText("training.full_habit_status");
-  if (Number(app.trainingPreferredMoves?.player_id) === Number(player.id)) {
-    renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
-  } else {
-    loadTrainingPreferredMoves(player.id).catch((error) => toast(error.message));
-  }
+function trainingCurrentTeamProfile() {
+  const teamId = trainingCurrentTeamId();
+  if (!teamId) return null;
+  return teamProfile(teamId)
+    || app.clubProfiles.find((profile) => Number(profile?.team?.id || 0) === teamId)
+    || null;
 }
-function renderTrainingPreferredMoveTargets(current) {
-  const targetSelect = $("#training-inline-target");
-  const currentMoves = $("#training-inline-current-moves");
-  const submit = $("#training-inline-submit");
-  if (!targetSelect || !currentMoves || !submit) return;
-  const verified = new Map((trainingData().preferred_moves || []).map((item) => [Number(item.bit),localizedPreferredMove(item)]));
-  const currentBits = new Set((current.moves || []).map((item) => Number(item.bit)));
-  const choices = app.trainingOperation === "learn"
-    ? [...verified].filter(([bit]) => !currentBits.has(bit)).map(([bit,name]) => ({bit,name}))
-    : (current.moves || []).filter((item) => verified.has(Number(item.bit)));
-   targetSelect.innerHTML = choices.map((item) => `<option value="${Number(item.bit)}">${escapeHtml(item.name)}</option>`).join("") || `<option value="">${uiText("training.no_available_habit")}</option>`;
-  currentMoves.hidden = false;
-   currentMoves.innerHTML = `<strong>${uiText("training.current_habits")}</strong><span>${(current.moves || []).map((item) => escapeHtml(localizedPreferredMove(item))).join(" · ") || uiText("training.none")}</span>`;
-  const facility = trainingFacility(app.trainingDetailId);
-  const blocked = Boolean(activeTrainingFocus(current.player_id)) || trainingIsFull(trainingProduct(facility?.sku), trainingFacilityFocuses(facility?.id).length);
-  submit.disabled = app.trainingActionBusy || !choices.length || blocked;
+function trainingTeamFields(team) {
+  return {
+    training_team_id:Number(team?.id || 0),
+    training_team_name:String(team?.name || ""),
+    training_team_type:String(team?.team_type || "club"),
+  };
 }
-async function loadTrainingPreferredMoves(playerId) {
-  app.trainingPreferredMoves = null;
-  const targetSelect = $("#training-inline-target");
-  const submit = $("#training-inline-submit");
-   if (targetSelect) targetSelect.innerHTML = `<option>${uiText("training.reading")}</option>`;
-  if (submit) submit.disabled = true;
-  const player = trainingPlayerContext(playerId);
-  const current = await request("/api/training/preferred-moves", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:Number(playerId),team_id:Number(player?.training_team_id || 0)})});
-  app.trainingPreferredMoves = {...current,player_id:Number(playerId)};
-  if (app.trainingDetailId && Number(app.trainingPlayerId) === Number(playerId)) renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
+function trainingFirstTeamPlayers() {
+  const profile = trainingCurrentTeamProfile();
+  if (!profile) return [];
+  const team = profile.team || {};
+  const squads = clubProfileSquads(profile);
+  const firstTeam = squads.find((squad) => squad.type_code != null && Number(squad.type_code) === 0);
+  const players = firstTeam ? (firstTeam.players || []) : (profile.players || []);
+  return players.map((player) => ({...player, ...trainingTeamFields(team)}));
 }
-async function openTrainingDetail(facilityId) {
-  const facility = trainingFacility(facilityId);
-  if (!facility || facility.status !== "placed") { toast(uiText("training.no_equipment")); return; }
-  app.trainingDock = "available";
-  app.trainingDetailId = facility.id;
-  app.trainingPlayerPickerOpen = false;
-  if (facility.sku === "coaching_desk") {
-    const staff = trainingManagedStaff().filter((row) => !row.coaching_license?.maximum);
-    if (!staff.some((row) => Number(row.id) === Number(app.trainingStaffId))) {
-      app.trainingStaffId = Number(staff[0]?.id || 0);
-    }
-  }
-  const product = trainingProduct(facility.sku) || {};
-  const players = trainingManagedPlayers();
-  if (!players.some((player) => Number(player.id) === Number(app.trainingPlayerId))) {
-    app.trainingPlayerId = Number(players[0]?.id || 0);
-  }
-  app.trainingOperation = "learn";
-  if (!app.trainingSubmissionRetry) {
-    app.trainingDirection = Number(product.direction || 1) < 0 ? -1 : 1;
-    app.trainingDurationMode = Number(product.direction || 1) < 0
-      ? "until_decrease" : "until_increase";
-  }
-  app.trainingPreferredMoves = null;
-  renderTraining();
-  const coachingDesk = facility.sku === "coaching_desk";
-  const requiresStaff = coachingDesk;
-  const rosterCurrent = requiresStaff
-    ? managedCoachingRostersAreCurrent()
-    : trainingRosterIsCurrent();
-  if (!rosterCurrent) {
-    app.trainingRosterLoading = true;
-    if (requiresStaff) app.trainingStaffLoading = true;
-    renderTraining();
-    const needsFormulaSnapshots = !requiresStaff && product.attribute_kind !== "hidden";
-    const rosterLoad = requiresStaff
-      ? ensureTrainingCoachingRosterLoaded()
-      : (needsFormulaSnapshots
-        ? ensurePlayerDevelopmentRosterLoaded()
-        : ensureTrainingRosterLoaded(false));
-    rosterLoad.catch((error) => toast(error.message)).finally(() => {
-      app.trainingRosterLoading = Boolean(app.clubStatus?.refreshing && !trainingManagedPlayers().length);
-      if (requiresStaff) {
-        app.trainingStaffLoading = Boolean(
-          app.clubStatus?.refreshing && !managedCoachingRostersAreCurrent()
-        );
-      }
-      if (app.trainingDetailId === facility.id) renderTraining();
+function trainingPositionPlayers() {
+  const teamId = trainingCurrentTeamId();
+  return trainingManagedPlayers().filter(
+    (player) => !teamId || Number(player.training_team_id || 0) === teamId,
+  );
+}
+function trainingCurrentStaff() {
+  const profile = trainingCurrentTeamProfile();
+  const team = profile?.team || {};
+  const rows = [];
+  const playerManager = trainingData().player_manager;
+  if (playerManager?.id) {
+    rows.push({
+      ...playerManager,
+      role:String(playerManager.role || uiText("world.club.player_manager")),
+      training_subject_type:"player_manager",
+      ...trainingTeamFields(team),
     });
   }
+  for (const staff of profile?.staff || []) {
+    rows.push({
+      ...staff,
+      training_subject_type:"staff",
+      ...trainingTeamFields(team),
+    });
+  }
+  return rows;
 }
-
-async function submitInlineTraining(form) {
-  if (app.trainingActionBusy) return;
-  const facility = trainingFacility(form.querySelector("#training-inline-facility")?.value);
-  const target = form.querySelector("#training-inline-target")?.value;
-  if (!facility || !target) return;
-  const coaching = facility.sku === "coaching_desk";
-  const habit = facility.sku === "habit_lab";
-  if (coaching) {
-    const staffId = Number(form.querySelector("#training-inline-staff")?.value || 0);
-    const staff = trainingStaffContext(staffId);
-     if (!staff) return toast(uiText("training.no_coach_manager"));
-    const license = staff.coaching_license || {};
-    const durationDays = Number(trainingData().coaching_license_course_days?.[license.code] || 0);
-    const payload = {
-      facility_id:facility.id, staff_id:staffId, player_id:staffId,
-      team_id:Number(staff.training_team_id || 0), operation:"coaching_license",
-      subject_type:String(staff.training_subject_type || "staff"),
-      target_license_code:Number(target),
+function trainingStaffEligible(staff) {
+  if (!staff?.coaching_license) return false;
+  if (staff.training_subject_type === "player_manager") {
+    return !staff.coaching_license.maximum && Boolean(staff.coaching_license.next_code);
+  }
+  return COACHING_STAFF_JOB_TYPES.has(Number(staff.job_type || 0))
+    && !staff.coaching_license.maximum
+    && Boolean(staff.coaching_license.next_code);
+}
+function trainingFocusKey(focus) {
+  if (!focus) return "";
+  if (focus.focus_type === "coaching_license") return `staff:${Number(focus.staff_id || 0)}`;
+  return `player:${Number(focus.player_id || 0)}`;
+}
+function trainingPersonFocus(kind, personId) {
+  const index = trainingDataIndex();
+  return kind === "staff"
+    ? (index.activeFocusByStaff.get(Number(personId)) || null)
+    : (index.activeFocusByPlayer.get(Number(personId)) || null);
+}
+function trainingProjects(module) {
+  return (trainingData().catalog || []).filter((project) => project.module === module);
+}
+function trainingProjectApplies(project, kind, person) {
+  if (!project || !person) return false;
+  if (kind === "staff") return project.module === "staff_training" && trainingStaffEligible(person);
+  if (project.module !== "player_training") return false;
+  if (project.sku === "habit_lab") return true;
+  if (project.position_group && !trainingPlayerMatchesPositionGroup(person, project.position_group)) return false;
+  return trainingAttributeKeysForPlayer(project, person).length > 0;
+}
+function trainingProjectTargets(project, kind, person) {
+  if (!project || kind === "staff" || project.sku === "habit_lab") return [];
+  return trainingAttributeKeysForPlayer(project, person);
+}
+function trainingTargetModes(project, person, target, direction) {
+  const current = playerAttributeValue(person, target);
+  const resolvedDirection = Number(direction) < 0 ? -1 : 1;
+  const defaultMode = resolvedDirection < 0 ? "until_decrease" : "until_increase";
+  const fixedTargets = resolvedDirection < 0 ? TRAINING_REDUCTION_TARGETS : TRAINING_FIXED_TARGETS;
+  return [
+    {mode:defaultMode, target:current + resolvedDirection},
+    ...fixedTargets
+      .filter((value) => (resolvedDirection > 0 ? value > current : value < current))
+      .map((value) => ({mode:`until_${value}`, target:value})),
+  ];
+}
+function trainingTaskEstimate(project, kind, person, target, durationMode, selectedDirection) {
+  const feeMinor = Math.max(0, Number(project?.task_price_minor || 0));
+  if (!project || !person) return {feeMinor, days:0, current:null, targetValue:null};
+  if (kind === "staff") {
+    const code = Number(person.coaching_license?.code ?? -1);
+    return {
+      feeMinor,
+      days:Number(trainingData().coaching_license_course_days?.[code] || 0),
+      current:null, targetValue:null,
     };
-     const confirmed = await fmoddConfirm(
-       uiText("training.confirm_licence", {name:staff.name, facility:trainingFacilityLabel(facility), next:license.next_name, current:license.name, days:durationDays}),
-       uiText("training.start_licence"),
-     );
-    if (!confirmed) return;
-    const fingerprint = JSON.stringify(payload);
-    if (app.trainingSubmissionRetry?.fingerprint !== fingerprint) {
-      app.trainingSubmissionRetry = {fingerprint,id:clientSubmissionId()};
-    }
-    payload.client_submission_id = app.trainingSubmissionRetry.id;
-    app.trainingActionBusy = true;
-    form.querySelectorAll("button,select").forEach((control) => { control.disabled = true; });
-    try {
-      const response = await runItemOperation(
-         "development", uiText("training.licence_busy", {person:staff.name}),
-        () => request("/api/training/run", {
-          method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(payload), timeoutMs:60000,
-           timeoutMessage:uiText("training.licence_timeout"),
-        }),
-         uiText("training.licence_started_note"),
-      );
-      app.trainingSubmissionRetry = null;
-      updateTrainingResponse(response);
-       toast(response.duplicate ? uiText("training.licence_duplicate") : uiText("training.licence_started", {name:staff.name, licence:license.next_name}));
-    } catch (error) {
-      if (error.code !== "REQUEST_TIMEOUT") app.trainingSubmissionRetry = null;
-      throw error;
-    } finally {
-      app.trainingActionBusy = false;
-      renderTraining();
-    }
-    return;
   }
-  const payload = {
-    facility_id:facility.id,
-    player_id:Number(form.querySelector("#training-inline-player")?.value || 0),
-    operation:habit ? app.trainingOperation : "attribute",
-    free_purchase:freeServicesEnabled(),
-    duration_mode:habit ? "week" : (
-      form.querySelector("#training-inline-duration")?.value
-      || (Number(trainingProduct(facility.sku)?.direction || 1) < 0
-        ? "until_decrease" : "until_increase")
-    ),
+  if (project.sku === "habit_lab") {
+    return {feeMinor, days:7, current:null, targetValue:null};
+  }
+  const direction = Number(selectedDirection ?? project.direction ?? 1) < 0 ? -1 : 1;
+  const multiplier = Number(project.training_multiplier || 3);
+  const mode = durationMode || (direction < 0 ? "until_decrease" : "until_increase");
+  const current = playerAttributeValue(person, target);
+  const targetValue = trainingDurationTarget(mode, current, direction);
+  const days = trainingEstimatedDays(person, target, mode, multiplier, direction);
+  const caCosts = person?.training_ca?.costs?.[target] || {};
+  const caAffected = trainingAttributeAffectsCa(target, project, caCosts);
+  const requiredCa = Math.max(0, Number(
+    caCosts[mode === "until_increase" ? "next" : `to_${targetValue}`]
+    ?? Math.abs(targetValue - current)
+  ));
+  return {
+    feeMinor, days, current, targetValue,
+    caAffected, requiredCa,
+    ca:Number(person.ca || 0), pa:Number(person.pa || 0),
   };
-  const selectedPlayer = trainingPlayerContext(payload.player_id);
-  payload.team_id = Number(selectedPlayer?.training_team_id || 0);
-  if (habit) payload.preferred_move_bit = Number(target);
-  else {
-    payload.attribute_key = target;
-    if (form.querySelector("#training-inline-direction")) {
-      payload.direction = Number(form.querySelector("#training-inline-direction").value) < 0 ? -1 : 1;
-    }
-    payload.duration_mode = form.querySelector("#training-inline-duration")?.value
-      || (Number(trainingProduct(facility.sku)?.direction || 1) < 0
-        ? "until_decrease" : "until_increase");
-    const player = selectedPlayer;
-    const current = playerAttributeValue(player, target);
-    const product = trainingProduct(facility.sku) || {};
-    const caCosts = player?.training_ca?.costs?.[target] || {};
-    if (trainingAttributeAffectsCa(target, product, caCosts)) {
-      const targetAttribute = trainingDurationTarget(payload.duration_mode, current, 1);
-      const costKey = payload.duration_mode === "until_increase" ? "next" : `to_${targetAttribute}`;
-      const requiredCa = Math.max(0, Number(caCosts[costKey] ?? (targetAttribute - current)));
-      const currentCa = Number(player?.ca || 0);
-      const currentPa = Number(player?.pa || 0);
-      if (currentCa + requiredCa > currentPa) {
-         const confirmed = await fmoddConfirm(
-           uiText("training.confirm_continue_ca", {required:requiredCa, current:currentCa, after:currentCa + requiredCa, pa:currentPa}),
-           uiText("training.continue"),
-         );
-        if (!confirmed) return;
-        payload.confirm_ca_over_pa = true;
-      }
-    }
+}
+function trainingRoster(module) {
+  if (module === "staff_training") return trainingCurrentStaff();
+  if (module === "position_training") return trainingPositionPlayers();
+  return trainingFirstTeamPlayers();
+}
+function trainingScopeKey() {
+  return [
+    String(app.state?.data_scope_id || output().save_instance_id || ""),
+    Number(output().selected_manager_id || output().manager?.id || 0),
+    trainingCurrentTeamId(),
+  ].join(":");
+}
+function trainingProjectName(project) {
+  return trainingFacilityName(project?.sku, project || {});
+}
+function trainingProjectDescription(project) {
+  return trainingFacilityDescription(project?.sku, project || {});
+}
+function trainingProjectOptionLabel(project) {
+  const name = trainingProjectName(project);
+  const directions = (project?.attributes || [])
+    .map((attribute) => localizedTrainingAttribute(attribute))
+    .filter(Boolean);
+  if (!directions.length) return name;
+  return uiText("training.project_direction", {
+    name, direction: directions.join("-"),
+  });
+}
+function trainingFeeLabel(feeMinor) {
+  return Number(feeMinor || 0) > 0
+    ? formatPounds(Number(feeMinor) / 100)
+    : uiText("training.free");
+}
+function trainingPersonRoleLabel(kind, person) {
+  if (kind !== "staff") return primaryPlayerPosition(person);
+  if (person?.training_subject_type === "player_manager") {
+    return String(person.role || uiText("world.club.player_manager"));
   }
+  return localizedStaffRole(person);
+}
+function filteredTrainingRoster(kind, people) {
+  const query = String(app.trainingPlayerSearch || "").trim().toLocaleLowerCase();
+  const group = String(app.trainingPlayerPositionFilter || "all");
+  return people.filter((person) => {
+    if (kind === "player" && group !== "all" && playerPositionGroup(person) !== group) return false;
+    if (!query) return true;
+    return [
+      person.name,
+      trainingPersonRoleLabel(kind, person),
+      person.training_team_name,
+    ].some((value) => String(value || "").toLocaleLowerCase().includes(query));
+  });
+}
+function trainingRunPayload(kind, person, project, target, durationMode, direction, submissionId) {
+  if (!person || !project) return null;
+  const payload = {
+    project_sku:String(project.sku),
+    module:String(project.module || ""),
+    team_id:Number(person.training_team_id || trainingCurrentTeamId()),
+    operation:"attribute",
+    duration_mode:String(durationMode || "until_increase"),
+    client_submission_id:String(submissionId || ""),
+  };
+  if (kind === "staff") {
+    return {
+      ...payload,
+      operation:"coaching_license",
+      staff_id:Number(person.id),
+      player_id:Number(person.id),
+      subject_type:String(person.training_subject_type || "staff"),
+      target_license_code:Number(person.coaching_license?.next_code || 0),
+      duration_mode:"until_increase",
+    };
+  }
+  payload.player_id = Number(person.id);
+  if (project.sku === "habit_lab") {
+    payload.operation = app.trainingOperation === "unlearn" ? "unlearn" : "learn";
+    payload.preferred_move_bit = Number(target);
+    payload.duration_mode = "week";
+    return payload;
+  }
+  const resolvedDirection = Number(direction ?? project.direction ?? 1) < 0 ? -1 : 1;
+  payload.operation = "attribute";
+  payload.attribute_key = String(target || "");
+  payload.attribute_kind = String(project.attribute_kind || "visible");
+  payload.direction = resolvedDirection;
+  return payload;
+}
+function trainingSubmissionFor(payload) {
   const fingerprint = JSON.stringify(payload);
   if (app.trainingSubmissionRetry?.fingerprint !== fingerprint) {
-    app.trainingSubmissionRetry = {fingerprint,id:clientSubmissionId()};
+    app.trainingSubmissionRetry = {fingerprint, id:clientSubmissionId()};
   }
-  payload.client_submission_id = app.trainingSubmissionRetry.id;
+  return app.trainingSubmissionRetry.id;
+}
+function resetTrainingWorkspaceState() {
+  app.trainingRequestSeq = Number(app.trainingRequestSeq || 0) + 1;
+  app.trainingPersonKind = null;
+  app.trainingPersonId = null;
+  app.trainingProjectSku = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingRosterError = "";
+  app.trainingTargetKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  app.trainingPlayerSearch = "";
+  app.trainingPlayerPositionFilter = "all";
+  app.trainingActionBusy = false;
+  app.trainingActionRequest = null;
+  $("#training-settle-button")?.removeAttribute("aria-busy");
+  app.trainingCancelFocusId = null;
+  app.trainingRosterLoading = false;
+  app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+  app.teamTrainingSelectionRoom = null;
+  app.teamTrainingSelectionScope = null;
+  app.teamTrainingSessionId = null;
+  app.teamTrainingSelections = {};
+  app.teamTrainingEstimates = null;
+  app.teamTrainingPreview = null;
+  app.teamTrainingPreviewSeq = Number(app.teamTrainingPreviewSeq || 0) + 1;
+  app.teamTrainingSubmission = null;
+}
+function trainingRosterStale() {
+  if (app.trainingModule === "staff_training") return !managedCoachingRostersAreCurrent();
+  if (app.trainingModule === "team_training") return !managedCoachingRostersAreCurrent() || !trainingRosterIsCurrent();
+  return !trainingRosterIsCurrent();
+}
+function ensureTrainingWorkspaceRosterLoaded() {
+  if (app.trainingRosterLoading || app.trainingStaffLoading || app.trainingRosterError) return;
+  if (!trainingRosterStale()) return;
+  loadTrainingRoster().catch(() => {});
+}
+async function loadTrainingRoster({force = false} = {}) {
+  if (app.trainingRosterLoadPromise && !force) return app.trainingRosterLoadPromise;
+  const module = app.trainingModule;
+  const seq = app.trainingRequestSeq;
+  const task = (async () => {
+    app.trainingRosterError = "";
+    if (module === "staff_training" || module === "team_training") app.trainingStaffLoading = true;
+    if (module !== "staff_training") app.trainingRosterLoading = true;
+    renderTraining();
+    try {
+      if (module === "staff_training") await ensureTrainingCoachingRosterLoaded(true);
+      else if (module === "team_training") {
+        await ensurePlayerDevelopmentRosterLoaded();
+        await ensureTrainingCoachingRosterLoaded(true);
+      } else if (module === "position_training") await ensureTrainingRosterLoaded(true);
+      else await ensurePlayerDevelopmentRosterLoaded();
+    } catch (error) {
+      if (seq === app.trainingRequestSeq && module === app.trainingModule) {
+        app.trainingRosterError = String(error?.message || uiText("training.roster_failed"));
+      }
+    } finally {
+      if (seq === app.trainingRequestSeq && module === app.trainingModule) {
+        app.trainingRosterLoading = false;
+        app.trainingStaffLoading = false;
+        renderTraining();
+      }
+    }
+  })();
+  app.trainingRosterLoadPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (app.trainingRosterLoadPromise === task) app.trainingRosterLoadPromise = null;
+  }
+}
+function setTrainingModule(module) {
+  app.trainingModule = TRAINING_MODULES.some((row) => row.key === module) ? module : "player_training";
+  app.trainingRequestSeq = Number(app.trainingRequestSeq || 0) + 1;
+  app.trainingPersonKind = null;
+  app.trainingPersonId = null;
+  app.trainingProjectSku = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingRosterError = "";
+  app.trainingTargetKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  // Invalidate roster/cancel UI; an in-flight submit owns its busy flag until it finishes.
+  app.trainingCancelFocusId = null;
+  app.trainingRosterLoading = false;
+  app.trainingStaffLoading = false;
+  app.trainingRosterLoadPromise = null;
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+  renderTraining();
+  ensureTrainingWorkspaceRosterLoaded();
+}
+function openTrainingPerson(kind, personId) {
+  const nextKind = kind === "staff" ? "staff" : "player";
+  const nextPersonId = Number(personId || 0) || null;
+  const collapse = app.trainingPersonKind === nextKind && app.trainingPersonId === nextPersonId;
+  app.trainingPersonKind = collapse ? null : nextKind;
+  app.trainingPersonId = collapse ? null : nextPersonId;
+  app.trainingProjectSku = null;
+  app.trainingTargetKey = null;
+  app.trainingSubmissionRetry = null;
+  app.trainingPreferredMoves = null;
+  app.trainingHabitLoadKey = null;
+  app.trainingDurationMode = "until_increase";
+  app.trainingDirection = 1;
+  app._lastDetailSignature = null;
+  renderTraining();
+}
+function renderTrainingModuleTabs() {
+  const root = $("#training-module-tabs");
+  if (!root) return;
+  root.setAttribute("aria-label", uiText("training.modules"));
+  const rows = TRAINING_MODULES.map((module) => {
+    const active = app.trainingModule === module.key;
+    const count = module.key === "position_training" ? null
+      : module.key === "team_training" ? teamTrainingRooms().length
+      : (module.key === "staff_training" ? trainingCurrentStaff().length : trainingFirstTeamPlayers().length);
+    return {module, active, count};
+  });
+  const signature = JSON.stringify(rows.map((row) => [row.module.key, row.active, row.count]));
+  if (root.dataset.signature === signature) return;
+  root.dataset.signature = signature;
+  root.innerHTML = rows.map(({module, active, count}) => {
+    const counter = count === null ? "" : `<small>${count}</small>`;
+    return `<button type="button" role="tab" aria-selected="${active}" class="${active ? "active" : ""}" data-training-module="${module.key}"><i data-lucide="${module.icon}"></i><span>${escapeHtml(uiText(module.labelKey))}</span>${counter}</button>`;
+  }).join("");
+}
+function trainingAttributeValueClass(value) {
+  const number = Number(value);
+  return number >= 16 ? "elite" : number >= 12 ? "good" : number <= 7 ? "weak" : "normal";
+}
+
+function trainingPlayerAttributePanel(person) {
+  const groupOrder = ["门将", "技术", "精神", "身体", "定位球", "技术训练"];
+  const rank = (group) => {
+    const index = groupOrder.indexOf(group);
+    return index < 0 ? groupOrder.length : index;
+  };
+  const groups = Object.entries(person?.attributes || {})
+    .filter(([, values]) => values && Object.keys(values).length)
+    .sort(([left], [right]) => rank(left) - rank(right));
+  if (app.showHiddenAttributes && Object.keys(person?.hidden_attributes || {}).length) groups.push(["隐藏", person.hidden_attributes]);
+  if (!groups.length) {
+    return `<div class="training-person-attributes empty">${uiText("world.player_detail.no_reliable_attributes")}</div>`;
+  }
+  const cell = (group, name, value) => {
+    const label = group === "隐藏" && name === "争论" ? "争议性" : name;
+    // Hidden attributes have no shared "higher is better" direction (high injury proneness is bad).
+    const tone = group === "隐藏" ? "normal" : trainingAttributeValueClass(value);
+    return `<span class="attribute-value value-${tone}">${escapeHtml(localizedTrainingAttribute(label))}<b>${Number(value)}</b></span>`;
+  };
+  return `<div class="training-person-attributes player-attribute-sections" role="region" aria-label="${escapeHtml(person.name || "")}">${groups.map(([group, values]) =>
+    `<section class="player-attribute-group${group === "隐藏" ? " hidden-group" : ""}"><h4>${escapeHtml(localizedTrainingAttributeGroup(group))}</h4><div class="ability-list">${
+      Object.entries(values).map(([name, value]) => cell(group, name, value)).join("")
+    }</div></section>`).join("")}</div>`;
+}
+
+function trainingStaffLicensePanel(person) {
+  const license = person?.coaching_license;
+  const current = license ? coachingLicenceLabel(license.code, license.name) : uiText("training.licence_unread");
+  const next = !license ? "" : license.maximum || !license.next_name
+    ? `<span class="licence-max">${uiText("training.no_next_licence")}</span>`
+    : `<i data-lucide="arrow-right"></i><span>${uiText("training.next_license")}</span><b>${escapeHtml(coachingLicenceLabel(license.next_code, license.next_name))}</b>`;
+  return `<div class="training-person-attributes training-staff-licence" role="region" aria-label="${escapeHtml(person?.name || "")}"><section class="player-attribute-group training-licence-strip"><h4>${uiText("training.current_licence")}</h4><div class="training-licence-line"><b>${escapeHtml(current)}</b>${next}</div></section></div>`;
+}
+
+function renderTrainingRoster() {
+  const roster = $("#training-roster");
+  if (!roster) return;
+  const module = app.trainingModule;
+  if (module === "position_training") { roster.innerHTML = ""; return; }
+  const kind = module === "staff_training" ? "staff" : "player";
+  const loading = kind === "staff" ? app.trainingStaffLoading : app.trainingRosterLoading;
+  const people = trainingRoster(module);
+  const visible = filteredTrainingRoster(kind, people);
+  const focusRows = visible.map((person) => [Number(person.id), trainingFocusKey(trainingPersonFocus(kind, person.id))]);
+  const signature = JSON.stringify({
+    module, kind, loading, error:app.trainingRosterError,
+    selected:[app.trainingPersonKind, app.trainingPersonId],
+    search:app.trainingPlayerSearch, filter:app.trainingPlayerPositionFilter,
+    people:people.map((person) => [
+      Number(person.id), String(person.name || ""), String(person.shirt_number || ""),
+      String(person.primary_positions?.[0] || ""), Number(person.coaching_license?.code ?? -1),
+      String(person.training_subject_type || ""), trainingStaffEligible(person),
+    ]),
+    focusRows,
+    showHidden:Boolean(app.showHiddenAttributes),
+    expanded:app.trainingPersonKind === kind
+      ? (() => { const person = people.find((row) => Number(row.id) === Number(app.trainingPersonId)); return person ? (kind === "staff" ? [person.coaching_license || null] : [person.attributes || null, person.hidden_attributes || null]) : null; })()
+      : null,
+  });
+  if (roster.dataset.signature === signature) return;
+  roster.dataset.signature = signature;
+  if (app.trainingRosterError) {
+    roster.innerHTML = `<div class="training-roster-state"><i data-lucide="cloud-off"></i><strong>${uiText("training.roster_error")}</strong><small>${escapeHtml(app.trainingRosterError)}</small><button type="button" data-training-roster-retry>${uiText("training.roster_retry")}</button></div>`;
+    return;
+  }
+  if (loading && !people.length) {
+    roster.innerHTML = `<div class="training-roster-state"><i data-lucide="refresh-cw"></i><strong>${uiText("training.roster.loading")}</strong></div>`;
+    return;
+  }
+  const head = `<div class="training-roster-head"><strong>${uiText(kind === "staff" ? "training.roster.staff_title" : "training.roster.player_title")}</strong><span>${uiPlural(kind === "staff" ? "training.roster.staff_count" : "training.roster.player_count", people.length)}</span></div>`;
+  const tools = `<div class="training-roster-tools"><label class="training-person-search"><i data-lucide="search"></i><input id="training-person-search" type="search" aria-label="${uiText("training.roster.search")}" value="${escapeHtml(app.trainingPlayerSearch || "")}" placeholder="${uiText("training.roster.search")}" autocomplete="off"></label>${kind === "player" ? `<div class="training-position-filters" role="group">${[["all","training.all_people"],["goalkeepers","training.position_group.goalkeepers"],["defenders","training.position_group.defenders"],["midfielders","training.position_group.midfielders"],["forwards","training.position_group.forwards"]].map(([key,label]) => `<button type="button" class="${String(app.trainingPlayerPositionFilter || "all") === key ? "active" : ""}" data-training-position-filter="${key}">${uiText(label)}</button>`).join("")}</div>` : ""}</div>`;
+  const rows = visible.map((person) => {
+    const activeFocus = trainingPersonFocus(kind, person.id);
+    const selected = app.trainingPersonKind === kind && Number(app.trainingPersonId) === Number(person.id);
+    const eligible = kind === "player" || trainingStaffEligible(person);
+    const role = trainingPersonRoleLabel(kind, person);
+    const status = activeFocus ? trainingFocusUsage(activeFocus)
+      : kind === "staff" && !eligible ? uiText("training.not_eligible")
+      : uiText("training.idle");
+    const expanded = selected;
+    return `<article class="training-person-row ${selected ? "selected" : ""} ${expanded ? "expanded" : ""} ${activeFocus ? "training" : ""}">
+      <button type="button" class="training-person-open" data-training-person="${kind}:${Number(person.id)}" aria-expanded="${expanded}">
+        <span class="training-person-shirt">${kind === "staff" ? `<i data-lucide="${person.training_subject_type === "player_manager" ? "user-cog" : "briefcase-business"}"></i>` : escapeHtml(String(person.shirt_number || "—"))}</span>
+        <span class="training-person-copy"><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(role || "")} · ${escapeHtml(status)}</small></span>
+        ${activeFocus
+          ? `<span class="training-person-badge">${uiText("training.studying")}</span>`
+          : eligible ? `<i data-lucide="${expanded ? "chevron-down" : "chevron-right"}"></i>` : `<span class="training-person-badge muted">${uiText("training.not_eligible")}</span>`}
+      </button>
+      ${activeFocus ? `<button type="button" class="training-person-cancel" data-training-cancel-focus="${escapeHtml(activeFocus.id)}" aria-label="${uiText("training.cancel_use")}"><i data-lucide="x"></i></button>` : ""}
+      ${expanded ? (kind === "player" ? trainingPlayerAttributePanel(person) : trainingStaffLicensePanel(person)) : ""}
+    </article>`;
+  }).join("");
+  roster.innerHTML = head + tools + (rows || `<div class="training-roster-state"><strong>${uiText("training.roster_empty")}</strong></div>`);
+}
+function renderTrainingPersonDetail() {
+  const content = $("#training-dock-content");
+  if (!content) return;
+  const module = app.trainingModule;
+  const kind = app.trainingPersonKind;
+  const roster = module === "staff_training" ? trainingCurrentStaff() : trainingFirstTeamPlayers();
+  const person = kind ? roster.find((row) => Number(row.id) === Number(app.trainingPersonId)) : null;
+  if (!person) {
+    app.trainingPersonId = null;
+    app.trainingProjectSku = null;
+    app._lastDetailSignature = null;
+    content.innerHTML = `<div class="training-detail-empty"><i data-lucide="${kind === "staff" || module === "staff_training" ? "briefcase-business" : "user-round"}"></i><strong>${uiText("training.select_person")}</strong><small>${uiText(module === "staff_training" ? "training.select_staff_hint" : "training.select_player_hint")}</small></div>`;
+    return;
+  }
+  const activeFocus = trainingPersonFocus(kind, person.id);
+  const applicable = trainingProjects(module).filter((project) => trainingProjectApplies(project, kind, person));
+  let project = applicable.find((row) => row.sku === app.trainingProjectSku) || null;
+  if (!project && applicable.length) {
+    project = applicable[0];
+    app.trainingProjectSku = project.sku;
+    app.trainingDirection = Number(project.direction || 1) < 0 ? -1 : 1;
+  }
+  if (!project) app.trainingProjectSku = null;
+  const edition = activeUiLocale();
+  const preferred = app.trainingPreferredMoves;
+  const habitReady = Boolean(preferred && Number(preferred.player_id) === Number(person.id));
+  let targetOptions = [];
+  if (project?.sku === "habit_lab") {
+    const verified = new Map((trainingData().preferred_moves || []).map((item) => [Number(item.bit), localizedPreferredMove(item)]));
+    const currentBits = new Set((preferred?.moves || []).map((item) => Number(item.bit)));
+    targetOptions = app.trainingOperation === "unlearn"
+      ? (preferred?.moves || []).filter((item) => verified.has(Number(item.bit))).map((item) => ({value:String(Number(item.bit)), label:verified.get(Number(item.bit))}))
+      : [...verified].filter(([bit]) => !currentBits.has(bit)).map(([bit, name]) => ({value:String(bit), label:name}));
+  } else if (project && kind === "staff") {
+    const license = person.coaching_license || {};
+    targetOptions = [{value:String(license.next_code || 0), label:coachingLicenceLabel(license.next_code, license.next_name) || uiText("training.no_next_licence")}];
+  } else if (project) {
+    targetOptions = trainingProjectTargets(project, kind, person).map((key) => ({value:key, label:localizedTrainingAttribute(key)}));
+  }
+  let target = app.trainingTargetKey;
+  if (!targetOptions.some((row) => row.value === String(target))) target = targetOptions[0]?.value || null;
+  app.trainingTargetKey = target;
+  if (project?.sku === "habit_lab" && !habitReady) {
+    const habitKey = `${Number(person.id)}:${app.trainingOperation}`;
+    if (app.trainingHabitLoadKey !== habitKey) {
+      app.trainingHabitLoadKey = habitKey;
+      loadTrainingPreferredMoves(person.id).catch((error) => toast(error.message));
+    }
+  } else if (project?.sku !== "habit_lab") {
+    app.trainingHabitLoadKey = null;
+  }
+  const staffIneligible = kind === "staff" && !trainingStaffEligible(person);
+  const reason = activeFocus ? uiText("training.reason_active")
+    : staffIneligible ? uiText("training.staff_ineligible")
+    : !project ? uiText("training.reason_no_project")
+    : project.sku === "habit_lab" && !habitReady ? uiText("training.roster.loading")
+    : !target ? uiText("training.no_available_attribute")
+    : "";
+  const disabled = Boolean(app.trainingActionBusy || activeFocus || staffIneligible || !project || !target);
+  const operationToggle = project?.sku === "habit_lab"
+    ? `<div class="training-operation-toggle" role="group">${[["learn","training.learn"],["unlearn","training.unlearn"]].map(([key,label]) => `<button type="button" class="${app.trainingOperation === key ? "active" : ""}" data-training-operation="${key}" aria-pressed="${app.trainingOperation === key}">${uiText(label)}</button>`).join("")}</div>`
+    : "";
+  const direction = Number(app.trainingDirection ?? project?.direction ?? 1) < 0 ? -1 : 1;
+  const directionField = project && project.attribute_kind === "hidden"
+    ? `<label>${uiText("training.direction_label")}<select id="training-inline-direction"><option value="1" ${Number(app.trainingDirection) >= 0 ? "selected" : ""}>${uiText("training.direction_increase")}</option><option value="-1" ${Number(app.trainingDirection) < 0 ? "selected" : ""}>${uiText("training.direction_decrease")}</option></select></label>`
+    : "";
+  let targetField = "";
+  if (project && project.sku !== "habit_lab") {
+    targetField = `<label>${uiText(kind === "staff" ? "training.licence_target" : "training.target_label")}<select id="training-inline-target">${targetOptions.map((row) => `<option value="${escapeHtml(row.value)}" ${row.value === String(target) ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("")}</select></label>`;
+  }
+  let durationField = "";
+  if (project && project.sku !== "habit_lab" && kind === "player") {
+    const modes = trainingTargetModes(project, person, target, direction);
+    const selectedMode = modes.some((row) => row.mode === app.trainingDurationMode) ? app.trainingDurationMode : modes[0]?.mode;
+    if (selectedMode) app.trainingDurationMode = selectedMode;
+    durationField = `<label>${uiText("training.duration_label")}<select id="training-inline-duration">${modes.map((row) => {
+      const days = trainingEstimatedDays(person, target, row.mode, Number(project.training_multiplier || 3), direction);
+      const label = row.mode === "until_increase" ? uiText("training.until_next")
+        : row.mode === "until_decrease" ? uiText("training.lower_next")
+        : uiText("training.until_value", {target:row.target});
+      return `<option value="${row.mode}" ${row.mode === selectedMode ? "selected" : ""}>${escapeHtml(label)}（${uiText("training.estimated_days", {days})}）</option>`;
+    }).join("")}</select></label>`;
+  }
+  const estimate = project ? trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, direction) : null;
+  const summary = project && estimate ? `<dl class="training-task-summary">
+    <div><dt>${uiText("training.fee_label")}</dt><dd>${escapeHtml(trainingFeeLabel(estimate.feeMinor))}</dd></div>
+    <div><dt>${uiText("training.estimated_time")}</dt><dd>${project.sku === "habit_lab" ? uiText("training.game_days", {days:7}) : estimate.days > 0 ? uiText("training.game_days", {days:estimate.days}) : uiText("training.pending_read")}</dd></div>
+    <div><dt>${uiText("training.current_target_label")}</dt><dd>${project.sku === "habit_lab" ? escapeHtml(app.trainingOperation === "unlearn" ? uiText("training.unlearn") : uiText("training.learn")) : kind === "staff" ? escapeHtml(`${person.coaching_license ? coachingLicenceLabel(person.coaching_license.code, person.coaching_license.name) : uiText("training.licence_unread")} → ${coachingLicenceLabel(person.coaching_license?.next_code, person.coaching_license?.next_name)}`) : escapeHtml(`${Number(estimate.current || 0)} → ${Number(estimate.targetValue || 0)}`)}</dd></div>
+  </dl>` : "";
+  const activeBlock = activeFocus
+    ? `<section class="training-active-task"><header><strong>${uiText("training.active_task")}</strong><button type="button" class="danger" data-training-cancel-focus="${escapeHtml(activeFocus.id)}">${uiText("training.cancel_task")}</button></header><p>${escapeHtml(trainingFocusUsage(activeFocus))}</p></section>`
+    : "";
+  const projectField = applicable.length
+    ? `<label>${uiText("training.project_label")}<select id="training-inline-project">${applicable.map((row) => `<option value="${escapeHtml(row.sku)}" ${row.sku === project?.sku ? "selected" : ""}>${escapeHtml(trainingProjectOptionLabel(row))}</option>`).join("")}</select></label>`
+    : "";
+  const description = project ? `<small class="training-project-description">${escapeHtml(trainingProjectDescription(project))}</small>` : "";
+  const habitCurrent = project?.sku === "habit_lab" ? `<div class="training-current-moves">${uiText("training.current_habits")}：${escapeHtml((preferred?.moves || []).map((item) => localizedPreferredMove(item)).join(" · ") || uiText("training.none"))}</div>` : "";
+  const signature = JSON.stringify({
+    edition, module, kind, person:person.id, project:project?.sku, target, duration:app.trainingDurationMode,
+    operation:app.trainingOperation, direction:app.trainingDirection, busy:app.trainingActionBusy,
+    cancel:app.trainingCancelFocusId, focus:trainingFocusKey(activeFocus),
+    preferred:preferred?.player_id, moves:(preferred?.moves || []).length, error:app.trainingRosterError,
+  });
+  if (content.dataset.signature === signature) return;
+  content.dataset.signature = signature;
+  content.innerHTML = `<section class="training-detail-panel">
+    <header class="training-detail-head"><div><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(trainingPersonRoleLabel(kind, person) || "")}</small></div>${kind === "player" ? `<span class="training-detail-ability">CA ${Number(person.ca || 0)}/${Number(person.pa || 0)}</span>` : ""}</header>
+    ${activeBlock}
+    <form id="training-inline-form" class="training-inline-form">
+      ${projectField}
+      ${description}
+      ${operationToggle}
+      ${targetField}
+      ${directionField}
+      ${durationField}
+      ${habitCurrent}
+      ${summary}
+      <p class="training-task-reason" ${reason ? "" : "hidden"}>${escapeHtml(reason)}</p>
+      <button class="primary-action" id="training-inline-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : uiText("training.arrange")}</button>
+    </form>
+  </section>`;
+}
+function teamTrainingRooms() {
+  const rooms = trainingData().team_rooms;
+  return Array.isArray(rooms) ? rooms : [];
+}
+function teamTrainingRoom() {
+  const rooms = teamTrainingRooms();
+  return rooms.find((room) => room.sku === app.teamTrainingRoomSku) || rooms[0] || null;
+}
+// room.active: list of sessions (sorted by settle_on); a single legacy object counts as one session.
+function teamTrainingSessions(room) {
+  const active = room?.active;
+  const list = Array.isArray(active) ? active : active ? [active] : [];
+  return [...list].sort((a, b) => String(a.settle_on || "").localeCompare(String(b.settle_on || "")));
+}
+function teamTrainingSelectedSession(room) {
+  const sessions = teamTrainingSessions(room);
+  return sessions.find((row) => String(row.room_id) === String(app.teamTrainingSessionId)) || sessions[0] || null;
+}
+function teamTrainingRoomName(room) {
+  return uiText(`training.archive.facility.${room.sku}`);
+}
+function teamTrainingRoleLabel(role) {
+  const own = {player_a:"training.team.role.player_a", player_b:"training.team.role.player_b"}[role?.key];
+  return own ? uiText(own) : relationshipTrainingRoleLabel(role);
+}
+function teamTrainingAttrLabel(attr) {
+  if (attr.key === "physical:height") return uiText("relationship.person.height");
+  return localizedTrainingAttribute(attr.key === "hidden:争论" ? "争议性" : attr.key);
+}
+function teamShortDate(date) {
+  const match = String(date || "").match(/^\d{4}-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}` : String(date || "");
+}
+function teamTrainingMentorQualified(player) {
+  const leadership = Number(player?.attributes?.["精神"]?.["领导力"] || 0);
+  const reputation = Math.max(Number(player?.home_reputation || 0), Number(player?.current_reputation || 0), Number(player?.world_reputation || 0));
+  return Number(player?.ca || 0) >= 140 || Number(player?.age || 0) >= 28 || leadership >= 15 || reputation >= 5000;
+}
+function teamTrainingCandidates(room, role) {
+  if (role.kind === "staff") {
+    const listed = room.eligible_staff_ids?.[role.key] ?? trainingData().eligible_staff_ids?.[role.key];
+    const allowed = new Set((Array.isArray(listed) ? listed : []).map(Number));
+    return trainingCurrentStaff().filter((staff) => staff.training_subject_type !== "player_manager" && allowed.has(Number(staff.id)));
+  }
+  const players = trainingFirstTeamPlayers();
+  return role.key === "mentor" ? players.filter(teamTrainingMentorQualified) : players;
+}
+function teamTrainingSelection(room) {
+  const scope = trainingScopeKey();
+  if (app.teamTrainingSelectionRoom !== room.sku || app.teamTrainingSelectionScope !== scope) {
+    app.teamTrainingSelectionRoom = room.sku;
+    app.teamTrainingSelectionScope = scope;
+    app.teamTrainingSubmission = null;
+    app.teamTrainingSelections = Object.fromEntries((room.roles || []).map((role) => [role.key, []]));
+    app.teamTrainingAttributes = new Set((room.scope_attributes || []).map((attr) => attr.key));
+    app.teamTrainingTarget = "until_increase";
+    app.teamTrainingEstimates = null;
+    app.teamTrainingPreview = null;
+    app.teamTrainingPreviewSeq = Number(app.teamTrainingPreviewSeq || 0) + 1;
+  }
+  return app.teamTrainingSelections;
+}
+function teamTrainingParticipants(room, selection) {
+  const teamId = trainingCurrentTeamId();
+  return (room.roles || []).flatMap((role) => (selection[role.key] || []).map((id) => {
+    const person = teamTrainingCandidates(room, role).find((row) => Number(row.id) === Number(id));
+    return person ? {role:role.key, kind:role.kind, id:Number(person.id), team_id:Number(person.training_team_id || teamId)} : null;
+  }).filter(Boolean));
+}
+function teamTrainingReason(room, selection) {
+  for (const role of room.roles || []) {
+    // Only people on the current roster count; a stale ID from another save must not satisfy the minimum.
+    const candidates = new Set(teamTrainingCandidates(room, role).map((person) => Number(person.id)));
+    const count = (selection[role.key] || []).filter((id) => candidates.has(Number(id))).length;
+    if (count < Number(role.min || 0)) {
+      const label = teamTrainingRoleLabel(role);
+      return Number(role.max) === 1 ? uiText("relationship.room.select_role", {role:label}) : uiText("training.team.reason_min", {role:label, min:Number(role.min)});
+    }
+  }
+  if (!app.teamTrainingAttributes.size) return uiText("training.team.reason_no_effect");
+  return "";
+}
+function teamTrainingPreviewPayload(room, selection) {
+  return {
+    room_sku:room.sku,
+    participants:teamTrainingParticipants(room, selection),
+    attributes:[...app.teamTrainingAttributes].sort(),
+  };
+}
+function teamTrainingPickTarget() {
+  const estimates = app.teamTrainingEstimates || {};
+  const blocked = (mode) => Object.prototype.hasOwnProperty.call(estimates, mode) && estimates[mode] === null;
+  if (!TEAM_TRAINING_TARGETS.includes(app.teamTrainingTarget) || blocked(app.teamTrainingTarget)) {
+    app.teamTrainingTarget = TEAM_TRAINING_TARGETS.find((mode) => !blocked(mode)) || "until_increase";
+  }
+}
+function teamTrainingGameDate() {
+  return String(app.gameClock?.date || app.state?.game_clock?.date || output().game_date || "");
+}
+function teamTrainingPreviewKey(room, selection, payload) {
+  // Previews depend on the game day (settle_on), the account/save and each participant's current state.
+  const people = (room.roles || []).flatMap((role) => (selection[role.key] || []).map((id) =>
+    teamTrainingCandidates(room, role).find((row) => Number(row.id) === Number(id)) || null).filter(Boolean));
+  return JSON.stringify([trainingScopeKey(), teamTrainingGameDate(), payload, people]);
+}
+function maybeLoadTeamTrainingPreview(room, selection) {
+  const payload = teamTrainingPreviewPayload(room, selection);
+  const key = teamTrainingPreviewKey(room, selection, payload);
+  if (app.teamTrainingPreview?.key === key) return;
+  const token = Number(app.teamTrainingPreviewSeq || 0) + 1;
+  app.teamTrainingPreviewSeq = token;
+  app.teamTrainingPreview = {key, loading:true};
+  app.teamTrainingEstimates = null;
+  request("/api/training/relationship-rooms/preview", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({...payload, target:app.teamTrainingTarget}), __backgroundRead:true,
+  }).then((response) => {
+    if (token !== app.teamTrainingPreviewSeq) return;
+    app.teamTrainingPreview = {key, loading:false, negative:Boolean(response?.negative)};
+    app.teamTrainingEstimates = response?.target_options && typeof response.target_options === "object" ? response.target_options : {};
+    teamTrainingPickTarget();
+  }).catch((error) => {
+    if (token !== app.teamTrainingPreviewSeq) return;
+    app.teamTrainingPreview = {key, loading:false, error:String(error?.message || uiText("relationship.room.preview_failed"))};
+    app.teamTrainingEstimates = null;
+  }).finally(() => {
+    if (token === app.teamTrainingPreviewSeq && app.page === "training" && app.trainingModule === "team_training") renderTraining();
+  });
+}
+
+function renderTeamTrainingRoster() {
+  const roster = $("#training-roster");
+  if (!roster) return;
+  const rooms = teamTrainingRooms();
+  const current = teamTrainingRoom();
+  const signature = `team:${JSON.stringify([activeUiLocale(), current?.sku, rooms.map((room) => [room.sku, room.session_fee_minor, teamTrainingSessions(room).map((row) => row.settle_on)])])}`;
+  if (roster.dataset.signature === signature) return;
+  roster.dataset.signature = signature;
+  const head = `<div class="training-roster-head"><strong>${uiText("training.team.rooms_title")}</strong><span>${uiPlural("training.team.rooms_count", rooms.length)}</span></div>`;
+  const rows = rooms.map((room) => {
+    const selected = room.sku === current?.sku;
+    const sessions = teamTrainingSessions(room);
+    const next = teamShortDate(sessions[0]?.settle_on) || "—";
+    const badge = sessions.length > 1
+      ? `<span class="training-person-badge team-room-active">${escapeHtml(uiText("training.team.row_active_many", {count:sessions.length, date:next}))}</span>`
+      : sessions.length
+      ? `<span class="training-person-badge team-room-active">${escapeHtml(uiText("training.team.row_active", {date:next}))}</span>`
+      : `<span class="training-person-badge team-room-price">${escapeHtml(uiText("training.team.per_session", {amount:trainingFeeLabel(room.session_fee_minor)}))}</span>`;
+    return `<article class="training-person-row team-room-row ${selected ? "selected" : ""}">
+      <button type="button" class="training-person-open" data-team-room="${escapeHtml(room.sku)}" aria-pressed="${selected}">
+        <span class="training-person-shirt"><i data-lucide="${escapeHtml(room.icon || "users-round")}"></i></span>
+        <span class="training-person-copy"><strong>${escapeHtml(teamTrainingRoomName(room))}</strong><small>${escapeHtml(uiText(`training.team.need.${room.sku}`))}</small></span>
+        ${badge}
+      </button>
+    </article>`;
+  }).join("");
+  roster.innerHTML = head + (rows || `<div class="training-roster-state"><strong>${uiText("training.roster_empty")}</strong></div>`);
+}
+
+function teamTrainingPersonLine(kind, person) {
+  return kind === "staff"
+    ? trainingPersonRoleLabel("staff", person)
+    : uiText("training.team.age_ca", {position:trainingPersonRoleLabel("player", person), age:Number(person.age || 0), ca:Number(person.ca || 0)});
+}
+function teamTrainingRoleField(room, role, selection) {
+  const picked = (selection[role.key] || []).map(Number);
+  const takenElsewhere = new Set(Object.entries(selection).filter(([key]) => key !== role.key).flatMap(([, ids]) => ids.map(Number)));
+  const candidates = teamTrainingCandidates(room, role).filter((person) => !(role.kind === "player" && takenElsewhere.has(Number(person.id))));
+  const label = teamTrainingRoleLabel(role);
+  const rule = role.key === "mentor" ? uiText("training.team.mentor_rule")
+    : role.kind === "staff" ? uiText(`training.team.staff_rule.${role.key}`) : "";
+  const ruleLine = rule ? `<small class="team-role-rule">${escapeHtml(rule)}</small>` : "";
+  if (Number(role.max) === 1) {
+    return `<label>${escapeHtml(label)}<select data-team-role="${escapeHtml(role.key)}">
+      <option value="">${escapeHtml(Number(role.min) ? uiText("relationship.room.select_role", {role:label}) : uiText("training.team.choose_none"))}</option>
+      ${candidates.map((person) => `<option value="${Number(person.id)}" ${picked.includes(Number(person.id)) ? "selected" : ""}>${escapeHtml(`${person.name} · ${teamTrainingPersonLine(role.kind, person)}`)}</option>`).join("")}
+    </select>${ruleLine}</label>`;
+  }
+  const full = picked.length >= Number(role.max);
+  const isPicked = (person) => picked.includes(Number(person.id));
+  const ordered = [...candidates.filter(isPicked), ...candidates.filter((person) => !isPicked(person))];
+  const items = ordered.map((person) => {
+    const checked = isPicked(person);
+    const disabled = !checked && full;
+    return `<label class="training-room-candidate ${disabled ? "disabled" : ""}"><input type="checkbox" data-team-role="${escapeHtml(role.key)}" value="${Number(person.id)}" ${checked ? "checked" : ""} ${disabled ? "disabled" : ""}><span><strong>${escapeHtml(person.name)}</strong><small>${escapeHtml(teamTrainingPersonLine(role.kind, person))}</small></span></label>`;
+  }).join("");
+  return `<section class="training-room-role-field team-role-field"><header><strong>${escapeHtml(label)}</strong><span>${uiText("relationship.room.selection_count", {selected:picked.length, max:Number(role.max)})}</span></header>
+    <div class="training-room-candidates">${items || `<div class="training-room-role-empty">${uiText("relationship.room.no_candidates")}</div>`}</div></section>`;
+}
+function teamTargetLabel(mode) {
+  return mode === "until_increase" ? uiText("training.until_next") : uiText("training.until_value", {target:mode});
+}
+function teamTrainingTargetField() {
+  const estimates = app.teamTrainingEstimates || {};
+  teamTrainingPickTarget();
+  const options = TEAM_TRAINING_TARGETS.map((mode) => {
+    const row = estimates[mode];
+    const blocked = Object.prototype.hasOwnProperty.call(estimates, mode) && row === null;
+    const text = row ? uiText("training.team.target_value", {label:teamTargetLabel(mode), days:Number(row.days || 0), date:teamShortDate(row.settle_on)}) : teamTargetLabel(mode);
+    return `<option value="${mode}" ${mode === app.teamTrainingTarget ? "selected" : ""} ${blocked ? "disabled" : ""}>${escapeHtml(text)}</option>`;
+  }).join("");
+  return `<label>${uiText("training.team.target")}<select id="team-training-target">${options}</select><small class="team-role-rule">${uiText("training.team.target_hint")}</small></label>`;
+}
+function teamSettleCell(estimate) {
+  const value = estimate?.settle_on ? uiText("training.team.settle_value", {date:estimate.settle_on, days:Number(estimate.days || 0)}) : uiText("training.team.settle_pending");
+  return `<div class="team-settle-cell"><dt>${uiText("training.team.settle_on")}</dt><dd>${escapeHtml(value)}</dd></div>`;
+}
+function renderTeamTrainingActive(room, content) {
+  const sessions = teamTrainingSessions(room);
+  const active = teamTrainingSelectedSession(room);
+  const participants = Array.isArray(active.participants) ? active.participants : [];
+  const latest = Math.max(0, ...participants.map((person) => Number(person.estimated_days || 0)));
+  const members = participants.map((person) => {
+    const role = teamTrainingRoleLabel((room.roles || []).find((row) => row.key === person.role) || {key:person.role});
+    const days = person.estimated_days == null ? null : Number(person.estimated_days);
+    const isLatest = days !== null && days === latest && latest > 0;
+    const remaining = person.remaining_days == null ? null : Math.max(0, Number(person.remaining_days));
+    const left = remaining === null ? "—" : uiText("training.team.person_days", {days:remaining, date:teamShortDate(person.settle_on || active.settle_on)});
+    return `<div class="team-active-member ${isLatest ? "latest" : ""}"><span><strong>${escapeHtml(person.name || person.id)}</strong><small>${escapeHtml(role)}</small></span><em>${escapeHtml(left)}${isLatest ? `<b>${uiText("training.team.latest_mark")}</b>` : ""}</em></div>`;
+  }).join("");
+  const chips = (active.attributes || []).map((key) => {
+    const attr = (room.scope_attributes || []).find((row) => row.key === key) || {key};
+    return `<span class="room-attr-chip ${attr.direction === "dec" ? "dec" : "inc"}">${attr.direction === "dec" ? "↓" : "↑"} ${escapeHtml(teamTrainingAttrLabel(attr))}</span>`;
+  }).join("");
+  // Several sessions of the same room type: list them on top; clicking one shows its details.
+  const sessionList = sessions.length > 1 ? `<section class="team-effects team-sessions"><header><strong>${uiText("training.team.sessions_title")}</strong><span>${escapeHtml(uiText("training.team.sessions_count", {count:sessions.length}))}</span></header>
+    <div class="team-active-members">${sessions.map((row) => {
+      const on = row === active;
+      const people = Array.isArray(row.participants) ? row.participants.length : 0;
+      return `<button type="button" class="team-active-member team-session-row ${on ? "selected" : ""}" data-team-session="${escapeHtml(row.room_id)}" aria-pressed="${on}"><span><strong>${escapeHtml(uiText("training.team.row_active", {date:teamShortDate(row.settle_on) || "—"}))}</strong><small>${escapeHtml(uiText("training.team.session_meta", {start:teamShortDate(row.started_on) || "—", people, target:teamTargetLabel(String(row.target || "until_increase"))}))}</small></span></button>`;
+    }).join("")}</div></section>` : "";
+  // Rooms entered before the fee upgrade have no fee_minor: say so instead of guessing today's price.
+  const paid = active.fee_minor == null
+    ? `<dd class="team-paid-legacy">${uiText("training.team.paid_legacy")}</dd>`
+    : `<dd>${escapeHtml(trainingFeeLabel(active.fee_minor))}</dd>`;
+  const endEarly = `<section class="training-active-task team-end-early"><header><strong>${uiText("training.team.end_early_head")}</strong><button type="button" class="danger" data-team-end-early="${escapeHtml(active.room_id)}" ${app.trainingActionBusy ? "disabled" : ""}>${uiText("training.team.end_early")}</button></header><p>${uiText("training.team.end_early_note")}</p></section>`;
+  content.innerHTML = `<section class="training-detail-panel">
+    <header class="training-detail-head"><div><strong>${escapeHtml(teamTrainingRoomName(room))}</strong><small>${escapeHtml(uiText("training.team.started_on", {date:active.started_on || "—"}))}</small></div><span class="training-detail-ability team-active-tag">${uiText("training.team.in_progress")}</span></header>
+    <div class="training-inline-form">
+      ${sessionList}
+      <section class="team-settle-card"><small>${uiText("training.team.settle_on")}</small><strong>${escapeHtml(active.settle_on || "—")}</strong><p>${uiText("training.team.settle_rule")}</p></section>
+      <section class="team-effects"><header><strong>${uiText("training.team.effects")}</strong><span>${uiText("training.team.effects_count", {selected:(active.attributes || []).length, total:(room.scope_attributes || []).length})}</span></header><div class="room-attr-chips">${chips}</div></section>
+      <section class="team-active-members">${members}</section>
+      <dl class="training-task-summary team-summary">
+        <div><dt>${uiText("training.team.active_target")}</dt><dd>${escapeHtml(teamTargetLabel(String(active.target || "until_increase")))}</dd></div>
+        <div><dt>${uiText("training.team.paid")}</dt>${paid}</div>
+        <div><dt>${uiText("training.team.participants")}</dt><dd>${uiText("training.team.people", {count:participants.length})}</dd></div>
+      </dl>
+      ${endEarly}
+    </div>
+  </section>`;
+}
+function renderTeamTrainingDetail() {
+  const content = $("#training-dock-content");
+  if (!content) return;
+  const room = teamTrainingRoom();
+  if (!room) {
+    content.dataset.signature = "team:empty";
+    content.innerHTML = `<div class="training-detail-empty"><i data-lucide="users-round"></i><strong>${uiText("training.roster_empty")}</strong></div>`;
+    return;
+  }
+  if (teamTrainingSessions(room).length) {
+    const signature = `team:${JSON.stringify([activeUiLocale(), room.sku, room.active, room.session_fee_minor, teamTrainingSelectedSession(room)?.room_id, app.trainingActionBusy])}`;
+    if (content.dataset.signature === signature) return;
+    content.dataset.signature = signature;
+    renderTeamTrainingActive(room, content);
+    return;
+  }
+  const selection = teamTrainingSelection(room);
+  const reason = teamTrainingReason(room, selection);
+  if (!reason) maybeLoadTeamTrainingPreview(room, selection);
+  const preview = reason ? null : app.teamTrainingPreview;
+  const previewReason = preview?.error ? preview.error : preview?.negative ? uiText("training.team.reason_negative") : "";
+  const estimate = reason || !preview || preview.loading ? null : (app.teamTrainingEstimates || {})[app.teamTrainingTarget] || null;
+  const message = reason || previewReason;
+  const disabled = Boolean(app.trainingActionBusy || message || !estimate);
+  const signature = `team:${JSON.stringify([
+    activeUiLocale(), room.sku, room.session_fee_minor, room.eligible_staff_ids, selection, [...app.teamTrainingAttributes],
+    app.teamTrainingTarget, app.teamTrainingEstimates, preview, app.trainingActionBusy,
+    trainingFirstTeamPlayers().map((row) => row.id), trainingCurrentStaff().map((row) => row.id),
+  ])}`;
+  if (content.dataset.signature === signature) return;
+  content.dataset.signature = signature;
+  const chip = (attr) => {
+    const on = app.teamTrainingAttributes.has(attr.key);
+    return `<button type="button" class="room-attr-chip ${attr.direction === "dec" ? "dec" : "inc"} ${on ? "on" : "off"}" data-team-attr="${escapeHtml(attr.key)}" aria-pressed="${on}">${attr.direction === "dec" ? "↓" : "↑"} ${escapeHtml(teamTrainingAttrLabel(attr))}</button>`;
+  };
+  const scope = room.scope_attributes || [];
+  const inc = scope.filter((attr) => attr.direction !== "dec");
+  const dec = scope.filter((attr) => attr.direction === "dec");
+  const effects = `<section class="team-effects"><header><strong>${uiText("training.team.effects")}</strong><span>${uiText("training.team.effects_count", {selected:app.teamTrainingAttributes.size, total:scope.length})}</span></header>
+    <div class="team-effect-line"><em>${uiText("training.team.raise")}</em><div class="room-attr-chips">${inc.map(chip).join("")}</div></div>
+    ${dec.length ? `<div class="team-effect-line"><em>${uiText("training.team.lower")}</em><div class="room-attr-chips">${dec.map(chip).join("")}</div></div>` : ""}
+    <small class="training-project-description">${uiText("relationship.room.focus_hint")}</small></section>`;
+  const people = teamTrainingParticipants(room, selection).length;
+  content.innerHTML = `<section class="training-detail-panel">
+    <header class="training-detail-head"><div><strong>${escapeHtml(teamTrainingRoomName(room))}</strong><small>${escapeHtml(uiText(`training.team.need.${room.sku}`))}</small></div><span class="training-detail-ability">${escapeHtml(uiText("training.team.per_session", {amount:trainingFeeLabel(room.session_fee_minor)}))}</span></header>
+    <form id="team-training-form" class="training-inline-form">
+      ${effects}
+      ${teamTrainingTargetField()}
+      ${(room.roles || []).map((role) => teamTrainingRoleField(room, role, selection)).join("")}
+      <dl class="training-task-summary team-summary">
+        <div><dt>${uiText("training.fee_label")}</dt><dd>${escapeHtml(trainingFeeLabel(room.session_fee_minor))}</dd></div>
+        <div><dt>${uiText("training.team.participants")}</dt><dd>${uiText("training.team.people", {count:people})}</dd></div>
+        ${teamSettleCell(estimate)}
+      </dl>
+      <p class="training-task-reason" ${message ? "" : "hidden"}>${escapeHtml(message)}</p>
+      <button class="primary-action" id="team-training-submit" type="submit" ${disabled ? "disabled" : ""}>${app.trainingActionBusy ? uiText("training.arranging") : uiText("training.arrange")}</button>
+    </form>
+  </section>`;
+}
+function rerenderTeamTraining() {
+  renderTeamTrainingRoster();
+  renderTeamTrainingDetail();
+  renderIcons();
+}
+function applyTeamTrainingRooms(teamRooms) {
+  if (!Array.isArray(teamRooms) || !app.state?.training_ground) return;
+  // Same guard as other training writes: an /api/state poll started earlier must not overwrite this.
+  app.trainingMutationRevision = Number(app.trainingMutationRevision || 0) + 1;
+  app.state.training_ground = {...app.state.training_ground, team_rooms:teamRooms};
+}
+async function submitTeamTraining() {
+  if (app.trainingActionBusy) return;
+  const room = teamTrainingRoom();
+  if (!room || teamTrainingSessions(room).length) return;
+  const selection = teamTrainingSelection(room);
+  const reason = teamTrainingReason(room, selection);
+  if (reason) { toast(reason); return; }
+  const semantic = {...teamTrainingPreviewPayload(room, selection), target:app.teamTrainingTarget};
+  const fingerprint = JSON.stringify(semantic);
+  if (app.teamTrainingSubmission?.fingerprint !== fingerprint) app.teamTrainingSubmission = {fingerprint, id:clientSubmissionId()};
+  const payload = {...semantic, client_submission_id:app.teamTrainingSubmission.id};
+  const scopeAtStart = trainingScopeKey();
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
+  const requestStillCurrent = () => scopeAtStart === trainingScopeKey()
+    && app.trainingActionRequest === actionRequest;
   app.trainingActionBusy = true;
-  form.querySelectorAll("button,select").forEach((control) => { control.disabled = true; });
-  const submitButton = form.querySelector("#training-inline-submit");
-   if (submitButton) submitButton.textContent = uiText("training.arranging");
+  renderTraining();
+  try {
+    const response = await request("/api/training/relationship-rooms/enter", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload),
+    });
+    if (!requestStillCurrent()) return;
+    app.teamTrainingSubmission = null;
+    applyTeamTrainingRooms(response.team_rooms);
+    applyEconomySnapshot(response.economy);
+    app.teamTrainingSelectionRoom = null;
+    const paid = Number(response.payment?.total || 0);
+    toast(response.replayed
+      ? uiText("training.duplicate_confirmed")
+      : uiText("training.arranged", {
+          name:teamTrainingRoomName(room),
+          project:uiText("training.module.team_training"),
+          amount:paid > 0 ? formatPounds(paid) : trainingFeeLabel(response.session_fee_minor ?? room.session_fee_minor),
+        }));
+  } catch (error) {
+    if (!requestStillCurrent()) return;
+    if (error.code !== "REQUEST_TIMEOUT") app.teamTrainingSubmission = null;
+    toast(error.message || uiText("training.arrange_failed"));
+  } finally {
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
+  }
+}
+async function endTeamTrainingEarly(room, roomId) {
+  roomId = String(roomId || "");
+  if (!teamTrainingSessions(room).some((row) => String(row.room_id) === roomId)) return;
+  if (app.trainingActionBusy || !roomId) return;
+  const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
+  const confirmed = await fmoddConfirm(
+    uiText("training.team.end_early_confirm", {room:teamTrainingRoomName(room)}),
+    uiText("training.team.end_early_action"), uiText("training.team.end_early_title"),
+  );
+  if (
+    !confirmed || app.trainingActionBusy
+    || scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq
+  ) return;
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
+  const requestStillCurrent = () => scopeAtStart === trainingScopeKey()
+    && app.trainingActionRequest === actionRequest;
+  app.trainingActionBusy = true;
+  renderTraining();
+  try {
+    if (!requestStillCurrent()) return;
+    const response = await request("/api/training/relationship-rooms/settle", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({room_id:roomId}),
+    });
+    if (!requestStillCurrent()) return;
+    applyTeamTrainingRooms(response.team_rooms);
+    const attributes = response.settlement?.attribute_changes?.length || 0;
+    const relationships = response.settlement?.relationship_changes?.length || 0;
+    toast(uiText("relationship.room.settle_done", {attributes, relationships}));
+  } catch (error) { if (requestStillCurrent()) toast(error.message); }
+  finally {
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
+  }
+}
+function bindTeamTrainingEvents() {
+  $("#training-roster").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-team-room]");
+    if (!button || app.trainingModule !== "team_training") return;
+    app.teamTrainingRoomSku = button.dataset.teamRoom;
+    app.teamTrainingSessionId = null;
+    rerenderTeamTraining();
+  });
+  $("#training-dock-content").addEventListener("click", (event) => {
+    if (app.trainingModule !== "team_training") return;
+    const session = event.target.closest("[data-team-session]");
+    if (session) {
+      app.teamTrainingSessionId = session.dataset.teamSession;
+      rerenderTeamTraining();
+      return;
+    }
+    const endEarly = event.target.closest("[data-team-end-early]");
+    if (endEarly) {
+      endTeamTrainingEarly(teamTrainingRoom(), endEarly.dataset.teamEndEarly);
+      return;
+    }
+    const chip = event.target.closest("[data-team-attr]");
+    if (!chip || app.trainingModule !== "team_training" || app.trainingActionBusy) return;
+    const key = chip.dataset.teamAttr;
+    if (app.teamTrainingAttributes.has(key)) app.teamTrainingAttributes.delete(key);
+    else app.teamTrainingAttributes.add(key);
+    rerenderTeamTraining();
+  });
+  $("#training-dock-content").addEventListener("change", (event) => {
+    if (app.trainingModule !== "team_training") return;
+    if (event.target?.id === "team-training-target") {
+      app.teamTrainingTarget = event.target.value;
+      event.target.blur();
+      rerenderTeamTraining();
+      return;
+    }
+    const input = event.target.closest("[data-team-role]");
+    if (!input) return;
+    const role = input.dataset.teamRole;
+    const ids = app.teamTrainingSelections[role] || [];
+    if (input.type === "checkbox") {
+      app.teamTrainingSelections[role] = input.checked ? [...ids, Number(input.value)] : ids.filter((id) => Number(id) !== Number(input.value));
+    } else {
+      app.teamTrainingSelections[role] = input.value ? [Number(input.value)] : [];
+      input.blur();
+    }
+    rerenderTeamTraining();
+  });
+  $("#training-dock-content").addEventListener("submit", async (event) => {
+    if (event.target?.id !== "team-training-form") return;
+    event.preventDefault();
+    await submitTeamTraining();
+  });
+}
+async function loadTrainingPreferredMoves(playerId) {
+  const seq = app.trainingRequestSeq;
+  app.trainingPreferredMoves = null;
+  renderTrainingPersonDetail();
+  try {
+    const current = await request("/api/training/preferred-moves", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({player_id:Number(playerId), team_id:trainingCurrentTeamId()}),
+    });
+    if (seq !== app.trainingRequestSeq || app.trainingPersonKind !== "player" || Number(app.trainingPersonId) !== Number(playerId)) return;
+    app.trainingPreferredMoves = {...current, player_id:Number(playerId)};
+    renderTrainingPersonDetail();
+  } catch (error) {
+    if (seq === app.trainingRequestSeq && Number(app.trainingPersonId) === Number(playerId)) toast(error.message);
+  }
+}
+async function submitTrainingPerson() {
+  if (app.trainingActionBusy) return;
+  const kind = app.trainingPersonKind;
+  const person = (kind === "staff" ? trainingCurrentStaff() : trainingFirstTeamPlayers())
+    .find((row) => Number(row.id) === Number(app.trainingPersonId));
+  const project = trainingProduct(app.trainingProjectSku);
+  if (!person || !project) return;
+  if (trainingPersonFocus(kind, person.id)) { toast(uiText("training.reason_active")); return; }
+  if (kind === "staff" && !trainingStaffEligible(person)) { toast(uiText("training.staff_ineligible")); return; }
+  const target = app.trainingTargetKey;
+  if (!target) { toast(uiText("training.no_available_attribute")); return; }
+  const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
+  let caConfirmed = false;
+  if (kind === "player" && project.sku !== "habit_lab") {
+    const estimate = trainingTaskEstimate(project, kind, person, target, app.trainingDurationMode, app.trainingDirection);
+    const caCosts = person?.training_ca?.costs?.[target] || {};
+    const caAffected = trainingAttributeAffectsCa(target, project, caCosts);
+    const caSpace = Math.max(0, Number(person.pa || 0) - Number(person.ca || 0));
+    if (caAffected && caSpace < estimate.requiredCa) {
+      const confirmed = await fmoddConfirm(
+        uiText("training.confirm_continue_ca", {
+          required:estimate.requiredCa, current:Number(person.ca || 0),
+          after:Number(person.ca || 0) + estimate.requiredCa, pa:Number(person.pa || 0),
+        }),
+        uiText("training.continue"),
+      );
+      if (!confirmed) return;
+      caConfirmed = true;
+    }
+  }
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+  const semantic = trainingRunPayload(
+    kind, person, project, target, app.trainingDurationMode, app.trainingDirection, "",
+  );
+  if (!semantic) return;
+  if (caConfirmed) semantic.confirm_ca_over_pa = true;
+  const payload = {
+    ...semantic,
+    client_submission_id:trainingSubmissionFor(semantic),
+  };
+  const actionRequest = {};
+  app.trainingActionRequest = actionRequest;
+  app.trainingActionBusy = true;
+  app._lastDetailSignature = null;
+  renderTraining();
   try {
     const response = await runItemOperation(
-       "development", uiText("training.using_equipment", {name:trainingProduct(facility.sku)?.name || uiText("training.other_equipment")}),
+      "development", uiText("training.arranging"),
       () => request("/api/training/run", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify(payload), timeoutMs:60000,
-         timeoutMessage:uiText("training.arrangement_timeout"),
+        timeoutMessage:uiText("training.arrangement_timeout"),
       }),
-       habit ? uiText("training.habit_started") : uiText("training.attribute_started"),
+      uiText("training.arranged"),
     );
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
     app.trainingSubmissionRetry = null;
-    app.trainingPreferredMoves = null;
     updateTrainingResponse(response);
-     toast(response.duplicate
-       ? uiText("training.duplicate_confirmed")
-       : habit ? uiText("training.habit_started") : uiText("training.attribute_started"));
+    const paid = Number(response.payment?.total || 0);
+    toast(response.duplicate
+      ? uiText("training.duplicate_confirmed")
+      : uiText("training.arranged", {
+          name:String(person.name || ""),
+          project:trainingProjectName(project),
+          amount:paid > 0 ? formatPounds(paid) : uiText("training.free"),
+        }));
   } catch (error) {
-    if (error.code === "REQUEST_TIMEOUT") {
-      if (!habit) app.trainingRepeatTarget = target;
-      app.trainingDurationMode = payload.duration_mode;
-    } else app.trainingSubmissionRetry = null;
-    throw error;
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+    if (error.code !== "REQUEST_TIMEOUT") app.trainingSubmissionRetry = null;
+    toast(error.message || uiText("training.arrange_failed"));
   } finally {
-    app.trainingActionBusy = false;
-    renderTraining();
+    if (app.trainingActionRequest === actionRequest) {
+      app.trainingActionRequest = null;
+      app.trainingActionBusy = false;
+      app._lastDetailSignature = null;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
   }
+}
+async function cancelTrainingTask(focus) {
+  if (!focus?.id || app.trainingCancelFocusId) return;
+  const scopeAtStart = trainingScopeKey();
+  const seqAtStart = app.trainingRequestSeq;
+  const confirmed = await fmoddConfirm(
+    uiText("training.cancel_message"),
+    uiText("training.cancel_confirm"),
+    uiText("training.cancel_title"),
+    uiText("training.cancel_keep"),
+  );
+  if (!confirmed) return;
+  if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+  if (app.trainingCancelFocusId) return;
+  app.trainingCancelFocusId = String(focus.id);
+  app._lastRosterSignature = null;
+  app._lastDetailSignature = null;
+  renderTraining();
+  try {
+    const response = await request("/api/training/cancel", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({focus_id:String(focus.id)}),
+    });
+    if (scopeAtStart !== trainingScopeKey() || seqAtStart !== app.trainingRequestSeq) return;
+    updateTrainingResponse(response);
+    toast(uiText("training.cancelled"));
+  } catch (error) {
+    if (scopeAtStart === trainingScopeKey() && seqAtStart === app.trainingRequestSeq) toast(error.message || uiText("training.cancel_failed"));
+  } finally {
+    if (seqAtStart === app.trainingRequestSeq) {
+      app.trainingCancelFocusId = null;
+      app._lastRosterSignature = null;
+      app._lastDetailSignature = null;
+      if (scopeAtStart === trainingScopeKey()) renderTraining();
+    }
+  }
+}
+function positionTrainingRows(state, playersById) {
+  return positionTrainingSlots(state).flatMap((slot) => {
+    const player = positionTrainingAssignedPlayer(slot.id, playersById);
+    if (!player || !positionTrainingSlotPlaced(slot,state) || !slot.position || activeTrainingFocus(player.id)) return [];
+    const current = positionTrainingPlayerRating(player,slot.position);
+    if (!positionTrainingTargetRating(current,state.durationMode)) return [];
+    return [{slot,player}];
+  });
 }
 
 function managedFixtures() {
@@ -13690,20 +13101,18 @@ function shopCartLines() {
 }
 
 function shopCartTotal() {
-  if (app.cheatMode && app.freeShop) return 0;
   return round(shopCartLines().reduce((total, item) => total + Number(item.price || 0) * item.quantity, 0));
 }
 
 function refreshShopQuantityControls() {
   const economy = app.state?.economy || {};
-  const freePurchase = app.cheatMode && app.freeShop;
   const total = shopCartTotal();
   document.querySelectorAll("[data-shop-quantity]").forEach((control) => {
     const sku = control.dataset.shopQuantity;
     const item = shopProduct(sku);
     const quantity = Number(app.shopCart.get(sku) || 0);
     const available = control.dataset.shopAvailable === "true";
-    const canAdd = available && quantity < 99 && (freePurchase || total + Number(item?.price || 0) <= Number(economy.total_balance || 0));
+    const canAdd = available && quantity < 99 && (total + Number(item?.price || 0) <= Number(economy.total_balance || 0));
     const input = control.querySelector("[data-quantity-input]");
     if (input) { input.value = String(quantity); input.disabled = !available; }
     control.querySelector('[data-quantity-delta="-1"]').disabled = quantity <= 0;
@@ -13743,7 +13152,7 @@ function setShopCartQuantity(sku, quantity, source = null) {
   if (!item) return;
   const previous = Number(app.shopCart.get(sku) || 0);
   let next = Math.max(0, Math.min(99, Math.floor(Number(quantity) || 0)));
-  if (next > previous && !(app.cheatMode && app.freeShop)) {
+  if (next > previous) {
     const price = Number(item.price || 0);
     const otherTotal = shopCartTotal() - price * previous;
     const affordable = price > 0 ? Math.max(0, Math.floor((Number(economy.total_balance || 0) - otherTotal) / price)) : 99;
@@ -13761,11 +13170,10 @@ function renderShopCart() {
   const quantity = lines.reduce((total, item) => total + item.quantity, 0);
   const total = shopCartTotal();
   const balance = Number(app.state?.economy?.total_balance || 0);
-  const freePurchase = app.cheatMode && app.freeShop;
   const panel = $("#shop-cart-panel");
   const signature = JSON.stringify([
     String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale,
-    app.shopCartDate, app.shopCartOpen, app.shopPurchaseBusy, freePurchase,
+    app.shopCartDate, app.shopCartOpen, app.shopPurchaseBusy,
     balance,
     lines.map((item) => [item.sku, item.name, item.price, item.quantity]),
   ]);
@@ -13780,37 +13188,36 @@ function renderShopCart() {
   $("#shop-cart-items").innerHTML = lines.length ? lines.map((item) => `
     <article class="shop-cart-item" data-cart-sku="${escapeHtml(item.sku)}">
       <div class="shop-cart-item-icon">${itemImage(item.sku)}</div>
-      <div class="shop-cart-item-copy"><strong>${escapeHtml(localizedItemName(item))}</strong><span>${freePurchase ? "£0" : formatPounds(item.price)} ${uiText("shop.per_item")}</span><div class="shop-cart-item-actions"><div class="shop-quantity"><button type="button" data-cart-delta="-1">−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.quantity}" data-cart-quantity aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}"><button type="button" data-cart-delta="1" ${item.quantity >= 99 || (!freePurchase && total + Number(item.price || 0) > balance) ? "disabled" : ""}>＋</button></div><button class="shop-cart-delete" type="button" data-cart-delete aria-label="${escapeHtml(uiText("shop.delete_label", {name:localizedItemName(item)}))}"><i data-lucide="trash-2"></i></button></div></div>
-      <strong class="shop-cart-line-total">${freePurchase ? "£0" : formatPounds(Number(item.price || 0) * item.quantity)}</strong>
+      <div class="shop-cart-item-copy"><strong>${escapeHtml(localizedItemName(item))}</strong><span>${formatPounds(item.price)} ${uiText("shop.per_item")}</span><div class="shop-cart-item-actions"><div class="shop-quantity"><button type="button" data-cart-delta="-1">−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${item.quantity}" data-cart-quantity aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}"><button type="button" data-cart-delta="1" ${item.quantity >= 99 || (total + Number(item.price || 0) > balance) ? "disabled" : ""}>＋</button></div><button class="shop-cart-delete" type="button" data-cart-delete aria-label="${escapeHtml(uiText("shop.delete_label", {name:localizedItemName(item)}))}"><i data-lucide="trash-2"></i></button></div></div>
+      <strong class="shop-cart-line-total">${formatPounds(Number(item.price || 0) * item.quantity)}</strong>
     </article>`).join("") : `<div class="shop-cart-empty"><i data-lucide="shopping-cart"></i><strong>${uiText("shop.empty")}</strong><span>${uiText("shop.empty_note")}</span></div>`;
   $("#shop-cart-quantity").textContent = uiText("shop.items", {count:quantity});
-  $("#shop-cart-total").textContent = freePurchase ? "£0" : formatPounds(total);
+  $("#shop-cart-total").textContent = formatPounds(total);
   const buyButton = $("#shop-cart-buy");
-  buyButton.disabled = !lines.length || app.shopPurchaseBusy || (!freePurchase && total > balance);
-  buyButton.textContent = app.shopPurchaseBusy ? uiText("shop.buying") : (!freePurchase && total > balance ? uiText("shop.insufficient") : uiText("shop.confirm_purchase"));
+  buyButton.disabled = !lines.length || app.shopPurchaseBusy || (total > balance);
+  buyButton.textContent = app.shopPurchaseBusy ? uiText("shop.buying") : (total > balance ? uiText("shop.insufficient") : uiText("shop.confirm_purchase"));
   renderIcons();
 }
 
 function renderShop() {
   syncShopCartDate();
   const economy = app.state?.economy || {};
-  const freePurchase = app.cheatMode && app.freeShop;
   const ready = new Set(["red_bull", "team_red_bull", "doping", "team_doping", "bribed_goalkeeper", "opponent_flu", LEAGUE_POINTS_SKU, ...PILL_SKUS, ...REPUTATION_SKUS, ...(app.state?.nuclear_effects?.supported || [])]);
   const catalog = economy.catalog || [];
   const cartTotal = shopCartTotal();
   const card = (item) => {
     const available = ready.has(item.sku);
-    const affordable = freePurchase || cartTotal + Number(item.price || 0) <= Number(economy.total_balance || 0);
+    const affordable = cartTotal + Number(item.price || 0) <= Number(economy.total_balance || 0);
     const tier = item.tier || DISPLAY_TIER_BY_SKU[item.sku] || "";
     const tierClass = TIER_CLASS[tier] || "";
     const badge = localizedItemTier(tier) || (item.category === "球员" ? uiText("shop.attribute_items") : ["声望", "积分"].includes(item.category) ? uiText("shop.reputation_items") : uiText("shop.match_items"));
     const quantity = Number(app.shopCart.get(item.sku) || 0);
     const note = matchItemNote(item);
-    return `<article class="feature-card ${tierClass ? `tier-card tier-${tierClass}` : ""}"><div class="item-hero"><div class="item-icon image-icon">${itemImage(item.sku)}</div><div><h3>${escapeHtml(localizedItemName(item))}</h3><span class="item-status ${available ? "" : "pending"}">${available ? escapeHtml(badge) : uiText("shop.unavailable")}</span></div></div><p>${escapeHtml(localizedItemDescription(item))}</p>${note}<footer class="shop-card-footer"><strong>${freePurchase ? "£0" : formatPounds(item.price)}</strong><div class="shop-quantity" data-shop-quantity="${escapeHtml(item.sku)}" data-shop-available="${available}"><button type="button" data-quantity-delta="-1" ${quantity > 0 ? "" : "disabled"}>−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${quantity}" data-quantity-input aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}" ${available ? "" : "disabled"}><button type="button" data-quantity-delta="1" ${available && affordable && quantity < 99 ? "" : "disabled"}>＋</button></div></footer></article>`;
+    return `<article class="feature-card ${tierClass ? `tier-card tier-${tierClass}` : ""}"><div class="item-hero"><div class="item-icon image-icon">${itemImage(item.sku)}</div><div><h3>${escapeHtml(localizedItemName(item))}</h3><span class="item-status ${available ? "" : "pending"}">${available ? escapeHtml(badge) : uiText("shop.unavailable")}</span></div></div><p>${escapeHtml(localizedItemDescription(item))}</p>${note}<footer class="shop-card-footer"><strong>${formatPounds(item.price)}</strong><div class="shop-quantity" data-shop-quantity="${escapeHtml(item.sku)}" data-shop-available="${available}"><button type="button" data-quantity-delta="-1" ${quantity > 0 ? "" : "disabled"}>−</button><input type="text" inputmode="numeric" pattern="[0-9]*" value="${quantity}" data-quantity-input aria-label="${escapeHtml(uiText("shop.quantity_label", {name:localizedItemName(item)}))}" ${available ? "" : "disabled"}><button type="button" data-quantity-delta="1" ${available && affordable && quantity < 99 ? "" : "disabled"}>＋</button></div></footer></article>`;
   };
   renderFundingSummary("#shop-balance");
   const contentSignature = JSON.stringify([
-    String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale, freePurchase,
+    String(app.state?.data_scope_id || ""), moneyRenderSignature(), window.FMODDI18n?.locale,
     [...ready].sort(),
     catalog.map((item) => [
       item.sku, item.name, item.description, item.price, item.category,
@@ -14306,37 +13713,6 @@ function renderCreditTerms() {
   $("#credit-terms-text").innerHTML = `<p>${uiText("credit.terms.theoretical_limit", {multiplier:Number(credit.theoretical_multiplier || 18), limit:formatFullMoney(credit.theoretical_limit)})}</p><p>${uiText("credit.terms.current_limit", {multiplier:Number(credit.credit_multiplier || 4), limit:formatFullMoney(credit.limit)})}</p><p>${uiText("credit.terms.interest")}</p><p>${uiText("credit.terms.repayment")}</p><p>${uiText("credit.terms.auto_debit")}<br>1. ${uiText("credit.terms.bank_account")}<br>2. ${uiText("credit.terms.casino_wallet")}</p><p>${uiText("credit.terms.default_penalty")}</p><p>${uiText("credit.terms.confirm")}</p><div class="credit-summary">${uiText("credit.terms.summary_amount", {amount:formatFullMoney(amount)})}\n${uiText("credit.terms.summary_due")}\n${uiText("credit.terms.summary_rate")}<span class="credit-borrower">${uiText("credit.terms.summary_borrower", {manager:escapeHtml(managerName)})}</span></div>`;
 }
 
-function playerFractionalIntimacy(playerId) {
-  const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
-  return Number(app.state?.welfare?.activity_progress?.[`${managerId}:${Number(playerId)}`] || 0);
-}
-
-async function settleRelationshipTrainingRoom(instanceId, button) {
-  if (app.trainingActionBusy || !app.developerMode) return;
-  const confirmed = await fmoddConfirm(
-    uiText("relationship.room.settle_confirm"),
-    uiText("relationship.room.settle_confirm_action"), uiText("relationship.room.settle_title"),
-  );
-  if (!confirmed) return;
-  app.trainingActionBusy = true;
-  button?.setAttribute("aria-busy","true");
-  try {
-    const response = await request("/api/training/relationship-rooms/settle",{
-      method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({room_id:instanceId}),
-    });
-    app.relationshipTrainingRooms = response.rooms;
-    const attributes = response.settlement?.attribute_changes?.length || 0;
-    const relationships = response.settlement?.relationship_changes?.length || 0;
-    toast(uiText("relationship.room.settle_done", {attributes, relationships}));
-  } catch (error) { toast(error.message); }
-  finally {
-    app.trainingActionBusy = false;
-    button?.removeAttribute("aria-busy");
-    renderTraining();
-  }
-}
-
 function intimacyRankingProjection(person) {
   const unsigned = Math.abs(Number(person.manager_intimacy || 0));
   const explicit = Number(person.manager_signed_intimacy);
@@ -14349,52 +13725,6 @@ function intimacyRankingProjection(person) {
   return {...person, signed_score:signed, permanent, tier};
 }
 
-async function loadIntimacyRankingPairs(kind) {
-  const profile = app.clubProfiles.find((row) => String(row.team?.team_type || "club") === "club") || {};
-  const teamId = Number(profile.team?.id || 0);
-  const sourceVersion = Number(app.state?.data_version || 0);
-  const cacheKey = `${kind}:${teamId}:${sourceVersion}`;
-  if (!teamId || app.intimacyRankingPairCache?.key === cacheKey || app.intimacyRankingPairLoading === cacheKey) return;
-  app.intimacyRankingPairLoading = cacheKey;
-  try {
-    const payload = {scope_kind:"managed",team_id:teamId,squad_team_id:0,person_kind:kind,page_size:60,search:"",data_version:sourceVersion};
-    const first = await request("/api/relations/network", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({...payload,page:1}),
-    });
-    const people = [...(first.people || [])];
-    for (let page = 2; page <= Number(first.pages || 1); page += 1) {
-      const response = await request("/api/relations/network", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...payload,page})});
-      people.push(...(response.people || []));
-    }
-    const personKeys = new Map(people.map((row) => [Number(row.id), String(row.person_key || "")]));
-    const managerCounts = new Map();
-    people.forEach((row) => Object.entries(row.person_relations_detail || {}).forEach(([key, detail]) => {
-      if (Number(detail.reason) === 6) managerCounts.set(key, (managerCounts.get(key) || 0) + 1);
-    }));
-    const managerKey = [...managerCounts].sort((left,right) => right[1] - left[1])[0]?.[0] || "";
-    app.intimacyRankingPairCache = {key:cacheKey, sourceVersion, managerKey, personKeys};
-  } catch (error) {
-    app.intimacyRankingPairCache = {key:cacheKey, sourceVersion, managerKey:"", personKeys:new Map(), error:error.message};
-  } finally {
-    app.intimacyRankingPairLoading = "";
-    renderIntimacyRanking();
-  }
-}
-
-async function openIntimacyRankingPair(personId, personName) {
-  const detail = $("#intimacy-ranking-pair");
-  const cache = app.intimacyRankingPairCache;
-  const personKey = cache?.personKeys?.get(Number(personId));
-  if (!detail || !cache?.managerKey || !personKey) { toast(uiText("relationship.ranking.pair_unresolved")); return; }
-  detail.hidden = false;
-  detail.innerHTML = `<span class="spinner"></span>${uiText("relationship.ranking.pair_loading")}`;
-  try {
-    const pair = await request("/api/relations/pair", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({person_a:cache.managerKey,person_b:personKey})});
-    const line = (label, value) => `<div><strong>${escapeHtml(label)}</strong><b class="${Number(value?.signed_score || 0) < 0 ? "negative" : ""}">${Number(value?.signed_score || 0) > 0 ? "+" : ""}${Number(value?.signed_score || 0)}</b><small>${escapeHtml(relationshipReasonLabel(value?.reason))}${Number(value?.permanence) === 79 ? ` · ${uiText("relations.permanent")} ${relationshipPermanentIcon(value?.signed_score,true)}` : ""}</small></div>`;
-    detail.innerHTML = `${line(uiText("relationship.ranking.manager_to_person", {person:personName}), pair.a_to_b)}${line(uiText("relationship.ranking.person_to_manager", {person:personName}), pair.b_to_a)}`;
-  } catch (error) { detail.innerHTML = `<div class="intimacy-ranking-empty">${escapeHtml(error.message || uiText("relations.error.pair"))}</div>`; }
-}
 
 function renderIntimacyRanking() {
   const root = $("#intimacy-ranking-list");
@@ -14578,14 +13908,17 @@ async function refreshMatchIntelligence() {
 }
 
 async function loadMatchIntelligence(force = false) {
-  if (app.matchIntelligenceLoading || (app.matchIntelligence && !force)) return;
+  if (app.matchIntelligenceLoading || app.activityActionBusy || (app.matchIntelligence && !force)) return;
+  const scope = String(app.state?.data_scope_id || "");
   app.matchIntelligenceLoading = true;
   app.matchIntelligenceError = "";
   try {
-    app.matchIntelligence = await request("/api/activity/intelligence");
+    const intelligence = await request("/api/activity/intelligence");
+    if (scope !== String(app.state?.data_scope_id || "")) return;
+    app.matchIntelligence = intelligence;
   } catch (error) {
-    app.matchIntelligence = null;
-    app.matchIntelligenceError = error.message || "无法读取比赛情报";
+    if (scope !== String(app.state?.data_scope_id || "")) return;
+    app.matchIntelligenceError = error.message || uiText("activity.intelligence_search_failed");
   } finally {
     app.matchIntelligenceLoading = false;
     if (app.page === "activity" && app.activityFloor === "intelligence") renderActivity();
@@ -14989,304 +14322,15 @@ async function loadActivityStaffLanguages(personIds) {
   }
 }
 
-function renderActivityLegacy() {
-  const container = $("#activity-content");
-  if (!container) return;
-  const players = allManagedPlayers();
-  const clubPlayers = managedClubPlayers();
-  const balance = Number(app.state?.economy?.total_balance || 0);
-  const freeServices = freeServicesEnabled();
-  $("#activity-balance").textContent = formatPounds(balance);
-  if (!players.length) {
-    container.innerHTML = `<div class="empty-feature">${uiText("activity.refreshing_players")}</div>`;
-    $("#intimacy-ranking-list").innerHTML = "";
-    return;
-  }
-  const activities = app.state?.welfare?.activities || {
-    drinks:{name:uiText("activity.drinks"),price:5000,intimacy:0.2,centre:"entertainment"},
-    hot_spring:{name:uiText("activity.hot_spring"),price:20000,intimacy:0.4,centre:"entertainment"},
-    football_game:{name:uiText("activity.football_game"),price:5000,intimacy:0.2,centre:"entertainment"},
-    massage:{name:uiText("activity.massage"),price:50000,intimacy:1,centre:"entertainment"},
-  };
-  const icons = {drinks:"wine", hot_spring:"waves", football_game:"gamepad-2", massage:"hand-heart"};
-  const descriptions = {
-    drinks:uiText("activity.description_drinks"),
-    hot_spring:uiText("activity.description_hot_spring"),
-    football_game:uiText("activity.description_football_game"),
-    massage:uiText("activity.description_massage"),
-  };
-  const managerId = Number(output().selected_manager_id || output().manager?.id || 0);
-  const gameDate = String(app.gameClock?.date || output().game_date || "");
-  const dailyUsage = app.state?.welfare?.activity_daily_usage || {};
-  const playerOptions = (activity) => {
-    const choices = activity === "naturalization" ? clubPlayers : players;
-    const eligibleIds = new Set(choices.map((player) => Number(player.id)));
-    let selectedPlayerId = Number(app.activityPlayerIds.get(activity) || 0);
-    if (!eligibleIds.has(selectedPlayerId)) {
-      selectedPlayerId = Number(choices[0]?.id || 0);
-      if (selectedPlayerId) app.activityPlayerIds.set(activity, selectedPlayerId);
-    }
-    return choices.map((player) => {
-      const playerId = Number(player.id);
-      return `<option value="${playerId}" ${playerId === selectedPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${escapeHtml(primaryPlayerPosition(player))}</option>`;
-    }).join("");
-  };
-  const availablePlayerIds = new Set(players.map((player) => Number(player.id)));
-  const retirementPlayers = activityDataIndex().retirementPlayers
-    .filter((player) => player.retirement && typeof player.retirement === "object" && player.retirement.has_plan && (!player.retirement.cancelled || player.retirement.retirement_date))
-    .sort((left, right) => Number(right.age) - Number(left.age) || String(left.name).localeCompare(String(right.name), activeUiLocale()));
-  let retirementPlayerId = Number(app.activityPlayerIds.get("retirement") || 0);
-  if (!retirementPlayers.some((player) => Number(player.id) === retirementPlayerId)) {
-    retirementPlayerId = Number(retirementPlayers[0]?.id || 0);
-    if (retirementPlayerId) app.activityPlayerIds.set("retirement", retirementPlayerId);
-  }
-  const retirementPlayer = retirementPlayers.find((player) => Number(player.id) === retirementPlayerId);
-  const retirementReply = Number(app.retirementReply?.playerId || 0) === retirementPlayerId
-    ? String(app.retirementReply?.message || "") : "";
-  const retirementOptions = retirementPlayers.map((player) => {
-    return `<option value="${Number(player.id)}" ${Number(player.id) === retirementPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${uiText("activity.age", {age:Number(player.age)})}</option>`;
-  }).join("");
-  const retirementCard = retirementPlayers.length ? `<article class="feature-card activity-card retirement-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="messages-square"></i></div><div><h3>${uiText("activity.retirement_talk")}</h3><span class="item-status">${uiText("activity.retirement_talk_status")}</span></div></div>${retirementReply ? `<p class="retirement-dialogue">${escapeHtml(retirementReply)}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="retirement-player">${retirementOptions}</select></label><label>${uiText("activity.retirement_action_label")}<select id="retirement-action"><option value="cancel">${uiText("activity.retirement_action_cancel")}</option><option value="six_months">${uiText("activity.retirement_action_six_months")}</option><option value="two_years">${uiText("activity.retirement_action_two_years")}</option><option value="ten_years">${uiText("activity.retirement_action_ten_years")}</option><option value="twenty_years">${uiText("activity.retirement_action_twenty_years")}</option></select></label><footer><strong></strong><button id="retirement-submit" type="button">${uiText("activity.confirm_discussion")}</button></footer></article>` : "";
-  let counselingPlayerId = Number(app.activityPlayerIds.get("psychological_counseling") || 0);
-  if (!availablePlayerIds.has(counselingPlayerId)) {
-    counselingPlayerId = Number(players[0].id);
-    app.activityPlayerIds.set("psychological_counseling", counselingPlayerId);
-  }
-  const counselingOptions = players.map((player) => `<option value="${Number(player.id)}" ${Number(player.id) === counselingPlayerId ? "selected" : ""}>${escapeHtml(player.name)} · ${escapeHtml(primaryPlayerPosition(player))}</option>`).join("");
-  const counselingKey = `${managerId}:${counselingPlayerId}`;
-  const counselingState = app.state?.welfare?.psychological_counseling?.[counselingKey] || {};
-  const cooldownUntil = String(counselingState.cooldown_until || "");
-  const counselingCooling = Boolean(cooldownUntil && gameDate && gameDate < cooldownUntil);
-  const counselingReply = Number(app.counselingReply?.playerId || 0) === counselingPlayerId ? app.counselingReply : null;
-  const counselingCard = `<article class="feature-card activity-card retirement-activity-card counseling-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="heart-handshake"></i></div><div><h3>${uiText("activity.counselling")}</h3><span class="item-status">${uiText("activity.counselling_status")}</span></div></div><p class="counseling-odds"><span>40% ${uiText("activity.counselling_outcome_relieved")}</span><span>25% ${uiText("activity.counselling_outcome_opened")}</span><span>30% ${uiText("activity.counselling_outcome_none")}</span><span>5% ${uiText("activity.counselling_outcome_rupture")}</span></p>${counselingReply ? `<p class="retirement-dialogue counseling-reply ${escapeHtml(counselingReply.outcome || "")}">${escapeHtml(counselingReply.message || "")}</p>` : ""}<label>${uiText("activity.choose_player")}<select id="counseling-player">${counselingOptions}</select></label><footer><strong>${counselingCooling ? uiText("activity.cooling_until", {date:escapeHtml(cooldownUntil)}) : ""}</strong><button id="start-counseling" type="button" ${counselingCooling ? "disabled" : ""}>${uiText(counselingCooling ? "activity.cooling_down" : "activity.start_counselling")}</button></footer></article>`;
-  const entertainmentActivities = Object.entries(activities).filter(([, option]) => String(option.centre || "entertainment") === "entertainment");
-  const activityCards = entertainmentActivities.map(([key, option]) => `<article class="feature-card activity-card" data-activity-card="${key}"><div class="item-hero"><div class="item-icon"><i data-lucide="${icons[key] || "calendar-heart"}"></i></div><div><h3>${escapeHtml(option.name)}</h3><span class="item-status">${uiText("activity.player_activity")}</span></div></div><p>${escapeHtml(descriptions[key] || uiText("activity.fallback_description", {intimacy:Number(option.intimacy).toFixed(1)}))}</p><label>${uiText("activity.choose_player")}<select data-activity-player="${key}">${playerOptions(key)}</select></label><footer><strong>${freeServices ? "£0" : formatPounds(option.price)}</strong><button type="button" data-player-activity="${key}" data-activity-price="${freeServices ? 0 : Number(option.price)}">${uiText("activity.participate")}</button></footer></article>`).join("");
-  const talkCards = `${counselingCard}${retirementCard}`;
-  const centreState = app.state?.welfare?.activity_centres || {};
-  const mediaActivity = activities.media_interview || {name:uiText("activity.media_interview"),price:0,intimacy:0,centre:"media"};
-  const clubProfile = app.clubProfiles.find((profile) => String(profile.team?.team_type || "club") === "club") || null;
-  const clubTeam = clubProfile?.team || {};
-  let naturalizationPlayerId = Number(app.activityPlayerIds.get("naturalization") || 0);
-  if (!clubPlayers.some((row) => Number(row.id) === naturalizationPlayerId)) {
-    naturalizationPlayerId = Number(clubPlayers[0]?.id || 0);
-    if (naturalizationPlayerId) app.activityPlayerIds.set("naturalization", naturalizationPlayerId);
-  }
-  const naturalizationPlayer = clubPlayers.find((row) => Number(row.id) === naturalizationPlayerId) || null;
-  if (app.activityFloor === "international" && centreState.international?.owned && app.internationalNations === null && !app.internationalNationsLoading && !app.internationalNationError) {
-    setTimeout(loadInternationalNations, 0);
-  }
-  const nationalityOptions = (app.internationalNations || [])
-    .filter((row) => Number(row.id) !== Number(naturalizationPlayer?.nationality_id || 0))
-    .map((row) => `<option value="${Number(row.id)}" ${Number(row.id) === app.internationalNationId ? "selected" : ""}>${escapeHtml(localizedNationName(row))} · ${escapeHtml(localizedContinentName(row.continent))}</option>`).join("");
-  const internationalCards = `<article class="feature-card activity-card international-activity-card"><div class="item-hero"><div class="item-icon"><i data-lucide="flag"></i></div><div><h3>${uiText("activity.naturalization")}</h3><span class="item-status">${uiText("activity.national_team_eligibility")}</span></div></div><p>${uiText("activity.naturalization_description")}</p><label>${uiText("activity.choose_player")}<select id="naturalization-player">${playerOptions("naturalization")}</select></label><label>${uiText("activity.naturalization_country")}<select id="naturalization-nation" ${app.internationalNationsLoading || !nationalityOptions ? "disabled" : ""}>${nationalityOptions || `<option value="">${escapeHtml(app.internationalNationError || (app.internationalNationsLoading ? uiText("activity.nations_loading") : uiText("activity.refresh_world_data")))}</option>`}</select></label><footer><strong>${uiText("activity.permanent_change")}</strong><button id="submit-naturalization" type="button" ${!naturalizationPlayerId || !nationalityOptions ? "disabled" : ""}>${uiText("activity.submit_application")}</button></footer></article>`;
-  const floors = {
-    entertainment:{floor:"1F",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),icon:"gamepad-2",unlocked:centreState.entertainment?.owned !== false,available:true,price:0,summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.drinks"),uiText("activity.hot_spring"),uiText("activity.football_game"),uiText("activity.massage")],nodes:[{key:"drinks",label:uiText("activity.node_social_bar"),icon:"wine"},{key:"hot_spring",label:uiText("activity.node_recovery_spring"),icon:"waves"},{key:"football_game",label:uiText("activity.node_esports"),icon:"gamepad-2"},{key:"massage",label:uiText("activity.node_massage"),icon:"hand-heart"}]},
-    talk_room:{floor:"2F",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),icon:"messages-square",unlocked:centreState.talk_room?.owned !== false,available:true,price:0,summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.counselling"),uiText("activity.retirement_talk")],nodes:[{key:"psychological_counseling",label:uiText("activity.node_counselling"),icon:"heart-handshake"},{key:"retirement",label:uiText("activity.node_retirement"),icon:"messages-square"}]},
-    international:{floor:"4F",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),icon:"globe-2",unlocked:Boolean(centreState.international?.owned),available:Boolean(centreState.international?.available),unavailableReason:String(centreState.international?.unavailable_reason || uiText("activity.version_unverified")),price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.node_naturalization"),uiText("activity.node_review")],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag"},{key:"nationality_review",label:uiText("activity.node_review"),icon:"file-check-2"}],recommended:true},
-  };
-  if (!floors[app.activityFloor]) {
-    app.activityFloor = "entertainment";
-    app.activityNode = null;
-    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
-  }
-  const selectedFloor = floors[app.activityFloor];
-  const floorTabs = Object.entries(floors).map(([key, floor]) => `<button type="button" class="${key === app.activityFloor ? "active" : ""} ${floor.unlocked ? "" : "locked"}" data-activity-floor="${key}"><span>${floor.floor}</span><strong>${floor.name}</strong>${floor.unlocked ? "" : '<i data-lucide="lock-keyhole"></i>'}</button>`).join("");
-  const stageFeatures = (selectedFloor.nodes || []).map((node, index) => `<button type="button" class="activity-scene-node node-${index + 1} ${selectedFloor.unlocked ? "available" : "locked"}" data-activity-node="${escapeHtml(node.key)}" title="${escapeHtml(selectedFloor.unlocked ? `${uiText("activity.room_use")} ${node.label}` : `${uiText("activity.room_buy")} ${selectedFloor.name}`)}"><i data-lucide="${selectedFloor.unlocked ? node.icon : "lock-keyhole"}"></i><span>${escapeHtml(node.label)}</span><b>${selectedFloor.unlocked ? uiText("activity.room_use") : uiText("activity.room_buy")}</b></button>`).join("");
-  const floorPanel = app.activityFloor === "entertainment"
-    ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:entertainmentActivities.length})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${activityCards}</div></div>`
-    : app.activityFloor === "talk_room"
-      ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.activity_count", {count:retirementCard ? 2 : 1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${talkCards}</div></div>`
-        : app.activityFloor === "international" && selectedFloor.unlocked
-          ? `<div class="activity-panel-head"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.core_activity_count", {count:1})}</span></div><div class="activity-panel-scroll"><div class="card-grid">${internationalCards}</div></div>`
-        : `<div class="activity-panel-head locked"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.floor_locked")}</span></div><div class="activity-locked-plan"><div class="activity-plan-price"><i data-lucide="building-2"></i><span>${uiText("activity.floor_build_budget")}<strong>${formatPounds(selectedFloor.price)}</strong></span></div><div class="activity-plan-list">${selectedFloor.features.map((feature) => `<div><i data-lucide="circle-dashed"></i><span>${escapeHtml(feature)}</span></div>`).join("")}</div><button type="button" data-activity-unlock="${app.activityFloor}" ${selectedFloor.available ? "" : "disabled"}><i data-lucide="lock-keyhole"></i><span>${selectedFloor.available ? uiText("activity.floor_unlock_build") : uiText("activity.floor_awaiting_validation")}</span></button><small>${selectedFloor.available ? uiText("activity.floor_open_after_build") : escapeHtml(selectedFloor.unavailableReason)}</small></div>`;
-  container.innerHTML = `<div class="activity-building"><div class="activity-floor-tabs">${floorTabs}</div><div class="activity-workspace"><section class="activity-scene ${app.activityFloor} ${selectedFloor.unlocked ? "unlocked" : "locked"}"><div class="activity-scene-shade"></div><div class="activity-scene-title"><small>${selectedFloor.floor} · ${selectedFloor.eyebrow}</small><strong>${selectedFloor.name}</strong></div><div class="activity-scene-labels">${stageFeatures}</div>${selectedFloor.unlocked ? `<span class="activity-open-status"><i data-lucide="badge-check"></i> ${uiText("activity.floor_open")}</span>` : `<div class="activity-scene-lock"><i data-lucide="lock-keyhole"></i><strong>${formatPounds(selectedFloor.price)}</strong><span>${uiText("activity.floor_open_after_build")}</span><button type="button" data-activity-unlock="${app.activityFloor}" ${selectedFloor.available ? "" : "disabled"}>${selectedFloor.available ? uiText("activity.floor_unlock_purchase") : uiText("activity.floor_unavailable")}</button></div>`}</section><aside class="activity-floor-panel">${floorPanel}</aside></div></div>`;
-  renderIntimacyRanking();
-  const updateActivityButton = (button) => {
-    const activity = String(button.dataset.playerActivity || "");
-    const playerId = Number(document.querySelector(`[data-activity-player="${activity}"]`)?.value || 0);
-    const usageKey = `${managerId}:${playerId}`;
-    const centre = String(activities[activity]?.centre || "entertainment");
-    const usedToday = centre === "media"
-      ? String(dailyUsage[`${usageKey}:media`] || "") === gameDate
-      : String(dailyUsage[usageKey] || "") === gameDate
-        || Object.entries(dailyUsage).some(([key, date]) => key.startsWith(`${usageKey}:entertainment`) && String(date || "") === gameDate);
-    button.disabled = app.freeServicesSyncBusy || usedToday || balance < Number(button.dataset.activityPrice || 0);
-    button.textContent = app.freeServicesSyncBusy ? uiText("activity.syncing") : usedToday ? uiText("activity.today_participated") : activity === "media_interview" ? uiText("activity.arrange_interview") : uiText("activity.participate");
-  };
-  document.querySelectorAll("[data-activity-player]").forEach((select) => select.addEventListener("change", () => {
-    app.activityPlayerIds.set(String(select.dataset.activityPlayer || ""), Number(select.value || 0));
-    const button = document.querySelector(`[data-player-activity="${select.dataset.activityPlayer}"]`);
-    if (button) updateActivityButton(button);
-  }));
-  document.querySelectorAll("[data-player-activity]").forEach((button) => {
-    updateActivityButton(button);
-    button.addEventListener("click", async () => {
-    const playerId = Number(document.querySelector(`[data-activity-player="${button.dataset.playerActivity}"]`)?.value || 0);
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:playerId,team_id:managedPlayerTeamId(playerId),activity:button.dataset.playerActivity})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const effect = response.activity.effect || {};
-      const changes = {manager_intimacy:Math.floor(Number(response.activity.intimacy || 0))};
-      if (effect.field === "morale") changes.morale = effect.after;
-      if (effect.field === "fitness") changes.fitness = effect.after;
-      if (effect.field === "sharpness") changes.sharpness = effect.after;
-      (effect.effects || []).forEach((change) => {
-        if (["morale", "fitness", "sharpness"].includes(change.field)) changes[change.field] = change.after;
-      });
-      updateManagedPlayer(playerId, changes);
-      renderActivity();
-      const intimacyGain = Number(response.activity.intimacy_applied_gain ?? response.activity.intimacy_gain);
-      toast(intimacyGain > 0 ? uiText("activity.intimacy_gain", {name:response.activity.player_name, gain:intimacyGain.toFixed(1)}) : uiText("activity.activity_done", {name:response.activity.player_name}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-    });
-  });
-  $("#counseling-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("psychological_counseling", Number(event.target.value || 0));
-    app.counselingReply = null;
-    renderActivity();
-  });
-  $("#start-counseling")?.addEventListener("click", async () => {
-    const button = $("#start-counseling");
-    if (button) button.disabled = true;
-    try {
-      const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:counselingPlayerId,team_id:managedPlayerTeamId(counselingPlayerId)})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const result = response.counseling || {};
-      const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0))};
-      (result.effect?.effects || []).forEach((change) => {
-        if (change.field === "morale") changes.morale = change.after;
-      });
-      updateManagedPlayer(counselingPlayerId, changes);
-      app.counselingReply = {playerId:counselingPlayerId, message:result.reply, outcome:result.outcome};
-      renderActivity();
-      toast(`${result.player_name}：${result.outcome_name}`);
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  });
-  $("#retirement-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("retirement", Number(event.target.value || 0));
-    app.retirementReply = null;
-    renderActivity();
-  });
-  const submitRetirementAction = async () => {
-    if (!retirementPlayerId) return;
-    const action = String($("#retirement-action")?.value || "");
-    const actionName = {cancel:uiText("activity.retirement_action_cancel"),six_months:uiText("activity.retirement_action_six_months"),two_years:uiText("activity.retirement_action_two_years"),ten_years:uiText("activity.retirement_action_ten_years"),twenty_years:uiText("activity.retirement_action_twenty_years")}[action];
-    if (!actionName || !await fmoddConfirm(uiText("activity.confirm_retirement", {name:retirementPlayer?.name || uiText("activity.choose_player"), action:actionName}), uiText("activity.confirm_discussion"))) return;
-    const body = {player_id:retirementPlayerId, team_id:managedPlayerTeamId(retirementPlayerId), action};
-    const button = $("#retirement-submit");
-    if (button) button.disabled = true;
-    try {
-      const response = await request("/api/activity/retirement", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-      updateManagedPlayer(retirementPlayerId, {retirement:response.retirement});
-      app.retirementReply = {playerId:retirementPlayerId, message:response.reply};
-      renderActivity();
-      toast(response.modified ? uiText("activity.retirement_updated", {name:response.player_name}) : response.reply);
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  };
-  $("#retirement-submit")?.addEventListener("click", submitRetirementAction);
-  document.querySelectorAll("[data-activity-floor]").forEach((button) => button.addEventListener("click", () => {
-    app.activityFloor = String(button.dataset.activityFloor || "entertainment");
-    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
-    renderActivity();
-  }));
-  document.querySelectorAll("[data-activity-node]").forEach((node) => node.addEventListener("click", () => {
-    const target = String(node.dataset.activityNode || "");
-    const unlockButton = document.querySelector("[data-activity-unlock]");
-    if (node.classList.contains("locked")) {
-      unlockButton?.click();
-      return;
-    }
-    const card = document.querySelector(`[data-activity-card="${target}"]`);
-    if (card) {
-      document.querySelectorAll("[data-activity-card].is-focused").forEach((item) => item.classList.remove("is-focused"));
-      card.classList.add("is-focused");
-      card.scrollIntoView({behavior:"smooth",block:"nearest"});
-      const actionButton = card.querySelector("[data-player-activity], [data-media-activity]");
-      if (actionButton) actionButton.click();
-    } else if (target === "psychological_counseling") {
-      $("#start-counseling")?.click();
-    } else if (target === "retirement") {
-      $("#retirement-submit")?.scrollIntoView({behavior:"smooth",block:"nearest"});
-    } else if (target === "naturalization") {
-      $("#submit-naturalization")?.scrollIntoView({behavior:"smooth",block:"nearest"});
-    }
-  }));
-  document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => {
-    const centre = String(button.dataset.activityUnlock || "");
-    const floor = floors[centre];
-    if (!floor || !floor.available) return;
-    const price = freeServicesEnabled() ? 0 : floor.price;
-    if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return;
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre,free_purchase:freeServicesEnabled()})});
-      applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      renderActivity();
-      toast(uiText("activity.room_unlocked", {name:floor.name}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  }));
-  $("#naturalization-player")?.addEventListener("change", (event) => {
-    app.activityPlayerIds.set("naturalization", Number(event.target.value || 0));
-    renderActivity();
-  });
-  $("#naturalization-nation")?.addEventListener("change", (event) => {
-    app.internationalNationId = Number(event.target.value || 0);
-    localStorage.setItem("fmodd-international-nation", String(app.internationalNationId));
-  });
-  $("#submit-naturalization")?.addEventListener("click", async () => {
-    const playerId = Number($("#naturalization-player")?.value || 0);
-    const nationId = Number($("#naturalization-nation")?.value || 0);
-    const player = players.find((row) => Number(row.id) === playerId);
-    const nation = (app.internationalNations || []).find((row) => Number(row.id) === nationId);
-    if (!player || !nation) return;
-    if (!await fmoddConfirm(uiText("activity.confirm_naturalization", {player:player.name, nation:localizedNationName(nation)}), uiText("activity.submit_application"))) return;
-    const button = $("#submit-naturalization");
-    button.disabled = true;
-    try {
-      const response = await request("/api/activity/international", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({player_id:playerId,team_id:managedPlayerTeamId(playerId),nation_id:nationId}),
-      });
-    applyEconomySnapshot(response.economy);
-      app.state.welfare = response.welfare;
-      const otherNationalities = [...(player.other_nationalities || [])];
-      if (!otherNationalities.some((row) => Number(row.id) === nationId)) {
-        otherNationalities.push({id:nationId,name:nation.name,eligible_for_nation:true});
-      }
-      updateManagedPlayer(playerId, {other_nationalities:otherNationalities});
-      renderActivity();
-      toast(uiText("activity.naturalization_done", {player:player.name, nation:localizedNationName(nation)}));
-    } catch (error) {
-      toast(error.message);
-      renderActivity();
-    }
-  });
-  renderIcons();
+const COUNSELING_PRICE = 100_000;
+
+function counselingPrice() {
+  return toPurchaseInternalMoney(COUNSELING_PRICE);
 }
 
-const COUNSELING_WHEEL_STOPS = {
-  unlocked: "288deg",
-  relieved: "288deg",
-  opened_up: "171deg",
-  no_effect: "72deg",
-  rupture: "9deg",
-};
+function counselingCanAfford(count = 1) {
+  return availableWalletBalance() >= counselingPrice() * Math.max(1, Number(count) || 1);
+}
 
 function openCounselingWheels(players) {
   const dialog = $("#counseling-wheel-dialog");
@@ -15296,8 +14340,8 @@ function openCounselingWheels(players) {
     players: new Map(players.map((player) => [Number(player.id), player])),
     running: new Set(), completed: new Set(),
   };
-  const unlockPrice = formatMoney(toPurchaseInternalMoney(100_000));
-  results.innerHTML = players.map((player) => `<article class="counseling-wheel-card ready" data-counseling-wheel-player="${Number(player.id)}"><div class="counseling-wheel-stage"><div class="counseling-wheel-pointer"></div><div class="counseling-wheel"><span>?</span></div><button class="counseling-wheel-spin-one" type="button" data-counseling-wheel-spin="${Number(player.id)}">${uiText("activity.counselling_spin")}</button></div><div class="counseling-wheel-copy"><small>${escapeHtml(player.name)}</small><strong>${uiText("activity.counselling_ready")}</strong><b>${uiText("activity.counselling_no_result")}</b><p>${uiText("activity.counselling_hint")}</p><div class="counseling-wheel-card-actions"><button type="button" data-counseling-wheel-unlock="${Number(player.id)}"><i data-lucide="key-round"></i>${unlockPrice} ${uiText("activity.counselling_unlock")}</button></div></div></article>`).join("");
+  const price = formatPounds(counselingPrice());
+  results.innerHTML = players.map((player) => `<article class="counseling-wheel-card ready" data-counseling-wheel-player="${Number(player.id)}"><div class="counseling-wheel-copy"><small>${escapeHtml(player.name)}</small><strong>${uiText("activity.counselling_ready")}</strong><b>${uiText("activity.counselling_rule", {price})}</b><p data-counseling-note>${uiText("activity.counselling_hint")}</p><div class="counseling-wheel-card-actions"><button type="button" data-counseling-start="${Number(player.id)}"><i data-lucide="heart-handshake"></i>${uiText("activity.counselling_unlock", {price})}</button></div></div></article>`).join("");
   updateCounselingWheelControls();
   if (!dialog.open) dialog.showModal();
   renderIcons();
@@ -15309,97 +14353,122 @@ function updateCounselingWheelControls() {
   const total = batch.players.size;
   const completed = batch.completed.size;
   const running = batch.running.size;
-  const remaining = total - completed - running;
+  const blocked = batch.blocked?.size || 0;
+  const remaining = total - completed - running - blocked;
+  const affordable = counselingCanAfford(1);
+  document.querySelectorAll("#counseling-wheel-results .counseling-wheel-card.ready").forEach((card) => {
+    const start = card.querySelector("[data-counseling-start]");
+    const note = card.querySelector("[data-counseling-note]");
+    const blockedPlayer = batch.blocked?.has(Number(card.dataset.counselingWheelPlayer));
+    if (start) start.disabled = blockedPlayer || !affordable || running > 0;
+    if (note) note.textContent = blockedPlayer ? uiText("activity.counselling_review_required") : (card.dataset.counselingError || (affordable ? uiText("activity.counselling_hint") : uiText("activity.counselling_wallet_short")));
+  });
   const auto = $("#counseling-wheel-auto");
   const close = $("#counseling-wheel-close");
   const closeIcon = $("#counseling-wheel-close-icon");
-  if (auto) { auto.disabled = remaining <= 0; auto.querySelector("span").textContent = remaining > 0 ? uiText("activity.counselling_auto_remaining", {count:remaining}) : uiText("activity.counselling_all_done"); }
+  if (auto) {
+    auto.disabled = remaining <= 0 || running > 0 || !counselingCanAfford(remaining);
+    auto.querySelector("span").textContent = remaining > 0 ? uiText("activity.counselling_auto_remaining", {count:remaining, total:formatPounds(counselingPrice() * remaining)}) : uiText(blocked > 0 ? "activity.counselling_review_required" : "activity.counselling_all_done");
+  }
   if (close) close.disabled = running > 0;
   if (closeIcon) closeIcon.disabled = running > 0;
 }
 
-async function runCounselingWheel(playerId, guaranteed = false) {
+async function runCounseling(playerId) {
   const batch = app.counselingWheelBatch;
   const id = Number(playerId);
   const player = batch?.players.get(id);
-  if (!batch || !player || batch.running.has(id) || batch.completed.has(id)) return;
+  if (!batch || !player || batch.running.has(id) || batch.completed.has(id) || batch.blocked?.has(id)) return;
   batch.running.add(id);
   const card = document.querySelector(`[data-counseling-wheel-player="${id}"]`);
   card?.classList.remove("ready");
   card?.classList.add("pending");
-  const wheel = card?.querySelector(".counseling-wheel");
-  wheel?.classList.add("spinning");
-  const button = card?.querySelector("[data-counseling-wheel-spin]");
-  if (button) { button.disabled = true; button.textContent = uiText("activity.counselling_spinning"); }
-  const unlock = card?.querySelector("[data-counseling-wheel-unlock]");
-  if (unlock) unlock.disabled = true;
+  const start = card?.querySelector("[data-counseling-start]");
+  if (start) { start.disabled = true; start.textContent = uiText("activity.counselling_spinning"); }
   updateCounselingWheelControls();
+  let succeeded = false;
   try {
-    const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:id,team_id:managedPlayerTeamId(id),guaranteed})});
-    applyEconomySnapshot(response.economy);
-    app.state.welfare = response.welfare;
+    const response = await request("/api/activity/counseling", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({player_id:id,team_id:managedPlayerTeamId(id)})});
+    succeeded = true;
+    batch.completed.add(id);
     const result = response.counseling || {};
-    const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0))};
-    (result.effect?.effects || []).forEach((change) => {
-      if (change.field === "morale") changes.morale = change.after;
-      if (change.field === "unhappiness" && change.after === false) changes.has_unhappiness = false;
-    });
-    updateManagedPlayer(id, changes);
-    settleCounselingWheel(id, result);
+    let syncFailed = Boolean(response.state_refresh_required);
+    try {
+      if (response.economy) applyEconomySnapshot(response.economy);
+      if (response.welfare) app.state.welfare = response.welfare;
+      const changes = {manager_intimacy:Math.floor(Number(result.intimacy || 0)), has_unhappiness:false};
+      (result.effect?.effects || []).forEach((change) => {
+        if (change.field === "morale") changes.morale = change.after;
+      });
+      updateManagedPlayer(id, changes);
+    } catch (error) {
+      syncFailed = true;
+    }
+    settleCounselingWheel(id, result, "", response.payment || result.payment);
+    if (syncFailed) toast(uiText("activity.counselling_sync_failed"));
   } catch (error) {
-    settleCounselingWheel(id, null, error.message);
+    if (succeeded) toast(uiText("activity.counselling_sync_failed"));
+    else if (["commit_unknown", "rollback_incomplete", "refund_incomplete"].includes(error.code) && error.retryable !== true) {
+      (batch.blocked ||= new Set()).add(id);
+      settleCounselingWheel(id, null, uiText("activity.counselling_review_required"));
+    }
+    else settleCounselingWheel(id, null, error.message);
   } finally {
     batch.running.delete(id);
-    batch.completed.add(id);
+    if (batch.blocked?.has(id)) {
+      card?.classList.remove("pending", "ready");
+      if (start) { start.disabled = true; start.textContent = uiText("activity.counselling_review_required"); }
+    } else if (!succeeded) {
+      card?.classList.remove("pending", "failed");
+      card?.classList.add("ready");
+      if (start) start.innerHTML = `<i data-lucide="heart-handshake"></i>${uiText("activity.counselling_unlock", {price:formatPounds(counselingPrice())})}`;
+      renderIcons();
+    }
     updateCounselingWheelControls();
   }
 }
 
-async function spinCounselingWheel(playerId) {
-  return runCounselingWheel(playerId, false);
-}
-
-async function unlockCounselingWheel(playerId) {
+async function startCounseling(playerId) {
   const player = app.counselingWheelBatch?.players.get(Number(playerId));
   if (!player) return;
-  const price = formatMoney(toPurchaseInternalMoney(100_000));
-  if (!await fmoddConfirm(uiText("activity.confirm_counselling_unlock", {price, player:player.name}), uiText("activity.counselling_unlock"))) return;
-  return runCounselingWheel(playerId, true);
+  if (!counselingCanAfford(1)) { toast(uiText("activity.counselling_wallet_short")); return; }
+  const price = formatPounds(counselingPrice());
+  if (!await fmoddConfirm(uiText("activity.confirm_counselling_unlock", {price, player:player.name}), uiText("activity.confirm_counselling"))) return;
+  return runCounseling(playerId);
 }
 
-async function spinAllCounselingWheels() {
+async function counselAllRemaining() {
   const batch = app.counselingWheelBatch;
   if (!batch) return;
-  const remaining = [...batch.players.keys()].filter((id) => !batch.running.has(id) && !batch.completed.has(id));
-  await Promise.all(remaining.map(spinCounselingWheel));
+  const remaining = [...batch.players.keys()].filter((id) => !batch.running.has(id) && !batch.completed.has(id) && !batch.blocked?.has(id));
+  if (!remaining.length) return;
+  if (!counselingCanAfford(remaining.length)) { toast(uiText("activity.counselling_wallet_short")); return; }
+  const price = formatPounds(counselingPrice() * remaining.length);
+  if (!await fmoddConfirm(uiText("activity.confirm_counselling_batch", {price, count:remaining.length}), uiText("activity.confirm_counselling"))) return;
+  for (const id of remaining) {
+    await runCounseling(id);
+    if (!batch.completed.has(id)) break;
+  }
 }
 
-function settleCounselingWheel(playerId, result = null, error = "") {
+function settleCounselingWheel(playerId, result = null, error = "", payment = null) {
   const card = document.querySelector(`[data-counseling-wheel-player="${Number(playerId)}"]`);
   if (!card) return;
-  const wheel = card.querySelector(".counseling-wheel");
   const copy = card.querySelector(".counseling-wheel-copy");
-  const playerName = card.querySelector("small")?.textContent || String(playerId);
+  const note = card.querySelector("[data-counseling-note]");
   card.classList.remove("pending");
   if (error) {
-    card.classList.add("failed");
-    wheel?.classList.remove("spinning");
-    if (wheel) wheel.innerHTML = '<span><i data-lucide="triangle-alert"></i></span>';
-    if (copy) copy.innerHTML = `<small>${escapeHtml(playerName)}</small><strong>${uiText("activity.counselling_failed")}</strong><b>${uiText("activity.counselling_no_random_result")}</b><p>${escapeHtml(error)}</p>`;
+    card.dataset.counselingError = error;
+    if (note) note.textContent = error;
+    toast(error);
     renderIcons();
     return;
   }
-  const outcome = String(result?.outcome || "no_effect");
-  const cleared = (result?.effect?.effects || []).some((change) => change.field === "unhappiness" && change.after === false);
-  card.classList.add(outcome, "resolved");
-  if (wheel) {
-    wheel.classList.remove("spinning");
-    wheel.style.setProperty("--counseling-wheel-stop", COUNSELING_WHEEL_STOPS[outcome] || COUNSELING_WHEEL_STOPS.no_effect);
-    void wheel.offsetWidth;
-    wheel.classList.add("settled");
-    wheel.innerHTML = `<span>${cleared ? '<i data-lucide="check"></i>' : '<i data-lucide="minus"></i>'}</span>`;
-  }
-  if (copy) copy.innerHTML = `<small>${escapeHtml(result?.player_name || playerName)}</small><strong>${escapeHtml(result?.outcome_name || outcome)}</strong><b>${cleared ? uiText("activity.counselling_cleared") : uiText("activity.counselling_not_cleared")}</b><p>${escapeHtml(result?.reply || "")}</p>`;
+  const playerName = card.querySelector("small")?.textContent || String(playerId);
+  const outcomeName = result?.outcome_name || uiText("activity.counselling_outcome_relieved");
+  const paid = Number(payment?.wallet ?? payment?.total ?? counselingPrice());
+  card.classList.add("unlocked", "resolved");
+  if (copy) copy.innerHTML = `<small>${escapeHtml(result?.player_name || playerName)}</small><strong>${escapeHtml(outcomeName)} · ${uiText("activity.counselling_cleared")}</strong><b>${uiText("activity.counselling_wallet_paid", {amount:formatPounds(paid)})}</b><p>${escapeHtml(result?.reply || "")}</p>`;
   renderIcons();
 }
 
@@ -15415,12 +14484,10 @@ function closeCounselingWheels() {
 
 $("#counseling-wheel-close")?.addEventListener("click", closeCounselingWheels);
 $("#counseling-wheel-close-icon")?.addEventListener("click", closeCounselingWheels);
-$("#counseling-wheel-auto")?.addEventListener("click", spinAllCounselingWheels);
+$("#counseling-wheel-auto")?.addEventListener("click", counselAllRemaining);
 $("#counseling-wheel-results")?.addEventListener("click", (event) => {
-  const unlock = event.target.closest("[data-counseling-wheel-unlock]");
-  if (unlock) { unlockCounselingWheel(Number(unlock.dataset.counselingWheelUnlock)); return; }
-  const button = event.target.closest("[data-counseling-wheel-spin]");
-  if (button) spinCounselingWheel(Number(button.dataset.counselingWheelSpin));
+  const start = event.target.closest("[data-counseling-start]");
+  if (start) startCounseling(Number(start.dataset.counselingStart));
 });
 $("#counseling-wheel-dialog")?.addEventListener("cancel", (event) => {
   if (app.counselingWheelBatch?.running.size) event.preventDefault();
@@ -15613,6 +14680,7 @@ function renderActivity() {
     app.activityFloor === "intelligence"
     && centreState.intelligence?.owned
     && !app.matchIntelligenceLoading
+    && !app.matchIntelligenceError
     && (!app.matchIntelligence || (gameDate && intelligencePricingDate !== gameDate))
   ) setTimeout(() => loadMatchIntelligence(true), 0);
   const activityPlayers = (activity) => activity === "naturalization" ? clubPlayers : players;
@@ -15761,7 +14829,6 @@ function renderActivity() {
   const instantMaxPrices = languageLearning.instant_max_prices || {};
   const instantLanguagePrice = (player, toMaximum = false) => {
     const level = playerLanguageLevel(player);
-    if (freeServicesEnabled()) return 0;
     const priceBook = toMaximum ? instantMaxPrices : instantPrices;
     const quoted = Number(priceBook[String(level)]);
     if (Number.isFinite(quoted) && quoted > 0) return quoted;
@@ -15795,7 +14862,7 @@ function renderActivity() {
         const obtained = candidateObtained(candidate);
         const purchasedCount = (candidate.tiers || []).filter((tier) => tier.purchased).length;
         const tierResult = (tier) => {
-          if (!tier.purchased) return candidate.available === false ? uiText("activity.intelligence_not_obtained") : freeServicesEnabled() ? uiText("activity.free") : formatPounds(tier.price);
+          if (!tier.purchased) return candidate.available === false ? uiText("activity.intelligence_not_obtained") : formatPounds(tier.price);
           if (tier.key === "outcome") return escapeHtml(reveal.outcome_label || uiText("activity.intelligence_result"));
           if (tier.key === "total_goals") return reveal.total_goals != null ? `${Number(reveal.total_goals)} ${uiText("activity.goals")}` : uiText("activity.intelligence_result");
           if (tier.key === "score") return reveal.home_goals != null && reveal.away_goals != null ? `${Number(reveal.home_goals)} : ${Number(reveal.away_goals)}` : uiText("activity.intelligence_result");
@@ -15808,7 +14875,7 @@ function renderActivity() {
         };
         const tiers = (candidate.tiers || []).map((tier) => {
           const visual = tierVisuals[tier.key] || {icon:"scan-eye", label:uiText("activity.floor_intelligence")};
-          return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${tier.purchased ? "purchased" : ""}" data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}" data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${Number(tier.price || 0)}" ${tier.purchased || candidate.available === false || app.activityActionBusy ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${visual.icon}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${tier.purchased ? uiText("activity.intelligence_result") : visual.label}</em><strong>${tierResult(tier)}</strong></span></button>`;
+          return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${tier.purchased ? "purchased" : ""}" data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}" data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${Number(tier.price || 0)}" ${tier.purchased || candidate.available === false || app.activityActionBusy || app.matchIntelligenceLoading ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${visual.icon}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${tier.purchased ? uiText("activity.intelligence_result") : visual.label}</em><strong>${tierResult(tier)}</strong></span></button>`;
         }).join("");
         const status = obtained ? uiText("activity.intelligence_status", {count:purchasedCount}) : uiText("activity.intelligence_not_obtained");
         return `<article class="intelligence-card ${expanded ? "expanded" : "compact"}"><button type="button" class="intelligence-card-toggle" data-intelligence-toggle="${escapeHtml(fixtureId)}" aria-expanded="${expanded}"><span class="intelligence-card-meta"><small>${escapeHtml(candidate.competition_name)}</small><time>${escapeHtml(candidate.fixture_date)} ${escapeHtml(candidate.kickoff_time || "")}</time></span><span class="intelligence-card-fixture"><b>${escapeHtml(candidate.home?.name || uiText("activity.home_team"))}</b><em>VS</em><b>${escapeHtml(candidate.away?.name || uiText("activity.away_team"))}</b></span><span class="intelligence-card-status ${obtained ? "revealed" : "sealed"}"><b>${status}</b></span><i data-lucide="chevron-down"></i></button><div class="intelligence-card-body"><div class="intelligence-tier-list">${tiers}</div></div></article>`;
@@ -15819,7 +14886,7 @@ function renderActivity() {
       const randomTierAvailable = (tierKey) => activityIndex.randomAvailableTiers.has(String(tierKey));
       const tierChoiceButtons = (candidate, randomPurchase = false) => (candidate?.tiers || []).map((tier) => {
         const price = Number(randomPurchase ? tier.random_price : (tier.specific_price ?? tier.price ?? 0));
-        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || app.matchIntelligenceLoading || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${randomPurchase ? uiText("activity.intelligence_random_match") : uiText("activity.intelligence_specific_match")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : freeServicesEnabled() ? uiText("activity.free") : formatPounds(price)}</strong></span></button>`;
+        return `<button type="button" class="intelligence-tier ${escapeHtml(tier.key)} ${!randomPurchase && tier.purchased ? "purchased" : ""}" ${randomPurchase ? "data-intelligence-random" : `data-intelligence-purchase="${escapeHtml(candidate.fixture_id)}"`} data-intelligence-tier="${escapeHtml(tier.key)}" data-intelligence-tier-name="${escapeHtml(tier.name)}" data-intelligence-price="${price}" ${app.activityActionBusy || app.matchIntelligenceLoading || (randomPurchase ? !randomTierAvailable(tier.key) : tier.purchased) ? "disabled" : ""}><span class="intelligence-tier-head"><i data-lucide="${tier.key === "outcome" ? "trophy" : tier.key === "total_goals" ? "circle-dot" : "badge-help"}"></i><span><b>${escapeHtml(tier.name)}</b></span></span><span class="intelligence-tier-foot"><em>${uiText("activity.intelligence_fixed_price")}</em><strong>${randomPurchase && !randomTierAvailable(tier.key) ? uiText("activity.intelligence_no_candidate") : !randomPurchase && tier.purchased ? uiText("activity.intelligence_result") : formatPounds(price)}</strong></span></button>`;
       }).join("");
       const intelligenceBusy = app.matchIntelligenceLoading || app.activityActionBusy;
       const refreshAction = `<button type="button" class="intelligence-refresh-button intelligence-search-button" data-intelligence-search ${intelligenceBusy ? "disabled" : ""}><i data-lucide="scan-search"></i><span>${app.matchIntelligenceLoading ? uiText("activity.intelligence_searching") : uiText("activity.get_intelligence")}</span></button><button type="button" class="intelligence-refresh-button" data-intelligence-refresh ${intelligenceBusy ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${uiText("activity.refresh_intelligence")}</span></button>${app.matchIntelligenceError && app.matchIntelligence ? `<small class="intelligence-search-error" role="alert">${escapeHtml(app.matchIntelligenceError)}</small>` : ""}`;
@@ -15989,11 +15056,11 @@ function renderActivity() {
       ? targetPlayers.filter((player) => selections.has(Number(player.id))
         && activityPlayerSecondaryNationalities(player).length)
       : [];
-     const nationalityFooter = `<footer class="activity-roster-footer activity-nationality-footer"><button type="button" class="activity-nationality-picker-trigger" data-activity-nation-open ${app.internationalNationsLoading ? "disabled" : ""}><i data-lucide="globe-2"></i><span>${escapeHtml(selectedNation ? localizedNationName(selectedNation) : uiText("activity.nationality_selection"))}</span><i data-lucide="chevron-down"></i></button><button type="button" class="secondary" data-activity-cancel-secondary ${app.activityActionBusy || !removableNationalityPlayers.length ? "disabled" : ""}>${uiText("activity.cancel_secondary")}</button><button type="button" data-activity-submit ${disabled || !selectedNation ? "disabled" : ""}><span data-nationality-submit-label>${app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityTotalPrice)})}</span></button></footer>`;
+     const nationalityFooter = `<footer class="activity-roster-footer activity-nationality-footer"><button type="button" class="activity-nationality-picker-trigger" data-activity-nation-open ${app.internationalNationsLoading ? "disabled" : ""}><i data-lucide="globe-2"></i><span>${escapeHtml(selectedNation ? localizedNationName(selectedNation) : uiText("activity.nationality_selection"))}</span><i data-lucide="chevron-down"></i></button><button type="button" class="secondary" data-activity-cancel-secondary ${app.activityActionBusy || !removableNationalityPlayers.length ? "disabled" : ""}>${uiText("activity.cancel_secondary")}</button><button type="button" data-activity-submit ${disabled || !selectedNation ? "disabled" : ""}><span data-nationality-submit-label>${app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:formatPounds(nationalityTotalPrice)})}</span></button></footer>`;
     const rosterRefreshAction = selectedActivity.kind === "naturalization"
        ? `<button type="button" class="intelligence-refresh-button activity-roster-refresh" data-activity-roster-refresh ${app.activityRosterRefreshing ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${app.activityRosterRefreshing ? uiText("activity.refreshing") : uiText("activity.refresh_players")}</span></button>`
       : "";
-     const footer = selectedActivity.kind === "naturalization" ? nationalityFooter : selectedActivity.kind === "language" ? `<footer class="activity-roster-footer activity-language-actions"><button type="button" data-language-manual ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !manualLanguagePlayers.length ? "disabled" : ""}><i data-lucide="user-round-check"></i><span>${app.activityActionBusy ? uiText("activity.processing") : uiText("activity.manual_learning")}</span></button><button type="button" class="secondary" data-language-auto ${app.activityActionBusy || staffWriteBlocked || (!automaticForSelected && !selectedLanguage) ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${automaticForSelected ? uiText("activity.stop_auto_learning") : uiText("activity.auto_learning")}</span></button><button type="button" class="danger" data-language-cancel ${app.activityActionBusy || !cancelLanguagePlayers.length ? "disabled" : ""}><i data-lucide="circle-stop"></i><span>${uiText("activity.cancel_learning")}</span></button><button type="button" data-language-instant ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !selectedLanguagePlayers.length ? "disabled" : ""}><i data-lucide="badge-plus"></i><span data-language-instant-label>${uiText("activity.instant_label", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(instantTotal)})}</span></button></footer>` : `<footer class="activity-roster-footer"><button type="button" data-activity-submit ${disabled ? "disabled" : ""}><i data-lucide="play"></i><span>${app.activityActionBusy ? uiText("activity.processing") : selectedActivity.action}</span></button></footer>`;
+     const footer = selectedActivity.kind === "naturalization" ? nationalityFooter : selectedActivity.kind === "language" ? `<footer class="activity-roster-footer activity-language-actions"><button type="button" data-language-manual ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !manualLanguagePlayers.length ? "disabled" : ""}><i data-lucide="user-round-check"></i><span>${app.activityActionBusy ? uiText("activity.processing") : uiText("activity.manual_learning")}</span></button><button type="button" class="secondary" data-language-auto ${app.activityActionBusy || staffWriteBlocked || (!automaticForSelected && !selectedLanguage) ? "disabled" : ""}><i data-lucide="refresh-cw"></i><span>${automaticForSelected ? uiText("activity.stop_auto_learning") : uiText("activity.auto_learning")}</span></button><button type="button" class="danger" data-language-cancel ${app.activityActionBusy || !cancelLanguagePlayers.length ? "disabled" : ""}><i data-lucide="circle-stop"></i><span>${uiText("activity.cancel_learning")}</span></button><button type="button" data-language-instant ${app.activityActionBusy || staffWriteBlocked || !selectedLanguage || !selectedLanguagePlayers.length ? "disabled" : ""}><i data-lucide="badge-plus"></i><span data-language-instant-label>${uiText("activity.instant_label", {price:formatPounds(instantTotal)})}</span></button></footer>` : `<footer class="activity-roster-footer"><button type="button" data-activity-submit ${disabled ? "disabled" : ""}><i data-lucide="play"></i><span>${app.activityActionBusy ? uiText("activity.processing") : selectedActivity.action}</span></button></footer>`;
      const automaticStatus = selectedActivity.kind === "language" && automaticEnabled ? `<div class="activity-language-auto-status"><i data-lucide="radar"></i><span>${uiText("activity.auto_status", {language:escapeHtml(storedActivityLanguageLabel(automaticLanguageId, automaticLanguageName)), person:languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players")})}</span></div>` : "";
      const languageTabs = selectedActivity.kind === "language" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.language_person_aria")}"><button type="button" role="tab" aria-selected="${languagePersonKind === "player"}" class="activity-roster-tab ${languagePersonKind === "player" ? "active" : ""}" data-language-person-kind="player"><i data-lucide="users"></i><span>${uiText("activity.person_players")}</span><small>${players.length}</small></button><button type="button" role="tab" aria-selected="${languagePersonKind === "staff"}" class="activity-roster-tab ${languagePersonKind === "staff" ? "active" : ""}" data-language-person-kind="staff"><i data-lucide="briefcase"></i><span>${uiText("activity.person_staff")}</span><small>${languageStaff.length}</small></button></div>` : "";
      const capabilityNotice = staffWriteBlocked ? `<div class="activity-language-auto-status is-warning"><i data-lucide="shield-alert"></i><span>${escapeHtml(app.activityStaffLanguageCapability?.reason || uiText("activity.staff_write_reason"))}</span></div>` : "";
@@ -16003,10 +15070,10 @@ function renderActivity() {
       : "";
      const personLabel = languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players");
      const entertainmentTabs = activityMeta[app.activityNode]?.centre === "entertainment" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.entertainment_person_aria")}"><button type="button" role="tab" aria-selected="${app.activityRosterTab === "players"}" class="activity-roster-tab ${app.activityRosterTab === "players" ? "active" : ""}" data-activity-roster-tab="players"><i data-lucide="users"></i><span>${uiText("activity.person_players")}</span><small>${players.length}</small></button><button type="button" role="tab" aria-selected="${app.activityRosterTab === "staff"}" class="activity-roster-tab ${app.activityRosterTab === "staff" ? "active" : ""}" data-activity-roster-tab="staff"><i data-lucide="briefcase"></i><span>${uiText("activity.person_staff")}</span><small>${allManagedStaff().length}</small></button></div>` : "";
-     const nationalityTabs = selectedActivity.kind === "naturalization" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.nationality_scope_aria")}"><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "club"}" class="activity-roster-tab ${app.activityNationalityScope === "club" ? "active" : ""}" data-nationality-scope="club"><i data-lucide="shield"></i><span>${uiText("activity.club_players")}</span><small>${freeServicesEnabled() ? uiText("activity.free") : `${formatPounds(nationalityClubPrice)}${uiText("activity.per_person")}`}</small></button><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "world"}" class="activity-roster-tab ${app.activityNationalityScope === "world" ? "active" : ""}" data-nationality-scope="world"><i data-lucide="earth"></i><span>${uiText("activity.world_players")}</span><small>${freeServicesEnabled() ? uiText("activity.free") : `${formatPounds(nationalityWorldPrice)}${uiText("activity.per_person")}`}</small></button></div>` : "";
+     const nationalityTabs = selectedActivity.kind === "naturalization" ? `<div class="activity-roster-tabs" role="tablist" aria-label="${uiText("activity.nationality_scope_aria")}"><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "club"}" class="activity-roster-tab ${app.activityNationalityScope === "club" ? "active" : ""}" data-nationality-scope="club"><i data-lucide="shield"></i><span>${uiText("activity.club_players")}</span><small>${`${formatPounds(nationalityClubPrice)}${uiText("activity.per_person")}`}</small></button><button type="button" role="tab" aria-selected="${app.activityNationalityScope === "world"}" class="activity-roster-tab ${app.activityNationalityScope === "world" ? "active" : ""}" data-nationality-scope="world"><i data-lucide="earth"></i><span>${uiText("activity.world_players")}</span><small>${`${formatPounds(nationalityWorldPrice)}${uiText("activity.per_person")}`}</small></button></div>` : "";
      const nationalityWorldToolbar = selectedActivity.kind === "naturalization" && app.activityNationalityScope === "world" ? `<label class="activity-roster-search"><i data-lucide="search"></i><input id="activity-nationality-world-search" type="search" value="${escapeHtml(app.activityNationalityWorldSearch || "")}" placeholder="${uiText("activity.search_world_players")}" autocomplete="off" aria-label="${uiText("activity.search_world_players")}"></label>` : "";
      const nationalityWorldPager = selectedActivity.kind === "naturalization" && app.activityNationalityScope === "world" && Number(app.activityNationalityWorldPagination?.page_count || 1) > 1 ? `<div class="activity-nationality-pager"><button type="button" data-activity-nationality-page="${Math.max(1, Number(app.activityNationalityWorldPage) - 1)}" ${Number(app.activityNationalityWorldPage) <= 1 ? "disabled" : ""}>${uiText("activity.previous_page")}</button><span>${uiText("activity.page_of", {page:Number(app.activityNationalityWorldPage), pages:Number(app.activityNationalityWorldPagination.page_count)})}</span><button type="button" data-activity-nationality-page="${Math.min(Number(app.activityNationalityWorldPagination.page_count), Number(app.activityNationalityWorldPage) + 1)}" ${Number(app.activityNationalityWorldPage) >= Number(app.activityNationalityWorldPagination.page_count) ? "disabled" : ""}>${uiText("activity.next_page")}</button></div>` : "";
-     const nationalityPicker = selectedActivity.kind === "naturalization" ? `<dialog class="owned-vision-picker-dialog activity-nationality-picker-dialog" id="activity-nationality-picker-dialog" aria-labelledby="activity-nationality-picker-title"><header><div><small>NATIONALITY CATALOG</small><h3 id="activity-nationality-picker-title">${uiText("activity.select_nationality")}</h3></div><button type="button" class="close-dialog" data-activity-nation-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-choice-grid">${internationalNations.map((nation) => `<button type="button" data-activity-nation-select="${Number(nation.id)}" class="${Number(nation.id) === Number(app.internationalNationId) ? "selected" : ""}"><strong>${escapeHtml(localizedNationName(nation))}</strong><small>${escapeHtml(localizedContinentName(nation.continent))}</small></button>`).join("") || `<span class="activity-roster-empty">${escapeHtml(app.internationalNationError || uiText("activity.no_nationalities"))}</span>`}</div></dialog><dialog class="owned-vision-picker-dialog activity-nationality-slot-dialog" id="activity-nationality-slot-dialog" aria-labelledby="activity-nationality-slot-title"><header><div><small>NATIONALITY SLOT</small><h3 id="activity-nationality-slot-title">${uiText("activity.nationality_slot_title")}</h3><p>${uiText("activity.people_count", {count:selections.size, person:uiText("activity.person_players")})} · ${freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityTotalPrice)}</p></div><button type="button" class="close-dialog" data-activity-slot-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-slot-options"><button type="button" data-activity-nationality-slot="primary"><strong>${uiText("activity.change_primary_nationality")}</strong><small>${uiText("activity.replace_primary_nationality")}</small></button><button type="button" data-activity-nationality-slot="secondary"><strong>${uiText("activity.change_secondary_nationality")}</strong><small>${uiText("activity.add_secondary_nationality")}</small></button></div></dialog>` : "";
+     const nationalityPicker = selectedActivity.kind === "naturalization" ? `<dialog class="owned-vision-picker-dialog activity-nationality-picker-dialog" id="activity-nationality-picker-dialog" aria-labelledby="activity-nationality-picker-title"><header><div><small>NATIONALITY CATALOG</small><h3 id="activity-nationality-picker-title">${uiText("activity.select_nationality")}</h3></div><button type="button" class="close-dialog" data-activity-nation-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-choice-grid">${internationalNations.map((nation) => `<button type="button" data-activity-nation-select="${Number(nation.id)}" class="${Number(nation.id) === Number(app.internationalNationId) ? "selected" : ""}"><strong>${escapeHtml(localizedNationName(nation))}</strong><small>${escapeHtml(localizedContinentName(nation.continent))}</small></button>`).join("") || `<span class="activity-roster-empty">${escapeHtml(app.internationalNationError || uiText("activity.no_nationalities"))}</span>`}</div></dialog><dialog class="owned-vision-picker-dialog activity-nationality-slot-dialog" id="activity-nationality-slot-dialog" aria-labelledby="activity-nationality-slot-title"><header><div><small>NATIONALITY SLOT</small><h3 id="activity-nationality-slot-title">${uiText("activity.nationality_slot_title")}</h3><p>${uiText("activity.people_count", {count:selections.size, person:uiText("activity.person_players")})} · ${formatPounds(nationalityTotalPrice)}</p></div><button type="button" class="close-dialog" data-activity-slot-close aria-label="${uiText("activity.close_dialog")}">×</button></header><div class="activity-nationality-slot-options"><button type="button" data-activity-nationality-slot="primary"><strong>${uiText("activity.change_primary_nationality")}</strong><small>${uiText("activity.replace_primary_nationality")}</small></button><button type="button" data-activity-nationality-slot="secondary"><strong>${uiText("activity.change_secondary_nationality")}</strong><small>${uiText("activity.add_secondary_nationality")}</small></button></div></dialog>` : "";
      const targetLabel = selectedActivity.kind === "language" ? personLabel : isEntertainmentStaff ? uiText("activity.person_staff") : uiText("activity.person_players");
      return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.member_count_selected", {selected:selections.size,total:targetPlayers.length}), "", rosterRefreshAction)}<div class="activity-roster-shell ${selectedActivity.kind === "language" ? "activity-language-roster-shell" : ""}">${entertainmentTabs}${nationalityTabs}${languageTabs}<div class="activity-roster-toolbar"><button type="button" class="activity-select-all" id="activity-select-all" data-all-selected="${allSelected ? "true" : "false"}" ${selectable.length ? "" : "disabled"}><i data-lucide="${allSelected ? "square-minus" : "square-check-big"}"></i><span>${allSelected ? uiText("activity.clear_all") : uiText("activity.select_all")}</span></button>${nationalityWorldToolbar}${retirementToolbar}${selectedActivity.kind === "retirement" ? "" : `<span role="status" aria-live="polite">${uiText("activity.selected_count", {count:selections.size})}</span>`}</div>${nationalityWorldPager}${options || retirementScopeOption ? `<div class="activity-roster-options">${retirementScopeOption}${options}</div>` : ""}${languageStatuses}<div class="activity-panel-scroll"><div class="activity-roster-list" role="group" aria-label="${uiText("activity.roster_activity_aria", {target:targetLabel})}">${categorizedRows || `<div class="activity-roster-empty">${app.activityNationalityWorldLoading ? uiText("activity.read_world_players") : app.activityNationalityWorldError || (app.retirementPlayersLoading ? uiText("activity.read_retirement_players") : escapeHtml(app.retirementPlayersError || uiText("activity.no_participants", {target:targetLabel})))}</div>`}</div></div>${footer}</div>${nationalityPicker}`;
   };
@@ -16049,7 +15116,7 @@ function renderActivity() {
     const submit = document.querySelector("[data-activity-submit]");
     if (submit) submit.disabled = app.activityActionBusy || current.size === 0 || (selectedActivity.kind === "naturalization" && (!app.internationalNationId || !nationalityOptions));
     const nationalitySubmitLabel = document.querySelector("[data-nationality-submit-label]");
-     if (nationalitySubmitLabel) nationalitySubmitLabel.textContent = app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(nationalityUnitPrice * current.size)});
+     if (nationalitySubmitLabel) nationalitySubmitLabel.textContent = app.activityActionBusy ? uiText("activity.nationality_confirming") : uiText("activity.submit_nationality", {price:formatPounds(nationalityUnitPrice * current.size)});
     const cancelSecondary = document.querySelector("[data-activity-cancel-secondary]");
     if (cancelSecondary && selectedActivity.kind === "naturalization") {
       const removable = selectedActivity.players.some((player) => current.has(Number(player.id))
@@ -16069,7 +15136,7 @@ function renderActivity() {
     const instantLabel = document.querySelector("[data-language-instant-label]");
     if (instantLabel) {
       const total = selectedPlayers.reduce((sum, player) => sum + instantLanguagePrice(player), 0);
-       instantLabel.textContent = uiText("activity.instant_label", {price:freeServicesEnabled() ? uiText("activity.free") : formatPounds(total)});
+       instantLabel.textContent = uiText("activity.instant_label", {price:formatPounds(total)});
     }
   };
   document.querySelectorAll("[data-activity-floor]").forEach((button) => button.addEventListener("click", () => { app.activityFloor = String(button.dataset.activityFloor || "entertainment"); app.activityNode = null; localStorage.setItem("fmodd-activity-floor", app.activityFloor); renderActivity(); }));
@@ -16134,8 +15201,8 @@ function renderActivity() {
     $("#activity-nationality-slot-dialog")?.close();
     document.querySelector("[data-activity-submit]")?.click();
   }));
-   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const floor = floors[centre]; if (!floor || !floor.available) return; const price = freeServicesEnabled() ? 0 : floor.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre,free_purchase:freeServicesEnabled()})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:floor.name})); } catch (error) { toast(error.message); renderActivity(); } }));
-   document.querySelectorAll("[data-activity-facility]").forEach((button) => button.addEventListener("click", async () => { const facility = String(button.dataset.activityFacility || ""); const room = facilityState[facility]; if (!room || room.owned) return; const price = freeServicesEnabled() ? 0 : Number(room.price || 0); if (!await fmoddConfirm(uiText("activity.confirm_buy_room", {name:room.name, amount:formatPounds(price)}), uiText("activity.room_buy_room"))) return; button.disabled = true; try { const response = await request("/api/activity/facility/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility,free_purchase:freeServicesEnabled()})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; app.activityNode = facility; renderActivity(); toast(uiText("activity.room_unlocked", {name:room.name})); } catch (error) { toast(error.message); renderActivity(); } }));
+   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const floor = floors[centre]; if (!floor || !floor.available) return; const price = floor.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:floor.name})); } catch (error) { toast(error.message); renderActivity(); } }));
+   document.querySelectorAll("[data-activity-facility]").forEach((button) => button.addEventListener("click", async () => { const facility = String(button.dataset.activityFacility || ""); const room = facilityState[facility]; if (!room || room.owned) return; const price = Number(room.price || 0); if (!await fmoddConfirm(uiText("activity.confirm_buy_room", {name:room.name, amount:formatPounds(price)}), uiText("activity.room_buy_room"))) return; button.disabled = true; try { const response = await request("/api/activity/facility/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; app.activityNode = facility; renderActivity(); toast(uiText("activity.room_unlocked", {name:room.name})); } catch (error) { toast(error.message); renderActivity(); } }));
   $("[data-salary-authorization]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
     const enabled = button.dataset.salaryAuthorization === "true";
@@ -16231,7 +15298,6 @@ function renderActivity() {
     }
   }));
   document.querySelectorAll("[data-intelligence-refresh]").forEach((button) => button.addEventListener("click", () => {
-    app.matchIntelligence = null;
     loadMatchIntelligence(true);
     renderActivity();
   }));
@@ -16349,8 +15415,8 @@ function renderActivity() {
     const maximumTotal = targetPlayers.reduce((sum, player) => sum + instantLanguagePrice(player, true), 0);
     const dialog = ensureActivityLanguageInstantDialog();
      $("#activity-language-instant-subtitle").textContent = uiText("activity.language_instant_subtitle", {count:targets.length, person:languagePersonKind === "staff" ? uiText("activity.person_staff") : uiText("activity.person_players"), language:selectedLanguage.name});
-     $("#activity-language-instant-next-price").textContent = freeServicesEnabled() ? uiText("activity.free") : formatPounds(nextTotal);
-     $("#activity-language-instant-max-price").textContent = freeServicesEnabled() ? uiText("activity.free") : formatPounds(maximumTotal);
+     $("#activity-language-instant-next-price").textContent = formatPounds(nextTotal);
+     $("#activity-language-instant-max-price").textContent = formatPounds(maximumTotal);
     const cancelButton = $("#activity-language-instant-cancel");
     const nextButton = $("#activity-language-instant-next-confirm");
     const maximumButton = $("#activity-language-instant-max-confirm");
@@ -16552,7 +15618,6 @@ function hospitalDataIndex() {
 
 function hospitalViewState(index) {
   const welfare = app.state?.welfare || {};
-  const freeServices = freeServicesEnabled();
   const treatmentCost = (mode) => Number(index.treatmentOptionsByMode.get(mode)?.daily_cost || 0);
   const patients = [];
   let dailyCost = 0;
@@ -16561,7 +15626,7 @@ function hospitalViewState(index) {
     if (!injuries.length) continue;
     const playerId = Number(player.id || 0);
     const treatmentMode = String(index.treatmentsByPlayerId.get(playerId)?.mode || "none");
-    if (!freeServices) dailyCost += treatmentCost(treatmentMode);
+    dailyCost += treatmentCost(treatmentMode);
     const injuryRows = injuries.map((injury) => {
       const remaining = remainingInjuryDays(injury);
       return {type:String(injury.type || uiText("hospital.injury")), low:remaining.low, high:remaining.high};
@@ -16575,14 +15640,13 @@ function hospitalViewState(index) {
   }
   const busyLabel = app.medicalDefaultSyncBusy ? uiText("hospital.default_applying")
     : app.medicalTreatmentBusy.size ? uiText("hospital.updating", {count:app.medicalTreatmentBusy.size})
-      : app.freeServicesSyncBusy ? uiText("hospital.free_syncing")
         : (app.clubStatus || app.state?.club_status)?.refreshing ? uiText("hospital.roster_loading") : "";
   const economy = app.state?.economy || {};
   const signature = JSON.stringify([
     String(app.state?.data_scope_id || ""), moneyRenderSignature(),
     economy.bank_balance, economy.casino_balance, economy.total_balance,
     String(app.gameClock?.date || output().game_date || ""),
-    index.players.length, freeServices,
+    index.players.length,
     String(welfare.default_treatment || "manual"),
     [...index.treatmentOptionsByMode.entries()], busyLabel,
     [...app.medicalTreatmentBusy].sort((left, right) => left - right),
@@ -16592,7 +15656,7 @@ function hospitalViewState(index) {
       row.injuryRows.map((injury) => [injury.type, injury.low, injury.high]),
     ]),
   ]);
-  return {freeServices, treatmentCost, patients, dailyCost, busyLabel, signature};
+  return {treatmentCost, patients, dailyCost, busyLabel, signature};
 }
 
 function syncHospitalStatus(label) {
@@ -16615,15 +15679,15 @@ function renderHospital() {
   const view = hospitalViewState(index);
   syncHospitalStatus(view.busyLabel);
   if (app.hospitalRenderSignature === view.signature) return;
-  const {freeServices, treatmentCost, patients, dailyCost} = view;
+  const {treatmentCost, patients, dailyCost} = view;
   const welfare = app.state?.welfare || {};
   const defaultTreatment = String(welfare.default_treatment || "manual");
   const defaultSelect = $("#hospital-default-treatment");
   if (defaultSelect) {
     defaultSelect.value = ["manual", "none", "conservative", "aggressive"].includes(defaultTreatment) ? defaultTreatment : "manual";
-    defaultSelect.disabled = Boolean(app.medicalDefaultSyncBusy || app.freeServicesSyncBusy);
-    const conservativeCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
-    const aggressiveCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
+    defaultSelect.disabled = Boolean(app.medicalDefaultSyncBusy);
+    const conservativeCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
+    const aggressiveCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
     defaultSelect.querySelector('option[value="conservative"]').textContent = uiText("hospital.conservative", {cost:conservativeCost});
     defaultSelect.querySelector('option[value="aggressive"]').textContent = uiText("hospital.aggressive", {cost:aggressiveCost});
   }
@@ -16656,10 +15720,10 @@ function renderHospital() {
       const days = injury.low == null ? uiText("hospital.days_tbc") : injury.low === injury.high ? uiText("hospital.remaining_days", {days:injury.low}) : uiText("hospital.remaining_days_range", {low:injury.low, high:injury.high});
       return `<span><i data-lucide="bandage"></i><strong>${escapeHtml(injury.type)}</strong><small>${days}</small></span>`;
     }).join("");
-    const controlsDisabled = app.freeServicesSyncBusy || app.medicalDefaultSyncBusy || treatmentBusy;
+    const controlsDisabled = app.medicalDefaultSyncBusy || treatmentBusy;
     const playerLabelId = `hospital-player-${playerId}`;
-    const conservativeCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
-    const aggressiveCost = freeServices ? uiText("hospital.free") : uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
+    const conservativeCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("conservative"))});
+    const aggressiveCost = uiText("hospital.daily", {amount:formatPounds(treatmentCost("aggressive"))});
     return `<article class="hospital-bed-card ${severity} ${treatmentClass} ${treatmentBusy ? "is-syncing" : ""}" ${treatmentBusy ? 'aria-busy="true"' : ""}><header class="bed-card-head"><span><i data-lucide="bed-single"></i>${uiText("hospital.bed", {number:String(bedIndex + 1).padStart(2, "0")})}</span><b>${treatmentLabel}</b></header><div class="bed-scene"><div class="bed-player-tag"><span class="patient-avatar tone-${Math.abs(playerId || bedIndex) % 4}">${escapeHtml(positionLabel)}</span><div><h2 id="${playerLabelId}">${escapeHtml(player.name)}</h2><p>${escapeHtml(teamName)}</p></div></div><div class="ward-monitor"><i data-lucide="activity"></i><span></span><small>RECOVERY</small></div><div class="patient-bed"><span class="bed-headboard"></span><span class="bed-mattress"></span><span class="bed-pillow"></span><span class="patient-head"></span><span class="patient-body"></span><span class="bed-blanket"></span><span class="bed-rail"></span></div></div><div class="bed-medical-panel"><div class="hospital-injuries"><div class="injury-panel-title"><strong>${uiText("hospital.injury_status")}</strong><small>${uiText("hospital.recovery_estimate")}</small></div>${injuryText}</div><div class="treatment-panel"><strong>${uiText("hospital.treatment_plan")}</strong><div class="treatment-options" role="radiogroup" aria-labelledby="${playerLabelId}"><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="none" ${treatmentMode === "none" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.physio")}</strong><small>${uiText("hospital.physio_note")}</small></span></label><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="conservative" ${treatmentMode === "conservative" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.conservative", {cost:conservativeCost})}</strong><small>${uiText("hospital.conservative_note", {cost:conservativeCost})}</small></span></label><label><input type="radio" name="treatment-${playerId}" data-treatment-player="${playerId}" data-treatment-mode="aggressive" ${treatmentMode === "aggressive" ? "checked" : ""} ${controlsDisabled ? "disabled" : ""}><span><strong>${uiText("hospital.aggressive", {cost:aggressiveCost})}</strong><small>${uiText("hospital.aggressive_note", {cost:aggressiveCost})}</small></span></label></div></div></div></article>`;
   }).join("");
   container.innerHTML = `<section class="hospital-ward"><div class="hospital-beds">${bedCards}</div></section>`;
@@ -17397,10 +16461,7 @@ function cyclePlayerCardPosition(playerId) {
 function compactMoney(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount < 0) return "-";
-  const compact = (number, suffix) => `${number.toFixed(1)}${suffix}`;
-  const unit = moneyAbbreviationUnit(amount);
-  if (unit) return `£${compact(amount / unit[0], unit[1])}`;
-  return `£${Math.round(amount)}`;
+  return formatFullMoney(amount);
 }
 
 function ownedClubMoney(value, unavailable = false) {
@@ -17509,7 +16570,7 @@ function renderPlayerCard(player) {
   const heightLabel = player.height_cm ? `${player.height_cm} cm` : uiText("world.not_read");
   const nationalityLabel = playerNationalityLabel(player);
   const wageLabel = compactMoney(wage);
-  const askingPriceLabel = compactMoney(askingPrice);
+  const askingPriceLabel = Number(askingPrice) > 0 ? compactMoney(askingPrice) : "-";
   const injured = Number(player.availability?.injury_count || 0) > 0 || (player.availability?.injuries || []).length > 0;
   const loanedOut = Boolean(player.is_loaned_out || player.loan?.is_loaned_out);
   const injuryCross = injured ? `<span class="player-injury-cross" title="${uiText("world.club.player.injured")}" aria-label="${uiText("world.club.player.injured")}">+</span>` : "";
@@ -17800,7 +16861,7 @@ function hydrateCurrentWorldPlayerPage() {
 function worldPlayerRow(player) {
   const value = (entry) => entry == null || entry === "" ? "-" : escapeHtml(entry);
   const positions = (player.positions || []).join("/") || "-";
-  return `<div class="world-player-row" role="row" tabindex="0" aria-label="${uiText("world.view_details", {name:escapeHtml(player.name || String(player.id))})}" data-world-player-detail="${Number(player.id || 0)}"><span class="world-player-name" role="cell" title="UID ${Number(player.id || 0)}"><strong>${escapeHtml(player.name || String(player.id))}</strong></span><span role="cell">${value(player.age)}</span><span role="cell">${value(player.ca)}</span><span role="cell">${value(player.pa)}</span><span role="cell">${escapeHtml(localizedNationName({id:player.nationality_id,name:player.nationality}) || uiText("world.not_read"))}</span><span role="cell">${escapeHtml(player.team_name || "-")}</span><span role="cell">${compactMoney(player.asking_price)}</span><span role="cell">${escapeHtml(positions)}</span></div>`;
+  return `<div class="world-player-row" role="row" tabindex="0" aria-label="${uiText("world.view_details", {name:escapeHtml(player.name || String(player.id))})}" data-world-player-detail="${Number(player.id || 0)}"><span class="world-player-name" role="cell" title="UID ${Number(player.id || 0)}"><strong>${escapeHtml(player.name || String(player.id))}</strong></span><span role="cell">${value(player.age)}</span><span role="cell">${value(player.ca)}</span><span role="cell">${value(player.pa)}</span><span role="cell">${escapeHtml(localizedNationName({id:player.nationality_id,name:player.nationality}) || uiText("world.not_read"))}</span><span role="cell">${escapeHtml(player.team_name || "-")}</span><span role="cell">${Number(player.asking_price) > 0 ? compactMoney(player.asking_price) : "-"}</span><span role="cell">${escapeHtml(positions)}</span></div>`;
 }
 
 function worldPlayerSortHeader(field, label, filters = {}) {
@@ -18158,41 +17219,21 @@ function ownedClubOrderStorageKey() {
   return `fmodd-owned-club-order:${String(app.state?.data_scope_id || "default")}`;
 }
 
-function storedOwnedClubOrder() {
-  try {
-    const values = JSON.parse(localStorage.getItem(ownedClubOrderStorageKey()) || "[]");
-    if (!Array.isArray(values)) return [];
-    return [...new Set(values.map(Number).filter((value) => Number.isInteger(value) && value > 0))];
-  } catch (_error) {
-    return [];
-  }
-}
-
-function orderedOwnedClubs(clubs) {
-  const positions = new Map(storedOwnedClubOrder().map((teamId, index) => [teamId, index]));
-  return clubs.map((club, index) => ({club, index})).sort((left, right) => {
-    const leftPosition = positions.get(Number(left.club.id));
-    const rightPosition = positions.get(Number(right.club.id));
-    if (leftPosition != null || rightPosition != null) {
-      if (leftPosition == null) return 1;
-      if (rightPosition == null) return -1;
-      if (leftPosition !== rightPosition) return leftPosition - rightPosition;
-    }
-    return left.index - right.index;
-  }).map((entry) => entry.club);
-}
 
 function ownedClubDataIndex() {
   const data = app.worldClubs;
-  const acquired = data?.acquired || [];
+  const acquiredSource = data?.acquired || [];
+  const pendingSales = [...(app.ownedClubSalesAwaitingSync?.keys() || [])]
+    .filter(ownedClubSalePendingSync).join(",");
   const scope = String(app.state?.data_scope_id || output().save_instance_id || "");
   const orderRaw = localStorage.getItem(ownedClubOrderStorageKey()) || "[]";
   const sources = app.ownedClubIndexSources;
   if (
-    sources?.data === data && sources.acquired === acquired
+    sources?.data === data && sources.acquired === acquiredSource && sources.pendingSales === pendingSales
     && sources.scope === scope && sources.orderRaw === orderRaw
     && app.ownedClubIndex
   ) return app.ownedClubIndex;
+  const acquired = acquiredSource.filter((club) => !ownedClubSalePendingSync(club.id));
   let storedOrder = [];
   try {
     const parsed = JSON.parse(orderRaw);
@@ -18215,7 +17256,7 @@ function ownedClubDataIndex() {
   }).map((entry) => entry.club);
   const byId = new Map(acquired.map((club) => [Number(club.id), club]));
   app.ownedClubIndexVersion += 1;
-  app.ownedClubIndexSources = {data, acquired, scope, orderRaw};
+  app.ownedClubIndexSources = {data, acquired:acquiredSource, pendingSales, scope, orderRaw};
   app.ownedClubIndex = {
     data, acquired, ordered, byId, orderRaw, version:app.ownedClubIndexVersion,
     active:acquired.filter((club) => club.ownership_active !== false),
@@ -18237,9 +17278,9 @@ function worldClubCard(club, {
   orderTotal = 0,
   reordering = false,
 } = {}) {
-  const displayName = club.display_name
-    || (portfolio ? (club.renamed_short_name || club.short_name) : "")
-    || club.name || club.short_name || uiText("world.unnamed_club");
+  const displayName = portfolio
+    ? ownedClubPortfolioDisplayName(club)
+    : (club.display_name || club.name || club.short_name || uiText("world.unnamed_club"));
   const ranking = club.league_position != null && club.league_team_count != null
     ? uiText("portfolio.league_position", {position:Number(club.league_position), total:Number(club.league_team_count)})
     : uiText("world.pending");
@@ -18248,7 +17289,6 @@ function worldClubCard(club, {
     : clubReputationTier(club.reputation);
   if (portfolio) {
     const teamId = Number(club.id);
-    const expanded = app.ownedClubExpandedIds.has(teamId);
     const orderControls = reordering && orderTotal > 1 ? `<div class="owned-club-order-controls" aria-label="${uiText("portfolio.order.aria", {club:escapeHtml(displayName)})}"><span><i data-lucide="grip-vertical"></i><b data-owned-club-order-position>${uiText("portfolio.order.position", {position:Number(orderIndex) + 1})}</b></span><div><button type="button" data-owned-club-order="up" aria-label="${uiText("portfolio.order.up")} ${escapeHtml(displayName)}" title="${uiText("portfolio.order.up")}"><i data-lucide="arrow-up"></i></button><button type="button" data-owned-club-order="down" aria-label="${uiText("portfolio.order.down")} ${escapeHtml(displayName)}" title="${uiText("portfolio.order.down")}"><i data-lucide="arrow-down"></i></button></div></div>` : "";
     if (club.ownership_active === false) {
       const restoreDate = club.ownership_suspended_until || club.acquired_game_date || uiText("world.pending");
@@ -18273,17 +17313,16 @@ function worldClubCard(club, {
         metrics.social_media_followers_comparison,
       )
       : ownedClubMetric(fanCountLabel, ownedClubCount(metrics.fan_count));
-    const salePrice = ownedClubSalePrice(metrics, club);
     const form = (club.recent_results || []).slice(0, 5);
     const formHtml = form.length ? form.map((row) => {
       const tone = row.result === "胜" ? "win" : row.result === "平" ? "draw" : "loss";
       return `<span class="world-form-${tone}" title="${escapeHtml(`${row.opponent || uiText("portfolio.form.opponent")} ${row.score || ""}`)}">${escapeHtml(row.result || "-")}</span>`;
     }).join("") : `<span class="owned-form-none">${uiText("portfolio.form.none")}</span>`;
-    return `<article class="owned-club-row-card${expanded ? " is-expanded" : ""}" data-owned-club-card="${teamId}">
-      <div class="owned-club-row-identity" data-owned-club-disclosure role="button" tabindex="0" aria-expanded="${expanded}" aria-controls="owned-club-metrics-${teamId}">${orderControls}<h2>${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
-      <dl class="owned-club-row-metrics" id="owned-club-metrics-${teamId}" data-owned-club-disclosure>${ownedClubMetric(uiText("portfolio.metric.league_rank"), ranking)}${ownedClubMetric(uiText("portfolio.metric.transfer_budget"), ownedClubMoney(metrics.transfer_budget, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.balance"), ownedClubMoney(metrics.balance, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.dividend"), ownedClubDividendEstimate(metrics))}${ownedClubMetric(uiText("portfolio.metric.valuation"), ownedClubMoney(metrics.current_valuation, metrics.unavailable))}${ownedClubAcquisitionMetric(metrics)}${ownedClubMetric(uiText("portfolio.metric.holding_days"), metrics.holding_days == null ? uiText("world.not_read") : uiText("portfolio.metric.days", {count:ownedClubCount(metrics.holding_days)}))}${ownedClubDebtMetric(metrics, club.id)}${ownedClubReputationMetric(club)}${reputationMetric}${fanCountMetric}${ownedClubMetric(uiText("portfolio.metric.season_revenue"), ownedClubMoney(metrics.season_revenue, metrics.unavailable))}</dl>
+    return `<article class="owned-club-row-card" data-owned-club-card="${teamId}">
+      <div class="owned-club-row-identity">${orderControls}<h2 title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</h2><span>${uiText("portfolio.metric.country")}: ${escapeHtml(localizedClubNation(club, metrics.nation))}</span><small>${uiText("portfolio.metric.competition")}: ${escapeHtml(ownedClubLeagueLabel(club.nation, club.competition))}</small></div>
+      <dl class="owned-club-row-metrics" id="owned-club-metrics-${teamId}">${ownedClubMetric(uiText("portfolio.metric.league_rank"), ranking)}${ownedClubMetric(uiText("portfolio.metric.transfer_budget"), ownedClubMoney(metrics.transfer_budget, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.balance"), ownedClubMoney(metrics.balance, metrics.unavailable))}${ownedClubMetric(uiText("portfolio.metric.dividend"), ownedClubDividendEstimate(metrics))}${ownedClubMetric(uiText("portfolio.metric.valuation"), ownedClubMoney(metrics.current_valuation, metrics.unavailable))}${ownedClubAcquisitionMetric(metrics)}${ownedClubMetric(uiText("portfolio.metric.holding_days"), metrics.holding_days == null ? uiText("world.not_read") : uiText("portfolio.metric.days", {count:ownedClubCount(metrics.holding_days)}))}${ownedClubDebtMetric(metrics, club.id)}${ownedClubReputationMetric(club)}${reputationMetric}${fanCountMetric}${ownedClubMetric(uiText("portfolio.metric.season_revenue"), ownedClubMoney(metrics.season_revenue, metrics.unavailable))}</dl>
       <div class="owned-club-row-form"><small>${uiText("portfolio.form.recent")}</small><div>${formHtml}</div></div>
-      <div class="owned-club-row-actions"><button type="button" class="primary-action owned-club-row-view" data-world-view="${Number(club.id)}"><span>${uiText("portfolio.view")}</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>${uiText("portfolio.sell")}</span></button><button type="button" class="owned-club-row-toggle" data-owned-club-toggle="${teamId}" aria-expanded="${expanded}" aria-controls="owned-club-metrics-${teamId}" aria-label="${expanded ? uiText("portfolio.collapse") : uiText("portfolio.expand")} ${escapeHtml(displayName)}"><span>${expanded ? uiText("portfolio.collapse_data") : uiText("portfolio.more_data")}</span><i data-lucide="chevron-${expanded ? "up" : "down"}"></i></button></div>
+      <div class="owned-club-row-actions"><button type="button" class="primary-action owned-club-row-view" data-world-view="${Number(club.id)}"><span>${uiText("portfolio.card.view_details")}</span></button><button type="button" class="owned-club-row-sell" data-world-sell="${Number(club.id)}"><span>${uiText("portfolio.card.sell_club")}</span></button></div>
     </article>`;
   }
   return `<article class="world-club-card">
@@ -18303,42 +17342,6 @@ function activeOwnedClubs() {
 }
 
 function initializeOwnedClubCardInteractions(root) {
-  const setExpanded = (card, button, expanded) => {
-    const teamId = Number(card?.dataset.ownedClubCard);
-    if (!card || !button || !Number.isInteger(teamId)) return;
-    card.classList.toggle("is-expanded", expanded);
-    if (expanded) app.ownedClubExpandedIds.add(teamId);
-    else app.ownedClubExpandedIds.delete(teamId);
-    button.setAttribute("aria-expanded", String(expanded));
-    card.querySelectorAll('[data-owned-club-disclosure][role="button"]').forEach((node) => node.setAttribute("aria-expanded", String(expanded)));
-    button.setAttribute("aria-label", `${expanded ? uiText("portfolio.collapse") : uiText("portfolio.expand")} ${card.querySelector("h2")?.textContent || uiText("portfolio.club_fallback")}`);
-    button.innerHTML = `<span>${expanded ? uiText("portfolio.collapse_data") : uiText("portfolio.more_data")}</span><i data-lucide="chevron-${expanded ? "up" : "down"}"></i>`;
-    renderIcons();
-  };
-  root.querySelectorAll("[data-owned-club-toggle]").forEach((button) => button.addEventListener("click", () => {
-    const teamId = Number(button.dataset.ownedClubToggle);
-    const card = button.closest("[data-owned-club-card]");
-    if (!card || !Number.isInteger(teamId)) return;
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-
-  root.querySelectorAll("[data-owned-club-card]").forEach((card) => card.addEventListener("click", (event) => {
-    if (app.ownedClubReorderMode || !event.target.closest("[data-owned-club-disclosure]")) return;
-    if (event.target.closest("button, a, input, select, textarea, label")) return;
-    const selection = window.getSelection?.();
-    if (selection && !selection.isCollapsed) return;
-    const button = card.querySelector("[data-owned-club-toggle]");
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-  root.querySelectorAll('[data-owned-club-disclosure][role="button"]').forEach((disclosure) => disclosure.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    const card = disclosure.closest("[data-owned-club-card]");
-    const button = card?.querySelector("[data-owned-club-toggle]");
-    if (!card || !button || app.ownedClubReorderMode) return;
-    setExpanded(card, button, !card.classList.contains("is-expanded"));
-  }));
-
   const grid = root.querySelector(".my-club-grid");
   if (!grid) return;
   const syncOrderButtons = () => {
@@ -18692,42 +17695,167 @@ function renderWorldClubs() {
   renderIcons();
 }
 
-async function sellOwnedClub(teamId, button) {
-  const club = (app.worldClubs?.acquired || []).find(
-    (row) => Number(row.id) === Number(teamId),
-  );
-  const metrics = app.ownedClubMetrics.get(Number(teamId)) || club?.portfolio_metrics || {};
-  const salePrice = ownedClubSalePrice(metrics, club);
-  const confirmed = await fmoddConfirm(
-    uiText("portfolio.sell.confirm", {
-      club:club?.name || uiText("portfolio.club_fallback"),
-      amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
-    }),
-    uiText("portfolio.sell.title"),
-  );
-  if (!confirmed) return;
+function ownedClubPortfolioDisplayName(club) {
+  if (!club) return uiText("portfolio.club_fallback");
+  return club.display_name
+    || club.renamed_short_name
+    || club.short_name
+    || club.name
+    || uiText("world.unnamed_club");
+}
+
+function ownedClubSalePendingSync(teamId) {
+  return app.ownedClubSalesAwaitingSync?.get(Number(teamId))?.scope
+    === String(app.state?.data_scope_id || "");
+}
+
+async function syncCompletedOwnedClubSales() {
+  const scope = String(app.state?.data_scope_id || "");
+  const scopeStillCurrent = () => String(app.state?.data_scope_id || "") === scope;
+  const sales = new Map(app.ownedClubSalesAwaitingSync);
+  const pendingReads = new Set(app.worldClubsLoadPromise ? [app.worldClubsLoadPromise] : []);
+  for (const [key, promise] of app.pageDataRequests || []) {
+    if (String(key).startsWith("world-clubs:") && promise) pendingReads.add(promise);
+  }
+  // A list started before the sale can still publish an obsolete ownership row.
+  await Promise.allSettled([...pendingReads]);
+  await Promise.resolve();
+  if (!scopeStillCurrent()) return false;
+  const stateLoaded = await loadState({fresh:true});
+  if (!scopeStillCurrent()) return false;
+  if (stateLoaded === false) throw new Error(uiText("portfolio.sell.sync_failed"));
+  const previous = app.worldClubs;
+  const clubs = await loadWorldClubs({background:true});
+  if (!scopeStillCurrent()) return false;
+  // A failed or discarded list publication cannot confirm synchronization.
+  if (!clubs || clubs === previous || app.worldClubsError) {
+    throw new Error(uiText("portfolio.sell.sync_failed"));
+  }
+  for (const [teamId, sale] of sales) {
+    if (app.ownedClubSalesAwaitingSync.get(teamId) === sale) app.ownedClubSalesAwaitingSync.delete(teamId);
+  }
+  rebuildOwnedClubPortfolioSummaryFromCache();
+  renderMyClubs();
+  return true;
+}
+
+async function retryOwnedClubSaleSync() {
+  if (app.ownedClubSaleSyncLoading) return;
+  const token = {scope:String(app.state?.data_scope_id || "")};
+  app.ownedClubSaleSyncLoading = token;
+  renderMyClubs();
   try {
-    const result = await runOwnedClubOperation(button, uiText("portfolio.sell.busy"), () => request(
-      "/api/world-clubs/sell",
-      {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({team_id:Number(teamId)}),
-      },
-    ));
-    if (!result) return;
-    if (app.worldClubs) app.worldClubs.acquired = result.acquired || [];
+    if (await syncCompletedOwnedClubSales()) toast(uiText("portfolio.sell.sync_done"));
+  } catch (_error) {
+    if (String(app.state?.data_scope_id || "") === token.scope) toast(uiText("portfolio.sell.sync_failed"));
+  } finally {
+    if (app.ownedClubSaleSyncLoading === token) {
+      app.ownedClubSaleSyncLoading = null;
+      renderMyClubs();
+    }
+  }
+}
+
+async function sellOwnedClub(teamId, button) {
+  const scopeAtStart = String(app.state?.data_scope_id || "");
+  const worldClubsRequestKeyAtStart = Number(app.worldClubsRequestKey || 0);
+  const operationKey = `sell:${scopeAtStart}:${Number(teamId)}`;
+  if (app.ownedClubOperationsInFlight.has(operationKey) || ownedClubSalePendingSync(teamId)) return;
+  const club = (app.worldClubs?.acquired || []).find(
+    (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
+  );
+  if (!club) return;
+  const scopeStillCurrent = () => String(app.state?.data_scope_id || "") === scopeAtStart;
+  const worldClubsRequestStillCurrent = () => Number(app.worldClubsRequestKey || 0) === worldClubsRequestKeyAtStart;
+  const ownershipStillCurrent = () => (app.worldClubs?.acquired || []).find(
+    (row) => Number(row.id) === Number(teamId) && row.ownership_active !== false,
+  ) === club;
+  app.ownedClubOperationsInFlight.add(operationKey);
+  const confirmDialog = $("#fmodd-confirm-dialog");
+  let finish = null;
+  let restoreFocus = true;
+  let soldMessage = "";
+  try {
+    const metrics = app.ownedClubMetrics.get(Number(teamId)) || club.portfolio_metrics || {};
+    const salePrice = ownedClubSalePrice(metrics, club);
+    confirmDialog?.classList.add("is-danger");
+    let confirmed = false;
+    try {
+      confirmed = await fmoddConfirm(
+        uiText("portfolio.sell.confirm", {
+          club:ownedClubPortfolioDisplayName(club),
+          amount:salePrice > 0 ? formatFullMoney(salePrice) : uiText("portfolio.sell.estimate_pending"),
+        }),
+        uiText("portfolio.sell.title"),
+        uiText("portfolio.sell.title"),
+      );
+    } finally {
+      confirmDialog?.classList.remove("is-danger");
+    }
+    if (!confirmed || !scopeStillCurrent()) return;
+    if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent()) {
+      toast(uiText("portfolio.sell.stale"));
+      return;
+    }
+    finish = beginOwnedClubOperation(button, uiText("portfolio.sell.busy"));
+    if (!finish) return;
+    const result = await request("/api/world-clubs/sell", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({team_id:Number(teamId)}),
+    });
+    if (!result || !scopeStillCurrent()) return;
+    restoreFocus = false;
+    soldMessage = uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)});
+    app.ownedClubSalesAwaitingSync.set(Number(teamId), {scope:scopeAtStart});
+    // Metrics started before this completed sale must not restore its cache or totals.
+    app.ownedClubMetricsRequestKey = Number(app.ownedClubMetricsRequestKey || 0) + 1;
+    app.ownedClubMetricsLoading = false;
     app.ownedClubMetrics.delete(Number(teamId));
     app.ownedClubMetricsVersion += 1;
     clearOwnedClubDetailCache(teamId);
-    rebuildOwnedClubPortfolioSummaryFromCache();
-    if (result.economy && app.state) {
-      applyEconomySnapshot(result.economy);
-      renderBank();
+    const preSaleListReads = [];
+    if (app.worldClubsLoadPromise) preSaleListReads.push(app.worldClubsLoadPromise);
+    if (app.pageDataRequests) {
+      for (const [key, promise] of app.pageDataRequests) {
+        if (String(key).startsWith("world-clubs:") && promise && !preSaleListReads.includes(promise)) {
+          preSaleListReads.push(promise);
+        }
+      }
     }
+    if (!preSaleListReads.length && worldClubsRequestStillCurrent() && ownershipStillCurrent()) {
+      if (app.worldClubs) app.worldClubs.acquired = result.acquired || [];
+      app.ownedClubSalesAwaitingSync.delete(Number(teamId));
+      rebuildOwnedClubPortfolioSummaryFromCache();
+      if (result.economy && app.state) {
+        applyEconomySnapshot(result.economy);
+        renderBank();
+      }
+      renderMyClubs();
+      toast(soldMessage);
+      return;
+    }
+    rebuildOwnedClubPortfolioSummaryFromCache();
     renderMyClubs();
-    toast(uiText("portfolio.sell.done", {amount:formatFullMoney(result.sale_price || 0)}));
+    if (!await syncCompletedOwnedClubSales() || !scopeStillCurrent()) return;
+    toast(soldMessage);
   } catch (error) {
+    if (!scopeStillCurrent()) return;
+    if (soldMessage) {
+      rebuildOwnedClubPortfolioSummaryFromCache();
+      renderMyClubs();
+      toast(uiText("portfolio.sell.sync_failed"));
+      return;
+    }
+    if (!worldClubsRequestStillCurrent() || !ownershipStillCurrent()) return;
     toast(error.message || uiText("portfolio.sell.failed"));
+  } finally {
+    app.ownedClubOperationsInFlight.delete(operationKey);
+    finish?.();
+    if (soldMessage && scopeStillCurrent()) renderMyClubs();
+    if (restoreFocus && scopeStillCurrent()) {
+      const focusTarget = button?.isConnected ? button : $(`[data-world-sell="${Number(teamId)}"]`);
+      focusTarget?.focus();
+    }
   }
 }
 
@@ -21925,7 +21053,7 @@ function portfolioControlDeck(clubs, summary) {
     ["brand", "megaphone", uiText("portfolio.command.brand"), uiText("portfolio.command.reputation")],
     ["relations", "network", uiText("portfolio.command.relations"), uiText("portfolio.clubs_count", {count:clubs.length})],
   ];
-  return `<section class="portfolio-command-deck" aria-label="${uiText("portfolio.control_deck")}"><header><div><small>GROUP OFFICE · MY GROUP</small><div class="portfolio-group-title"><h2>${escapeHtml(groupName)}</h2><button type="button" data-group-rename aria-label="${uiText("portfolio.rename_group")}" title="${uiText("portfolio.rename_group")}"><i data-lucide="pencil"></i></button></div></div><span class="portfolio-command-count"><i data-lucide="building-2"></i>${uiText("portfolio.clubs_count", {count:clubs.length})}</span></header><div class="portfolio-command-grid">${commands.map(([key,icon,title,value], index) => `<button type="button" class="portfolio-command portfolio-command-${index + 1}" data-portfolio-tool="${key}" aria-label="${uiText("portfolio.open_tool", {tool:title})}"><span class="portfolio-command-icon"><i data-lucide="${icon}"></i></span><span class="portfolio-command-copy"><strong>${escapeHtml(title)}</strong></span>${value ? `<b>${escapeHtml(value)}</b>` : ""}<span class="portfolio-command-arrow"><i data-lucide="arrow-up-right"></i></span></button>`).join("")}</div></section>`;
+  return `<section class="portfolio-command-deck" aria-label="${uiText("portfolio.control_deck")}"><header><div class="portfolio-group-title"><h2>${escapeHtml(groupName)}</h2><button type="button" data-group-rename aria-label="${uiText("portfolio.rename_group")}" title="${uiText("portfolio.rename_group")}"><i data-lucide="pencil"></i></button></div></header><div class="portfolio-command-grid">${commands.map(([key, icon, title], index) => `<button type="button" class="portfolio-command portfolio-command-${index + 1}" data-portfolio-tool="${key}" aria-label="${uiText("portfolio.open_tool", {tool:title})}"><span class="portfolio-command-icon"><i data-lucide="${icon}"></i></span><span class="portfolio-command-copy"><strong>${escapeHtml(title)}</strong></span></button>`).join("")}</div></section>`;
 }
 
 function openGroupRenameDialog() {
@@ -22038,10 +21166,6 @@ async function runPortfolioToolOperation(button, label, task) {
 
 function portfolioRelationTypeOptions(types, selected) {
   return (types || []).map((row) => `<option value="${Number(row.value)}" ${Number(row.value) === Number(selected) ? "selected" : ""}>${escapeHtml(row.label)}</option>`).join("");
-}
-
-function portfolioRelationNullableValue(value) {
-  return value == null ? "" : String(Number(value));
 }
 
 function portfolioRelationOptionalNumber(label, attribute, value, minimum, maximum, required = 0, benefits = 0) {
@@ -22731,7 +21855,6 @@ function ownedClubRenderStateSignature(index) {
     app.ownedClubPortfolioSummary,
     Number(app.ownedClubMetricsVersion || 0),
     Boolean(app.ownedClubMetricsLoading),
-    [...app.ownedClubExpandedIds].sort((left, right) => left - right),
     Boolean(app.ownedClubReorderMode),
     portfolioYouthArrangementLabel(),
     index.data ? "" : String(app.worldClubsError || ""),
@@ -22745,20 +21868,26 @@ function syncMyClubsPageStatus() {
   const status = $("#my-clubs-sync-status");
   const button = $("#my-clubs-refresh");
   const refreshing = Boolean(
-    app.worldClubsLoading || app.ownedClubMetricsLoading || app.ownedClubRefreshLoading
+    app.worldClubsLoading || app.ownedClubMetricsLoading || app.ownedClubRefreshLoading || app.ownedClubSaleSyncLoading
+    || [...app.ownedClubOperationsInFlight].some((key) => key.startsWith(`sell:${String(app.state?.data_scope_id || "")}:`))
   );
+  const saleSyncPending = [...(app.ownedClubSalesAwaitingSync?.keys() || [])].some(ownedClubSalePendingSync);
   page?.setAttribute("aria-busy", String(refreshing));
   root?.setAttribute("aria-busy", String(refreshing));
   if (button) {
     button.disabled = refreshing;
     button.classList.toggle("is-refreshing", refreshing);
     const label = button.querySelector("span");
-  if (label) label.textContent = app.ownedClubRefreshLoading ? uiText("portfolio.refreshing") : uiText("portfolio.refresh");
+    if (label) label.textContent = refreshing ? uiText("portfolio.refreshing")
+      : saleSyncPending ? uiText("portfolio.retry") : uiText("portfolio.refresh");
   }
   if (!status) return;
-  status.hidden = !refreshing;
+  status.hidden = !refreshing && !saleSyncPending;
+  status.classList.toggle("is-error", !refreshing && saleSyncPending);
+  const indicator = status.querySelector("i");
+  if (indicator) indicator.hidden = !refreshing;
   const label = status.querySelector("span");
-  if (label) label.textContent = app.ownedClubRefreshLoading
+  if (label) label.textContent = !refreshing && saleSyncPending ? uiText("portfolio.sell.sync_failed") : app.ownedClubRefreshLoading
     ? uiText("portfolio.refreshing_clubs")
     : app.ownedClubMetricsLoading ? uiText("portfolio.reading_metrics") : uiText("portfolio.syncing_group");
 }
@@ -22789,7 +21918,7 @@ function renderMyClubs() {
   summaryRoot.innerHTML = portfolioSummaryMetrics(activeClubs, summary);
   const reorderLabel = app.ownedClubReorderMode ? uiText("portfolio.finish_order") : uiText("portfolio.reorder");
   const clubList = clubs.length ? `<section class="owned-club-list">
-  <header class="owned-club-list-heading"><div><strong>${uiText("portfolio.owned_clubs")}</strong><span data-owned-club-order-status aria-live="polite">${app.ownedClubReorderMode ? uiText("portfolio.order_help") : uiText("portfolio.expand_help")}</span></div>${clubs.length > 1 ? `<button type="button" class="owned-club-reorder-toggle${app.ownedClubReorderMode ? " active" : ""}" data-owned-club-reorder-toggle aria-pressed="${app.ownedClubReorderMode}"><i data-lucide="${app.ownedClubReorderMode ? "check" : "list-restart"}"></i><span>${reorderLabel}</span></button>` : ""}</header>
+  <header class="owned-club-list-heading"><div><strong>${uiText("portfolio.owned_clubs")}</strong><span data-owned-club-order-status aria-live="polite">${app.ownedClubReorderMode ? uiText("portfolio.order_help") : uiText("portfolio.clubs_count", {count:clubs.length})}</span></div>${clubs.length > 1 ? `<button type="button" class="owned-club-reorder-toggle${app.ownedClubReorderMode ? " active" : ""}" data-owned-club-reorder-toggle aria-pressed="${app.ownedClubReorderMode}"><i data-lucide="${app.ownedClubReorderMode ? "check" : "list-restart"}"></i><span>${reorderLabel}</span></button>` : ""}</header>
     <div class="my-club-grid${app.ownedClubReorderMode ? " is-reordering" : ""}">${clubs.map((club, index) => worldClubCard(club, {portfolio:true, orderIndex:index, orderTotal:clubs.length, reordering:app.ownedClubReorderMode})).join("")}</div>
   </section>` : "";
   root.innerHTML = clubs.length ? `${portfolioControlDeck(activeClubs, summary)}${clubList}` : `<div class="my-club-empty"><i data-lucide="briefcase-business"></i><strong>${uiText("portfolio.no_acquired")}</strong><span>${uiText("portfolio.no_acquired_note")}</span></div>`;
@@ -22927,10 +22056,6 @@ function legacyStatsAppearances(stats) {
 function legacyStatNumber(raw, digits = 0) {
   const value = Number(raw);
   return Number.isFinite(value) ? value.toFixed(digits) : "—";
-}
-
-function legacyLines(raw) {
-  return String(raw || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 function legacyPositions(player, limit = 3) {
@@ -23087,13 +22212,6 @@ function legacyBestTeamLineup(payload = legacyCurrentClubPayload(), key = app.cl
     || {kind:"season",season_key:String(key || ""),formation:"4231",assignments:[],filled:0};
 }
 
-const LEGACY_VIEWS = [
-  ["roster", uiText("legacy.view.roster")],
-  ["watch", uiText("legacy.view.watch")],
-  ["hall", uiText("legacy.view.hall")],
-  ["best", uiText("legacy.view.best")],
-];
-
 function legacySearchMatch(player) {
   const query = String(app.clubLegacySearch || "").trim().toLocaleLowerCase();
   if (!query) return true;
@@ -23150,40 +22268,12 @@ function legacyLatestEvent(player) {
   return (player.events || []).at(-1) || null;
 }
 
-function legacyChangeIcon(title) {
-  const label = String(title || "");
-  if (/伤病|恢复/.test(label)) return "bandage";
-  if (/身价|价格/.test(label)) return "pound-sterling";
-  if (/属性|能力|声望/.test(label)) return "trending-up";
-  if (/外租|名单|离开|回归|转会/.test(label)) return "route";
-  return "activity";
-}
-
 function legacyDeltaLabel(value) {
   const raw = Number(value);
   if (!Number.isFinite(raw) || raw === 0) return "—";
   return `${raw > 0 ? "+" : ""}${raw}`;
 }
 
-function legacyAttributeChangeSummary(player) {
-  const diff = legacyAttributeDiff(player);
-  if (!diff || !diff.rows.length) return "—";
-  const best = diff.rows[0];
-  return `${best.name} ${best.from} → ${best.to}（${legacyDeltaLabel(best.delta)}）`;
-}
-
-function legacyEventChangeDetail(event) {
-  const type = String(event?.type || "");
-  const transitions = {
-    injury_started: uiText("legacy.event.injury_started"),
-    injury_recovered: uiText("legacy.event.injury_recovered"),
-    loan_started: uiText("legacy.event.loan_started"),
-    loan_ended: uiText("legacy.event.loan_ended"),
-    returned_to_roster: uiText("legacy.event.returned"),
-  };
-  const transition = transitions[type];
-  return transition ? `${transition}${event?.detail ? ` · ${event.detail}` : ""}` : String(event?.detail || "");
-}
 
 function legacyValueChangeDetail(previous, latest) {
   const before = Number(previous);
@@ -23297,15 +22387,6 @@ function legacyChangeTone(change) {
   return "neutral";
 }
 
-function legacyValueChange(player) {
-  const history = player.valueHistory || [];
-  if (history.length < 2) return "—";
-  const previous = Number(history.at(-2).asking_price);
-  const latest = Number(history.at(-1).asking_price);
-  if (!Number.isFinite(previous) || !Number.isFinite(latest)) return "—";
-  return latest === previous ? "—" : `${latest > previous ? "↑" : "↓"} ${legacyMoney(Math.abs(latest - previous))}`;
-}
-
 function legacyIdentityLabel(player) {
   const labels = [];
   if (player.active) labels.push(uiText("legacy.active"));
@@ -23391,25 +22472,8 @@ function legacyMonthLabel(month) {
   return year && value ? uiText("legacy.month", {year, month:Number(value)}) : String(month || uiText("legacy.date_not_recorded"));
 }
 
-function legacyPlayerBadges(player) {
-  const badges = [];
-  const shirt = legacyLatestShirt(player);
-  if (shirt) badges.push(`#${shirt}`);
-  if (app.showHiddenAttributes && player.snapshot?.ca != null) badges.push(`CA ${legacyValue(player.snapshot.ca)}`);
-  const value = legacyLatestValue(player);
-  if (value != null) badges.push(legacyMoney(value));
-  if (legacyInjuredNow(player)) badges.push(uiText("legacy.injured"));
-  return badges;
-}
-
 function legacyClubLine(player) {
   return uiText("legacy.current_club", {club:legacyTransferClubDetails(player).currentClub});
-}
-
-function renderLegacyViewNav(players) {
-  const counts = legacyViewCounts(players);
-  const activeView = legacyActiveView(players);
-  return LEGACY_VIEWS.map(([key, label]) => `<button type="button" role="tab" aria-selected="${activeView === key}" class="${activeView === key ? "active" : ""}" data-legacy-view="${key}"><span>${label}</span><b>${key === "best" ? `${counts[key]}/11` : counts[key]}</b></button>`).join("");
 }
 
 function renderLegacyRecentChanges(players) {
@@ -23477,26 +22541,7 @@ function legacyPrimaryClub(player) {
   return {name:String(club.teamName || player.snapshot?.observed_team_name || uiText("legacy.not_read")), state};
 }
 
-function legacyMonthDate(raw) {
-  const match = String(raw || "").match(/^(\d{4})-(\d{2})/);
-  return match ? `${match[1]}.${match[2]}` : "";
-}
 
-function legacyClubTenureForClub(club, player) {
-  const joined = legacyMonthDate(club?.joinedDate);
-  const left = legacyMonthDate(club?.leftDate);
-  if (!joined) return uiText("legacy.career_since_start");
-  return `${joined}-${club?.active ? "" : (left || legacyMonthDate(player?.snapshot?.observed_game_date) || "")}`;
-}
-
-function legacyClubTenure(player) {
-  const preferredTeamId = Number(player?.navigationTeamId || 0);
-  const club = player?.clubs?.find((row) => preferredTeamId > 0 && Number(row.teamId) === preferredTeamId)
-    || player?.clubs?.find((row) => row.isCurrentClub)
-    || player?.clubs?.find((row) => Number(row.teamId) === Number(player.prefTeamId))
-    || player?.clubs?.[0] || {};
-  return legacyClubTenureForClub(club, player);
-}
 
 function legacyTransferClubDetails(player) {
   const clubs = Array.isArray(player?.clubs) ? player.clubs : [];
@@ -25901,25 +24946,6 @@ function renderIcons(root = null) {
     window.lucide.createIcons({attrs:{"stroke-width":2}, root:scope});
     finalizeLucideIcons(scope);
   });
-}
-
-async function copyText(value) {
-  const text = String(value || "");
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch (_error) {
-    const input = document.createElement("textarea");
-    input.value = text;
-    input.setAttribute("readonly", "");
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.appendChild(input);
-    input.select();
-    const copied = document.execCommand("copy");
-    input.remove();
-    if (!copied) throw new Error("复制失败");
-  }
 }
 
 function renderCompetitions() {
@@ -28653,8 +27679,8 @@ function ensureProfitLossColorControl() {
   const row = document.createElement("div");
   row.className = "setting-toggle profit-loss-color-setting";
   row.innerHTML = `<label><input type="checkbox" id="reverse-profit-loss-colors"><span data-i18n="settings.colours.reverse">${uiText("settings.colours.reverse")}</span></label><small data-i18n="settings.colours.reverse_note">${uiText("settings.colours.reverse_note")}</small>`;
-  const compactMoney = $("#compact-money")?.closest(".setting-toggle");
-  if (compactMoney?.parentElement === settings) compactMoney.after(row);
+  const darkMode = $("#dark-mode")?.closest(".dark-mode-setting");
+  if (darkMode?.parentElement === settings) darkMode.after(row);
   else settings.append(row);
 }
 
@@ -28726,10 +27752,10 @@ function ensureFontControls() {
 
 function ensureDisableFaControl() {
   if ($("#disable-fa")) return;
-  const freeShop = $("#free-shop")?.closest(".free-shop-option");
-  if (!freeShop) return;
+  const anchor = $("[data-cheat-clear]");
+  if (!anchor) return;
   const label = document.createElement("label");
-  label.className = "free-shop-option";
+  label.className = "cheat-toggle-option";
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = "disable-fa";
@@ -28737,16 +27763,19 @@ function ensureDisableFaControl() {
   text.dataset.i18n = "settings.cheats.disable_fa";
   text.textContent = uiText("settings.cheats.disable_fa");
   label.append(input, text);
-  freeShop.after(label);
+  label.classList.add("disable-fa-option");
+  const walletButton = $("[data-cheat-add-100b]");
+  if (walletButton) anchor.before(label, walletButton);
+  else anchor.before(label);
 }
 
 function ensureGodModeControl() {
   return;
   if ($("#god-mode")) return;
-  const freeShop = $("#free-shop")?.closest(".free-shop-option");
-  if (!freeShop) return;
+  const anchor = $("#disable-fa")?.closest(".cheat-toggle-option");
+  if (!anchor) return;
   const label = document.createElement("label");
-  label.className = "free-shop-option god-mode-option";
+  label.className = "cheat-toggle-option god-mode-option";
   const input = document.createElement("input");
   input.type = "checkbox";
   input.id = "god-mode";
@@ -28757,7 +27786,7 @@ function ensureGodModeControl() {
   note.dataset.i18n = "settings.cheats.god_mode.note";
   note.textContent = uiText("settings.cheats.god_mode.note");
   label.append(input, title, note);
-  freeShop.after(label);
+  anchor.after(label);
 }
 
 function ensureOddsAutoRefreshControl() {
@@ -28986,7 +28015,7 @@ const SETTINGS_TAB_GROUPS = [
   },
   {
     key:"display", labelKey:"settings.tabs.display",
-    selectors:[".ui-locale-setting", ".dark-mode-setting", ".compact-money-setting", ".profit-loss-color-setting", ".font-settings", "#show-hidden-attributes", ".player-name-localization-setting"],
+    selectors:[".ui-locale-setting", ".dark-mode-setting", ".profit-loss-color-setting", ".font-settings", "#show-hidden-attributes", ".player-name-localization-setting"],
   },
   {
     key:"cheats", labelKey:"settings.tabs.cheats",
@@ -29117,28 +28146,6 @@ function bindEvents() {
   });
   $("#world-player-editor-form")?.addEventListener("submit", saveWorldPlayerEditor);
   $("[data-close-world-player-editor]")?.addEventListener("click", () => $("#world-player-editor-dialog")?.close());
-  function closeTrainingPlayerPicker({restoreFocus = false} = {}) {
-    if (!app.trainingPlayerPickerOpen) return;
-    app.trainingPlayerPickerOpen = false;
-    app.trainingPlayerSearch = "";
-    app.trainingPlayerPositionFilter = "all";
-    const field = $("#training-dock-content")?.querySelector(".training-player-field");
-    field?.querySelector("[data-training-player-picker-layer]")?.remove();
-    const trigger = field?.querySelector("[data-training-player-toggle]");
-    trigger?.setAttribute("aria-expanded", "false");
-    app._lastDockHash = null;
-    if (restoreFocus) trigger?.focus();
-  }
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !app.trainingPlayerPickerOpen) return;
-    event.preventDefault();
-    closeTrainingPlayerPicker({restoreFocus:true});
-  });
-  document.addEventListener("click", (event) => {
-    if (!app.trainingPlayerPickerOpen) return;
-    if (event.target.closest?.(".training-player-field")) return;
-    closeTrainingPlayerPicker();
-  });
   document.addEventListener("pointerdown", (event) => {
     const surface = event.target.closest?.("#training-dock-content,#activity-content");
     app.interactiveSurfacePointer = surface?.id || null;
@@ -29230,6 +28237,10 @@ function bindEvents() {
   $("#my-clubs-refresh")?.addEventListener("click", async () => {
     const button = $("#my-clubs-refresh");
     if (!button || button.disabled) return;
+    if ([...(app.ownedClubSalesAwaitingSync?.keys() || [])].some(ownedClubSalePendingSync)) {
+      await retryOwnedClubSaleSync();
+      return;
+    }
     app.ownedClubRefreshLoading = true;
     renderMyClubs();
     try {
@@ -29269,14 +28280,6 @@ function bindEvents() {
   });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "hidden") scheduleDataPrewarm();
-  });
-  $("#lottery-ticket-button").addEventListener("click", () => { app.lotteryPanelOpen = !app.lotteryPanelOpen; renderLottery(); renderIcons(); });
-  $("#lottery-ticket-close").addEventListener("click", () => { app.lotteryPanelOpen = false; renderLottery(); });
-  $("#lottery-ticket-panel").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-lottery-ticket-quantity]");
-    if (!button || button.disabled) return;
-    app.lotteryPurchaseQuantity = Number(button.dataset.lotteryTicketQuantity || 1);
-    renderLottery();
   });
   $("#league-board-grid").addEventListener("change", (event) => {
     const select = event.target.closest("[data-league-slot]");
@@ -29338,55 +28341,60 @@ function bindEvents() {
     else if (ban) toggleCanteenBan(Number(ban.dataset.canteenBan));
     else if (reward) rewardCanteenSeaCucumber(Number(reward.dataset.canteenSeaCucumber));
   });
-  $("#training-scene-tabs").addEventListener("click",async(event)=>{
-    const button=event.target.closest("[data-training-scene]"); if(!button)return;
-    app.trainingScene=button.dataset.trainingScene; app.trainingSelectedId=null; app.trainingDetailId=null; app.relationshipTrainingDetailId=null; app.trainingPlayerPickerOpen=false;
-    app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;
-    if(app.trainingScene==="relationship_8f"&&!app.relationshipTrainingRooms){loadRelationshipTrainingRooms();return;}
+  const rerenderTrainingAfterControl = (selector) => {
+    const active = document.activeElement;
+    if (active && active.matches?.("select, .fmodd-select-trigger")) active.blur();
     renderTraining();
-    if(app.trainingScene==="position_training"&&!trainingRosterIsCurrent()){
-      app.trainingRosterLoading=true;renderTraining();
-       try{await ensureTrainingRosterLoaded(true);}catch(error){toast(error.message||uiText("training.roster_failed"));}
-      finally{app.trainingRosterLoading=false;renderTraining();}
+    if (!selector) return;
+    requestAnimationFrame(() => {
+      const node = typeof selector === "string" ? $(selector) : selector;
+      node?.focus?.();
+    });
+  };
+  $("#training-module-tabs").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-training-module]");
+    if (!button) return;
+    setTrainingModule(button.dataset.trainingModule);
+  });
+  $("#training-roster").addEventListener("click", (event) => {
+    const retry = event.target.closest("[data-training-roster-retry]");
+    if (retry) { loadTrainingRoster({force:true}).catch(() => {}); return; }
+    const filter = event.target.closest("[data-training-position-filter]");
+    if (filter) {
+      app.trainingPlayerPositionFilter = filter.dataset.trainingPositionFilter || "all";
+      renderTrainingRoster();
+      return;
     }
-  });
-  $("#training-dock-tabs").addEventListener("click",(event)=>{
-    const button=event.target.closest("[data-training-dock]"); if(!button)return;
-    if(app.trainingScene==="relationship_8f"&&button.dataset.trainingDock==="storage")return;
-    app.trainingDock=button.dataset.trainingDock; app.trainingDetailId=null; app.trainingPlayerPickerOpen=false;
-    if(app.trainingScene==="relationship_8f"){
-      app.relationshipTrainingDetailId=null;app.relationshipTrainingPickerOpen=null;
-      app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;
+    const cancel = event.target.closest("[data-training-cancel-focus]");
+    if (cancel) {
+      const focus = (trainingData().focuses || []).find((row) => row.id === cancel.dataset.trainingCancelFocus);
+      cancelTrainingTask(focus);
+      return;
     }
-    renderTraining();
+    const person = event.target.closest("[data-training-person]");
+    if (!person) return;
+    const [kind, personId] = String(person.dataset.trainingPerson || "").split(":");
+    openTrainingPerson(kind, Number(personId));
   });
-  $("#training-edit-toggle").addEventListener("click",()=>{
-    app.trainingEditing=!app.trainingEditing;
-    if(!app.trainingEditing)app.trainingSelectedId=null;
-    renderTraining();
+  $("#training-roster").addEventListener("input", (event) => {
+    if (!event.target.matches("#training-person-search")) return;
+    app.trainingPlayerSearch = event.target.value || "";
+    renderTrainingRoster();
+    requestAnimationFrame(() => {
+      const input = $("#training-person-search");
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
   });
+  bindTeamTrainingEvents();
   $("#training-settle-button").addEventListener("click",()=>{
     settleTrainingProgress({forceRoster:true,notify:true}).catch((error)=>{
        toast(error.message || uiText("training.settlement_failed", {error:uiText("request.failed")}));
     });
   });
-  $("#training-rotate").addEventListener("click",async()=>{
-    const facility=trainingFacility(app.trainingSelectedId); if(!facility)return;
-    const original=facility.rotation; facility.rotation=original?0:1;
-    try{
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:facility.scene,x:facility.x,y:facility.y,rotation:facility.rotation,scale:facility.scale||1})});
-      updateTrainingResponse(response);
-    }catch(error){facility.rotation=original;renderTraining();toast(error.message);}
-  });
-  $("#training-store-selected").addEventListener("click",async()=>{
-    const facility=trainingFacility(app.trainingSelectedId);if(!facility)return;
-    try{
-      const response=await request("/api/training/store",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id})});
-      app.trainingSelectedId=null;updateTrainingResponse(response);
-    }catch(error){toast(error.message);}
-  });
   $("#training-dock-content").addEventListener("click",async(event)=>{
-    if(app.trainingScene==="position_training"){
+    if(app.trainingModule==="position_training"){
       const player=event.target.closest("[data-position-training-player]");
       const duration=event.target.closest("[data-position-training-duration]");
       const start=event.target.closest("[data-position-training-start]");
@@ -29399,221 +28407,44 @@ function bindEvents() {
       }
       if(duration){
         state.durationMode=duration.dataset.positionTrainingDuration;
-        persistPositionTrainingState();renderTraining({skipStage:true});return;
+        persistPositionTrainingState();renderTraining();return;
       }
       if(cancel){
-        const playersById = new Map(trainingManagedPlayers().map((item) => [Number(item.id), item]));
+        const playersById = new Map(trainingPositionPlayers().map((item) => [Number(item.id), item]));
         const slot = positionTrainingSlots(state).find((row) => row.id === state.selectedSlot);
         const selectedPlayer = slot ? positionTrainingAssignedPlayer(slot.id, playersById) : null;
-        await cancelPositionTraining(selectedPlayer ? activeTrainingFocus(selectedPlayer.id) : null, cancel);
+        await cancelTrainingTask(selectedPlayer ? activeTrainingFocus(selectedPlayer.id) : null);
         return;
       }
       if(start){await startPositionTrainingAssignments(start);return;}
     }
-    const roomDetail=event.target.closest("[data-relationship-room-detail]");
-    const roomBack=event.target.closest("[data-relationship-room-back]");
-    const roomUnlock=event.target.closest("[data-relationship-room-unlock]");
-    const roomEnter=event.target.closest("[data-relationship-room-enter]");
-    const roomSettle=event.target.closest("[data-relationship-room-settle]");
-    const roomRename=event.target.closest("[data-relationship-room-rename]");
-    const roomRemove=event.target.closest("[data-relationship-room-remove]");
-    const roomPicker=event.target.closest("[data-relationship-room-picker]");
-    const roomOption=event.target.closest("[data-relationship-room-option]");
-    if(roomDetail){
-      app.relationshipTrainingDetailId=roomDetail.dataset.relationshipRoomDetail;
-      app.relationshipTrainingSelections={};
-      app.relationshipTrainingAttributes=new Set();
-      app.relationshipTrainingPickerOpen=null;
-      app.relationshipTrainingPreview=null;
-      app.relationshipTrainingPreviewSeq+=1;
-      renderTraining();return;
-    }
-    if(roomBack){app.relationshipTrainingDetailId=null;app.relationshipTrainingPickerOpen=null;app.relationshipTrainingPreview=null;app.relationshipTrainingPreviewSeq+=1;renderTraining();return;}
-    if(roomRename){event.stopPropagation();openRelationshipTrainingRoomRename(String(roomRename.dataset.relationshipRoomRename||""));return;}
-    if(roomUnlock){unlockRelationshipTrainingRoom(roomUnlock.dataset.relationshipRoomUnlock,roomUnlock);return;}
-    if(roomEnter){enterRelationshipTrainingRoom(roomEnter.dataset.relationshipRoomEnter,roomEnter);return;}
-    if(roomSettle){settleRelationshipTrainingRoom(roomSettle.dataset.relationshipRoomSettle,roomSettle);return;}
-    if(roomRemove){
-      const roleKey=roomRemove.dataset.relationshipRoomRemoveRole;
-      const ref=roomRemove.dataset.relationshipRoomRemove;
-      app.relationshipTrainingSelections[roleKey]=(app.relationshipTrainingSelections[roleKey]||[]).filter((value)=>value!==ref);
-      const selectedRoom=relationshipTrainingRoomByInstance(app.relationshipTrainingDetailId);
-      relationshipTrainingNormalizeGuidanceSelections(selectedRoom?.definition);
-      renderTraining();return;
-    }
-    if(roomPicker){
-      const roleKey=roomPicker.dataset.relationshipRoomPicker;
-      app.relationshipTrainingPickerOpen=app.relationshipTrainingPickerOpen===roleKey?null:roleKey;
-      renderTraining({skipStage:true});return;
-    }
-    if(roomOption){
-      const selectedRoom=relationshipTrainingRoomByInstance(app.relationshipTrainingDetailId);
-      const roleKey=roomOption.dataset.relationshipRoomOptionRole;
-      const ref=roomOption.dataset.relationshipRoomOption;
-      const role=selectedRoom?.definition?.roles?.find((row)=>row.key===roleKey);
-      if(!role||roomOption.disabled)return;
-      const current=app.relationshipTrainingSelections[roleKey]||[];
-      const chosen=current.includes(ref);
-      Object.keys(app.relationshipTrainingSelections).forEach((key)=>{
-        if(key!==roleKey)app.relationshipTrainingSelections[key]=(app.relationshipTrainingSelections[key]||[]).filter((value)=>value!==ref);
-      });
-      if(chosen){
-        app.relationshipTrainingSelections[roleKey]=current.filter((value)=>value!==ref);
-      }else if(Number(role.max||1)===1){
-        app.relationshipTrainingSelections[roleKey]=[ref];
-        app.relationshipTrainingPickerOpen=null;
-      }else if(current.length<Number(role.max||1)){
-        app.relationshipTrainingSelections[roleKey]=[...current,ref];
-        if(current.length+1>=Number(role.max||1))app.relationshipTrainingPickerOpen=null;
-      }
-      relationshipTrainingNormalizeGuidanceSelections(selectedRoom.definition);
-      renderTraining({skipStage:true});return;
-    }
-    const buy=event.target.closest("[data-training-buy]");
-    const floorUnlock=event.target.closest("[data-training-floor-unlock]");
-    const place=event.target.closest("[data-training-place]");
-    const cancel=event.target.closest("[data-training-cancel]");
-    const repeat=event.target.closest("[data-training-repeat]");
-    const open=event.target.closest("[data-training-open]");
-    const back=event.target.closest("[data-training-back]");
-    const operation=event.target.closest("[data-training-operation]");
-    const playerToggle=event.target.closest("[data-training-player-toggle]");
-    const playerOption=event.target.closest("[data-training-player-option]");
-    const playerClose=event.target.closest("[data-training-player-close]");
-    const playerPosition=event.target.closest("[data-training-player-position]");
-    const playerGroupToggle=event.target.closest("[data-training-player-group-toggle]");
-    const equipmentToggle=event.target.closest("[data-training-equipment-toggle]");
-    if (floorUnlock) {
-      requestTrainingFloorUnlock(floorUnlock.dataset.trainingFloorUnlock, floorUnlock);
+    const cancelFocus = event.target.closest("[data-training-cancel-focus]");
+    if (cancelFocus) {
+      const focus = (trainingData().focuses || []).find((row) => row.id === cancelFocus.dataset.trainingCancelFocus);
+      await cancelTrainingTask(focus);
       return;
     }
-    if(playerGroupToggle){
-      const group=playerGroupToggle.dataset.trainingPlayerGroupToggle;
-      app.trainingPlayerGroupState[group]=!app.trainingPlayerGroupState[group];
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(equipmentToggle){
-      const key=equipmentToggle.dataset.trainingEquipmentToggle;
-      app.trainingEquipmentState[key]=!app.trainingEquipmentState[key];
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerClose){
-      app.trainingPlayerPickerOpen=false;
-      app.trainingPlayerSearch="";
-      app.trainingPlayerPositionFilter="all";
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerPosition){
-      app.trainingPlayerPositionFilter=playerPosition.dataset.trainingPlayerPosition || "all";
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerOption){
-      app.trainingPlayerId=Number(playerOption.dataset.trainingPlayerOption||0);
-      app.trainingPlayerPickerOpen=false;
-      app.trainingPreferredMoves=null;
-      renderTraining({skipStage:true});
-      return;
-    }
-    if(playerToggle){
-      app.trainingPlayerPickerOpen=!app.trainingPlayerPickerOpen;
-      if(app.trainingPlayerPickerOpen){
-        app.trainingPlayerSearch="";
-        app.trainingPlayerPositionFilter="all";
-      }
-      renderTraining({skipStage:true});
-      if(app.trainingPlayerPickerOpen) requestAnimationFrame(()=>$("#training-player-search")?.focus());
-      return;
-    }
-    if(cancel){
-      cancel.disabled=true;
-      try{
-        const response=await request("/api/training/cancel",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({focus_id:cancel.dataset.trainingCancel})});
-         updateTrainingResponse(response);toast(uiText("training.item_cancelled"));
-      }catch(error){cancel.disabled=false;toast(error.message);}
-      return;
-    }
-    if(repeat){
-      const previous=(trainingData().focuses||[]).find((focus)=>focus.id===repeat.dataset.trainingRepeat);
-      const facility=trainingFacility(previous?.facility_id);
-       if(!facility){toast(uiText("training.repeat_equipment_missing"));return;}
-      if(!trainingRosterIsCurrent()){
-        app.trainingDock="available";
-        app.trainingDetailId=facility.id;
-        app.trainingRosterLoading=true;
-        renderTraining();
-        try{
-          await ensureTrainingRosterLoaded(true);
-         }catch(error){toast(error.message||uiText("training.roster_failed"));return;}
-        finally{app.trainingRosterLoading=false;renderTraining();}
-      }
-      const player=trainingManagedPlayers().find((item)=>
-        Number(item.id)===Number(previous?.player_id)
-        && (!Number(previous?.player_team_id)||Number(item.training_team_id)===Number(previous.player_team_id))
-      ) || trainingPlayerContext(previous?.player_id);
-      const attributeKey=String(previous?.attribute_key||"");
-      const product=trainingProduct(facility?.sku);
-      const previousDirection=Number(product?.direction||1)<0?-1:1;
-      const previousValue=playerAttributeValue(player,attributeKey);
-       if(!player||!product?.attributes?.includes(attributeKey)||previousValue<=0||(previousDirection>0?previousValue>=20:previousValue<=1)){
-         toast(uiText("training.repeat_people_missing"));return;
-      }
-      app.trainingDock="available";
-      app.trainingDetailId=facility.id;
-      app.trainingPlayerId=Number(player.id);
-      app.trainingRepeatTarget=attributeKey;
-      app.trainingTargetKey=attributeKey;
-      app.trainingPreferredMoves=null;
+    const operation = event.target.closest("[data-training-operation]");
+    if (operation) {
+      app.trainingOperation = operation.dataset.trainingOperation === "unlearn" ? "unlearn" : "learn";
+      app.trainingPreferredMoves = null;
+      app.trainingHabitLoadKey = null;
       renderTraining();
-       toast(uiText("training.repeat_ready"));
+      if (app.trainingPersonId) loadTrainingPreferredMoves(app.trainingPersonId).catch((error) => toast(error.message));
       return;
     }
-    if(open)return openTrainingDetail(open.dataset.trainingOpen).catch((error)=>toast(error.message));
-    if(back){app.trainingDetailId=null;app.trainingPlayerPickerOpen=false;app.trainingPreferredMoves=null;renderTraining();return;}
-    if(operation){
-      app.trainingOperation=operation.dataset.trainingOperation;
-      document.querySelectorAll("#training-inline-operation [data-training-operation]").forEach((button)=>button.classList.toggle("active",button===operation));
-      if(app.trainingPreferredMoves)renderTrainingPreferredMoveTargets(app.trainingPreferredMoves);
-      return;
-    }
-    try{
-      if(buy){
-        const product=trainingProduct(buy.dataset.trainingBuy);const free=freeServicesEnabled();const total=free?0:Number(product?.price||0);
-        if(!await fmoddPurchaseConfirm(product,{...fundingPaymentSplit(total),free}))return;
-        const response=await request("/api/training/purchase",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sku:product.sku,free_purchase:free})});
-         app.trainingDock="storage";updateTrainingResponse(response);toast(uiText("training.sent_to_storage"));
-      }else if(place){
-        const facility=trainingFacility(place.dataset.trainingPlace);
-        const placedCount=(trainingData().facilities||[]).filter((item)=>item.status==="placed"&&item.scene===app.trainingScene).length;
-         if(["indoor","indoor_2f","office_3f"].includes(app.trainingScene)&&placedCount>=15){toast(uiText("training.floor_capacity"));return;}
-        const position=firstTrainingPosition(facility);
-        const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:app.trainingScene,x:position.x,y:position.y,rotation:facility.rotation,scale:facility.scale||1})});
-        app.trainingSelectedId=facility.id;app.trainingEditing=true;updateTrainingResponse(response);
-      }
-    }catch(error){toast(error.message);}
   });
   $("#training-dock-content").addEventListener("dragstart",(event)=>{
     const row=event.target.closest("[data-position-training-player-drag]");
-    if(!row||app.trainingScene!=="position_training")return;
+    if(!row||app.trainingModule!=="position_training")return;
     event.dataTransfer.effectAllowed="move";
     event.dataTransfer.setData("application/x-fmodd-player",String(row.dataset.positionTrainingPlayerDrag||""));
-  });
-  $("#training-dock-content").addEventListener("change",(event)=>{
-    const attribute=event.target.closest("input[data-relationship-room-attribute]");
-    if(attribute){
-      if(attribute.checked)app.relationshipTrainingAttributes.add(attribute.dataset.relationshipRoomAttribute);
-      else app.relationshipTrainingAttributes.delete(attribute.dataset.relationshipRoomAttribute);
-      renderTraining();
-    }
   });
   $("#training-dock-content").addEventListener("input",(event)=>{
     if(event.target.matches("[data-position-training-search]")){
       const state=ensurePositionTrainingState();
       state.search=event.target.value||"";
-      renderTraining({skipStage:true});
+      renderTraining();
       requestAnimationFrame(()=>{
         const input=$("[data-position-training-search]");
         if(!input)return;
@@ -29631,17 +28462,7 @@ function bindEvents() {
       coordinate.parentElement.querySelector("output").textContent=`${Math.round(Number(coordinate.value))}%`;
       const node=document.querySelector(`[data-position-training-slot="${CSS.escape(slot.id)}"]`);
       if(node){node.style.left=`${slot.x}%`;node.style.top=`${slot.y}%`;}
-      return;
     }
-    if(!event.target.matches("#training-player-search")) return;
-    app.trainingPlayerSearch=event.target.value || "";
-    renderTraining({skipStage:true});
-    requestAnimationFrame(()=>{
-      const input=$("#training-player-search");
-      if(!input) return;
-      input.focus();
-      input.setSelectionRange(input.value.length,input.value.length);
-    });
   });
   $("#training-dock-content").addEventListener("keydown",(event)=>{
     if(event.key!=="Enter" || !event.target.matches("#training-player-search")) return;
@@ -29655,59 +28476,35 @@ function bindEvents() {
         slot.position=event.target.value;persistPositionTrainingState();renderTraining();
       }
     }else if(event.target.matches("[data-position-training-slot-x],[data-position-training-slot-y]")){
-      persistPositionTrainingState();renderTraining({skipStage:true});
-    }else if(event.target.matches("#training-inline-staff")){
-      app.trainingStaffId=Number(event.target.value||0);
-      renderTraining({skipStage:true});
-    }else if(event.target.matches("#training-inline-player")){
-      app.trainingPlayerId=Number(event.target.value||0);
+      persistPositionTrainingState();renderTraining();
+    }else if(event.target.matches("#training-inline-project")){
+      app.trainingProjectSku=event.target.value||null;
+      app.trainingTargetKey=null;
       app.trainingPreferredMoves=null;
-      renderTrainingTargets();
+      app.trainingHabitLoadKey=null;
+      const project=trainingProduct(app.trainingProjectSku);
+      app.trainingDirection=Number(project?.direction||1)<0?-1:1;
+      app.trainingDurationMode=app.trainingDirection<0?"until_decrease":"until_increase";
+      if(project?.sku==="habit_lab") loadTrainingPreferredMoves(app.trainingPersonId).catch((error)=>toast(error.message));
+      rerenderTrainingAfterControl("#training-inline-project");
     }else if(event.target.matches("#training-inline-target")){
       app.trainingTargetKey=event.target.value||null;
-      renderTraining({skipStage:true});
+      rerenderTrainingAfterControl("#training-inline-target");
     }else if(event.target.matches("#training-inline-direction")){
       app.trainingDirection=Number(event.target.value)<0?-1:1;
       app.trainingDurationMode=app.trainingDirection<0?"until_decrease":"until_increase";
-      updateTrainingDurationEstimate();
+      rerenderTrainingAfterControl("#training-inline-direction");
     }else if(event.target.matches("#training-inline-duration")){
-      updateTrainingDurationEstimate();
+      app.trainingDurationMode=event.target.value||"until_increase";
+      rerenderTrainingAfterControl("#training-inline-duration");
     }
   });
   $("#training-dock-content").addEventListener("submit",async(event)=>{
     const form=event.target.closest("#training-inline-form");if(!form)return;
     event.preventDefault();
-    try{await submitInlineTraining(form);}catch(error){toast(error.message);}
+    await submitTrainingPerson();
   });
-  $("#training-selection").addEventListener("input",(event)=>{
-    const input=event.target.closest("[data-training-scale]");if(!input)return;
-    const facility=trainingFacility(input.dataset.trainingScale);if(!facility)return;
-    const scale=Number(input.value)/100;
-    const product=trainingProduct(facility.sku)||{};
-    const node=document.querySelector(`[data-training-facility="${CSS.escape(facility.id)}"]`);
-    if(node)node.style.setProperty("--facility-width",`${Number(product.size?.[0]||18)*scale}%`);
-    input.parentElement.querySelector("output").textContent=`${Math.round(scale*100)}%`;
-  });
-  $("#training-selection").addEventListener("change",async(event)=>{
-    const input=event.target.closest("[data-training-scale]");if(!input)return;
-    const facility=trainingFacility(input.dataset.trainingScale);if(!facility)return;
-    const scale=Number(input.value)/100;
-    try{
-      const response=await request("/api/training/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id,scene:facility.scene,x:facility.x,y:facility.y,rotation:facility.rotation,scale})});
-      updateTrainingResponse(response);
-    }catch(error){renderTraining();toast(error.message);}
-  });
-  $("#training-selection").addEventListener("click",async(event)=>{
-    const use=event.target.closest("[data-training-use]");const sell=event.target.closest("[data-training-sell]");
-    if(use)return openTrainingDetail(use.dataset.trainingUse).catch((error)=>toast(error.message));
-    if(!sell)return;
-    const facility=trainingFacility(sell.dataset.trainingSell);const product=trainingProduct(facility?.sku);
-     if(!facility||!await fmoddConfirm(uiText("training.sell_confirm", {name:product?.name||uiText("training.other_equipment"), amount:formatPounds(Number(product?.price||0)*.5)}),uiText("training.sell_title")))return;
-    try{
-      const response=await request("/api/training/sell",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility_id:facility.id})});
-       app.trainingSelectedId=null;updateTrainingResponse(response);toast(uiText("training.sell_done", {amount:formatPounds(response.refund)}));
-    }catch(error){toast(error.message);}
-  });
+
   $("#activity-player-refresh-button").addEventListener("click", async () => {
     if (app.activityRosterRefreshing || app.clubStatus?.refreshing) return;
     app.activityRosterRefreshing = true;
@@ -29816,14 +28613,13 @@ function bindEvents() {
   $("#shop-cart-buy").addEventListener("click", async () => {
     const lines = shopCartLines();
     if (!lines.length || app.shopPurchaseBusy) return;
-    const free = app.cheatMode && app.freeShop;
     const price = shopCartTotal();
     const quantity = lines.reduce((total, item) => total + item.quantity, 0);
-    if (!await fmoddPurchaseConfirm({name:uiText("inventory.batch_summary", {types:lines.length, quantity})}, {...fundingPaymentSplit(price), free})) return;
+    if (!await fmoddPurchaseConfirm({name:uiText("inventory.batch_summary", {types:lines.length, quantity})}, fundingPaymentSplit(price))) return;
     app.shopPurchaseBusy = true;
     renderShopCart();
     try {
-      const result = await request("/api/shop/buy-batch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:lines.map((item) => ({sku:item.sku,quantity:item.quantity})),free_purchase:free})});
+      const result = await request("/api/shop/buy-batch", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({items:lines.map((item) => ({sku:item.sku,quantity:item.quantity}))})});
       app.shopCart.clear();
       app.shopCartOpen = false;
       await applyStatePatchOrReload(result);
@@ -30541,7 +29337,7 @@ function bindEvents() {
     finally { button.disabled = false; }
   });
   $("#cheat-mode").addEventListener("change", (event) => {
-    app.cheatMode = event.target.checked; localStorage.setItem("fm-odds-cheat-mode", String(app.cheatMode)); syncFreeServices(); syncDisableFa(); syncGodMode(); syncBettingLimits(); render();
+    app.cheatMode = event.target.checked; localStorage.setItem("fm-odds-cheat-mode", String(app.cheatMode)); syncDisableFa(); syncGodMode(); syncBettingLimits(); render();
   });
   $("#unlimited-betting").addEventListener("click", () => {
     app.unlimitedBetting = !app.unlimitedBetting;
@@ -30566,11 +29362,6 @@ function bindEvents() {
       setSettingsMutationBusy("betting-limits", false);
     }
   });
-  $("#free-shop").addEventListener("change", (event) => {
-    app.freeShop = event.target.checked;
-    localStorage.setItem("fm-odds-free-shop", String(app.freeShop));
-    syncFreeServices(); render();
-  });
   $("#disable-fa").addEventListener("change", async (event) => {
     app.disableFa = event.target.checked;
     localStorage.setItem("fm-odds-disable-fa", String(app.disableFa));
@@ -30586,11 +29377,6 @@ function bindEvents() {
       event.target.disabled = false;
       setSettingsMutationBusy("disable-fa", false);
     }
-  });
-  $("#compact-money").addEventListener("change", (event) => {
-    app.compactMoney = event.target.checked;
-    localStorage.setItem("fm-odds-compact-money", String(app.compactMoney));
-    render();
   });
   $("#reverse-profit-loss-colors").addEventListener("change", (event) => {
     app.reverseProfitLossColors = event.target.checked;
@@ -30799,6 +29585,12 @@ function bindEvents() {
       const response = await request("/api/cheat-balance", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({clear:true})});
       await applyStatePatchOrReload(response); toast(uiText("settings.cheats.wallet_cleared"));
     } catch (error) { toast(error.message || uiText("settings.cheats.wallet_clear_failed")); }
+  });
+  $("[data-cheat-add-100b]").addEventListener("click", async () => {
+    try {
+      const response = await request("/api/cheat-balance", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({amount:100_000_000_000})});
+      await applyStatePatchOrReload(response); toast(uiText("settings.cheats.wallet_added_100b"));
+    } catch (error) { toast(error.message || uiText("settings.cheats.wallet_add_failed")); }
   });
   $("[data-cheat-credit-clear]").addEventListener("click", async () => {
     try {

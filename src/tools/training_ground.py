@@ -1,17 +1,22 @@
 from __future__ import annotations
 
-import json
 import math
 import threading
 import uuid
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from tools.account_store import load_document, save_document
 from tools.app_paths import save_data_root
-from tools.app_settings import load_settings, local_purchase_price
+from tools.app_settings import load_settings
 from tools.training_archive import archive_training_focus
+from tools.training_catalog import (
+    LAB_PROJECT_SKUS,
+    build_training_project_catalog,
+    training_module_for_product,
+)
 
 
 _LOCK = threading.RLock()
@@ -27,30 +32,8 @@ def _archive_completed_focus(focus: dict[str, Any]) -> None:
 TRAINING_MULTIPLIER = 3
 NO_EQUIPMENT_TRAINING_MULTIPLIER = 2
 POSITION_TRAINING_MULTIPLIER = 4
-INDOOR_FACILITY_LIMIT = 15
-TRAINING_FLOOR_UNLOCK_PRICE = 5_000_000.0
-TRAINING_FLOORS: dict[str, dict[str, Any]] = {
-    "indoor": {"floor": "1F", "name": "室内 1F", "price": 0.0, "unlocked_by_default": True},
-    "indoor_2f": {"floor": "2F", "name": "室内 2F", "price": 0.0, "unlocked_by_default": True},
-    "indoor_3f": {"floor": "3F", "name": "室内 3F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "indoor_4f": {"floor": "4F", "name": "室内 4F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "indoor_5f": {"floor": "5F", "name": "室内 5F", "price": TRAINING_FLOOR_UNLOCK_PRICE},
-    "office_6f": {"floor": "6F", "name": "办公室 6F", "price": 0.0, "unlocked_by_default": True},
-    "comprehensive_7f": {
-        "floor": "7F", "name": "实验室 7F", "price": 0.0,
-        "unlocked_by_default": True,
-    },
-    "relationship_8f": {
-        "floor": "8F", "name": "关系综训楼 8F",
-        "price": TRAINING_FLOOR_UNLOCK_PRICE,
-    },
-    "outdoor": {"floor": "", "name": "1号室外", "price": 0.0, "unlocked_by_default": True},
-    "outdoor_2": {"floor": "", "name": "2号室外", "price": 0.0, "unlocked_by_default": True},
-    "position_training": {
-        "floor": "", "name": "位置训练", "price": 0.0,
-        "unlocked_by_default": True,
-    },
-}
+TASK_RULES_VERSION = 1
+TRAINING_TASK_MIGRATION_REASON = "training_task_model_migration"
 OUTDOOR_SET_PIECE_AREA_ID = "outdoor-set-piece-area"
 OUTDOOR_TEAM_TRAINING_AREA_ID = "outdoor-team-training-area"
 OUTDOOR_2_SET_PIECE_AREA_ID = "outdoor-2-set-piece-area"
@@ -92,35 +75,35 @@ COACHING_LICENSE_NEXT = {0: 7, 7: 6, 6: 5, 5: 4, 4: 3, 3: 2, 2: 1}
 
 FACILITIES: dict[str, dict[str, Any]] = {
     "coaching_desk": {
-        "name": "教练学习桌", "scene": "office_6f", "price": 100_000.0,
+        "name": "教练学习桌", "price": 100_000.0,
         "session_fee": 0.0, "icon": "graduation-cap", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "安排俱乐部教练进修，结业后证书提升一级。",
         "attributes": [], "staff_training": True,
     },
     "leadership_desk": {
-        "name": "领导力训练桌", "scene": "office_6f", "price": 800_000.0,
+        "name": "领导力训练桌", "price": 800_000.0,
         "session_fee": 0.0, "icon": "badge-captain", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "三倍速提升领导力。",
         "attributes": ["精神:领导力"],
     },
     "defence_learning_desk": {
-        "name": "防守学习桌", "scene": "office_6f", "price": 900_000.0,
+        "name": "防守学习桌", "price": 900_000.0,
         "session_fee": 0.0, "icon": "shield-check", "size": [22, 22],
         "footprint": [12, 10], "capacity": 1,
         "description": "三倍速提升指挥防守与拳击球倾向。",
         "attributes": ["门将:指挥防守", "门将:拳击球(倾向)"],
     },
     "habit_lab": {
-        "name": "习惯塑形机", "scene": "indoor", "price": 1_000_000.0,
+        "name": "习惯塑形机", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "brain-circuit", "size": [18, 23],
         "footprint": [9, 8],
         "capacity": 1,
         "description": "学习或遗忘一项球员习惯。", "attributes": [],
     },
     "strength_rack": {
-        "name": "综合力量架", "scene": "indoor", "price": 200_000.0,
+        "name": "综合力量架", "price": 200_000.0,
         "session_fee": 0.0, "icon": "dumbbell", "size": [19, 18],
         "footprint": [13.5, 10],
         "capacity": 2,
@@ -128,7 +111,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:强壮"],
     },
     "treadmill": {
-        "name": "专业跑步机", "scene": "indoor", "price": 800_000.0,
+        "name": "专业跑步机", "price": 800_000.0,
         "session_fee": 0.0, "icon": "activity", "size": [17, 19],
         "footprint": [12, 13],
         "capacity": 1,
@@ -136,7 +119,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:速度", "身体:爆发力"],
     },
     "reaction_wall": {
-        "name": "掉棍反应机", "scene": "indoor", "price": 400_000.0,
+        "name": "掉棍反应机", "price": 400_000.0,
         "session_fee": 0.0, "icon": "scan-eye", "size": [25, 25],
         "footprint": [17, 11],
         "capacity": 2,
@@ -144,7 +127,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["门将:反应", "精神:预判", "精神:集中"],
     },
     "tactics_table": {
-        "name": "战术投影台", "scene": "indoor", "price": 400_000.0,
+        "name": "战术投影台", "price": 400_000.0,
         "session_fee": 0.0, "icon": "presentation", "size": [24, 25],
         "footprint": [9, 8],
         "capacity": 2,
@@ -152,7 +135,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["精神:视野", "精神:决断", "精神:无球跑动"],
     },
     "jump_rig": {
-        "name": "垂直弹跳机", "scene": "indoor", "price": 200_000.0,
+        "name": "垂直弹跳机", "price": 200_000.0,
         "session_fee": 0.0, "icon": "move-up", "size": [22, 27],
         "footprint": [12, 9],
         "capacity": 1,
@@ -160,7 +143,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:弹跳"],
     },
     "hypoxic_pod": {
-        "name": "低氧适应舱", "scene": "indoor", "price": 400_000.0,
+        "name": "低氧适应舱", "price": 400_000.0,
         "session_fee": 0.0, "icon": "wind", "size": [23, 24],
         "footprint": [13, 11],
         "capacity": 1,
@@ -168,7 +151,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:耐力", "身体:体质"],
     },
     "balance_platform": {
-        "name": "动态平衡台", "scene": "indoor", "price": 200_000.0,
+        "name": "动态平衡台", "price": 200_000.0,
         "session_fee": 0.0, "icon": "scale", "size": [23, 21],
         "footprint": [14, 11],
         "capacity": 2,
@@ -176,7 +159,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["身体:平衡"],
     },
     "pressure_pod": {
-        "name": "决胜压力舱", "scene": "indoor", "price": 800_000.0,
+        "name": "决胜压力舱", "price": 800_000.0,
         "session_fee": 0.0, "icon": "brain", "size": [18, 24],
         "footprint": [10, 9],
         "capacity": 1,
@@ -184,7 +167,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["精神:意志力", "精神:镇定"],
     },
     "shooting_goal": {
-        "name": "射门训练门", "scene": "outdoor", "price": 500_000.0,
+        "name": "射门训练门", "price": 500_000.0,
         "session_fee": 0.0, "icon": "crosshair", "size": [15, 13],
         "footprint": [12, 7],
         "capacity": 2,
@@ -192,7 +175,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:射门", "技术:远射", "技术:头球", "定位球:罚点球"],
     },
     "set_piece_area": {
-        "name": "定位球训练区", "scene": "outdoor", "price": 0.0,
+        "name": "定位球训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "flag-triangle-right",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -200,7 +183,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["定位球:任意球", "定位球:角球", "定位球:界外球"],
     },
     "team_training_area": {
-        "name": "球队合练区", "scene": "outdoor", "price": 0.0,
+        "name": "球队合练区", "price": 0.0,
         "session_fee": 0.0, "icon": "users-round",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -211,7 +194,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         ],
     },
     "goalkeeper_training_area": {
-        "name": "门将训练区", "scene": "outdoor", "price": 0.0,
+        "name": "门将训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "goal",
         "capacity": None, "unlimited": True, "built_in": True,
         "position_group": "goalkeepers",
@@ -220,7 +203,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["门将:大脚开球", "门将:手抛球", "门将:出击(倾向)"],
     },
     "passing_training_area": {
-        "name": "传球训练区", "scene": "outdoor", "price": 0.0,
+        "name": "传球训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "arrow-left-right",
         "capacity": None, "unlimited": True, "built_in": True,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -228,7 +211,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:传球", "技术:传中"],
     },
     "position_training_area": {
-        "name": "阵型位置训练区", "scene": "position_training", "price": 0.0,
+        "name": "阵型位置训练区", "price": 0.0,
         "session_fee": 0.0, "icon": "route", "capacity": None,
         "unlimited": True, "built_in": True,
         "training_multiplier": POSITION_TRAINING_MULTIPLIER,
@@ -236,7 +219,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": [],
     },
     "dribble_course": {
-        "name": "盘带障碍区", "scene": "outdoor", "price": 800_000.0,
+        "name": "盘带障碍区", "price": 800_000.0,
         "session_fee": 0.0, "icon": "route", "size": [17, 14],
         "footprint": [14, 9],
         "capacity": 2,
@@ -244,35 +227,35 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attributes": ["技术:盘带", "技术:技术", "身体:灵活"],
     },
     "tackle_gate": {
-        "name": "截球闸门", "scene": "outdoor", "price": 1_200_000.0,
+        "name": "截球闸门", "price": 1_200_000.0,
         "session_fee": 0.0, "icon": "shield", "image_sku": "tackle_gate",
         "size": [16.1, 14], "footprint": [14, 10], "capacity": 2,
         "description": "三倍速提升抢断与勇敢。",
         "attributes": ["技术:抢断", "精神:勇敢"],
     },
     "marking_track": {
-        "name": "跟防跑道", "scene": "outdoor", "price": 1_000_000.0,
+        "name": "跟防跑道", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "scan-line", "image_sku": "marking_track",
         "size": [16.5, 13.5], "footprint": [14, 9], "capacity": 2,
         "description": "三倍速提升盯人与防守站位。",
         "attributes": ["技术:盯人", "精神:防守站位"],
     },
     "high_ball_frame": {
-        "name": "高球落点架", "scene": "outdoor", "price": 1_400_000.0,
+        "name": "高球落点架", "price": 1_400_000.0,
         "session_fee": 0.0, "icon": "hand", "image_sku": "high_ball_frame",
         "size": [15.6, 14.3], "footprint": [15, 10], "capacity": 2,
         "description": "三倍速提升拦截传中与制空范围。",
         "attributes": ["门将:拦截传中", "门将:制空范围"],
     },
     "handling_net": {
-        "name": "足球发射器", "scene": "outdoor", "price": 1_000_000.0,
+        "name": "足球发射器", "price": 1_000_000.0,
         "session_fee": 0.0, "icon": "circle-dot", "image_sku": "football_launcher",
         "size": [11.55, 11.55], "footprint": [13, 10], "capacity": 2,
         "description": "三倍速提升手控球与停球。",
         "attributes": ["门将:手控球", "技术:停球"],
     },
     "adaptation_pod": {
-        "name": "适应模拟舱", "scene": "comprehensive_7f", "price": 8_000_000.0,
+        "name": "适应模拟舱", "price": 8_000_000.0,
         "session_fee": 0.0, "icon": "orbit", "size": [22, 27],
         "footprint": [14, 12], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -281,7 +264,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "career_terminal": {
-        "name": "生涯终端", "scene": "comprehensive_7f", "price": 12_000_000.0,
+        "name": "生涯终端", "price": 12_000_000.0,
         "session_fee": 0.0, "icon": "monitor-up", "size": [22, 25],
         "footprint": [14, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -290,7 +273,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "club_culture_screen": {
-        "name": "俱乐部文化屏", "scene": "comprehensive_7f", "price": 6_000_000.0,
+        "name": "俱乐部文化屏", "price": 6_000_000.0,
         "session_fee": 0.0, "icon": "badge", "size": [18.2, 16.8],
         "footprint": [18, 10], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -299,7 +282,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "decisive_match_console": {
-        "name": "决胜主机", "scene": "comprehensive_7f", "price": 15_000_000.0,
+        "name": "决胜主机", "price": 15_000_000.0,
         "session_fee": 0.0, "icon": "gamepad-2", "size": [19.2, 20],
         "footprint": [16, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -308,7 +291,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "brainwave_chair": {
-        "name": "脑波座椅", "scene": "comprehensive_7f", "price": 10_000_000.0,
+        "name": "脑波座椅", "price": 10_000_000.0,
         "session_fee": 0.0, "icon": "armchair", "size": [17.6, 20],
         "footprint": [15, 12], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -317,7 +300,7 @@ FACILITIES: dict[str, dict[str, Any]] = {
         "attribute_kind": "hidden", "direction": 1,
     },
     "rules_learning_desk": {
-        "name": "规则学习桌", "scene": "office_6f", "price": 5_000_000.0,
+        "name": "规则学习桌", "price": 5_000_000.0,
         "session_fee": 0.0, "icon": "book-open-check", "size": [24, 22],
         "footprint": [16, 11], "capacity": 1,
         "training_multiplier": NO_EQUIPMENT_TRAINING_MULTIPLIER,
@@ -338,10 +321,7 @@ REMOVED_FACILITY_SKUS = frozenset({
     "defence_zone", "punching_pad", "goalkeeper_rig",
 })
 
-COMPREHENSIVE_ROOM_SKUS = frozenset({
-    "adaptation_pod", "career_terminal", "club_culture_screen",
-    "decisive_match_console", "brainwave_chair",
-})
+COMPREHENSIVE_ROOM_SKUS = LAB_PROJECT_SKUS
 
 
 _BUILT_IN_FACILITY_SKUS = {
@@ -356,28 +336,11 @@ _BUILT_IN_FACILITY_SKUS = {
     POSITION_TRAINING_AREA_ID: "position_training_area",
 }
 
-_BUILT_IN_FACILITY_SCENES = {
-    OUTDOOR_2_SET_PIECE_AREA_ID: "outdoor_2",
-    OUTDOOR_2_TEAM_TRAINING_AREA_ID: "outdoor_2",
-    OUTDOOR_2_GOALKEEPER_TRAINING_AREA_ID: "outdoor_2",
-    OUTDOOR_2_PASSING_TRAINING_AREA_ID: "outdoor_2",
-}
-
-
 def _built_in_facility(facility_id: str) -> dict[str, Any]:
-    sku = _BUILT_IN_FACILITY_SKUS[facility_id]
-    scene = _BUILT_IN_FACILITY_SCENES.get(
-        facility_id, str(FACILITIES[sku]["scene"]),
-    )
     return {
         "id": facility_id,
-        "sku": sku,
-        "scene": scene,
+        "sku": _BUILT_IN_FACILITY_SKUS[facility_id],
         "status": "placed",
-        "x": 50.0,
-        "y": 50.0,
-        "rotation": 0,
-        "scale": 1.0,
         "built_in": True,
     }
 
@@ -426,15 +389,9 @@ def _placed_facility_product(
 def _training_archive_location(
     facility: dict[str, Any], product: dict[str, Any],
 ) -> dict[str, Any]:
-    scene = str(facility.get("scene") or product.get("scene") or "")
-    floor = "3F" if scene == "office_3f" else str(
-        (TRAINING_FLOORS.get(scene) or {}).get("floor") or ""
-    )
     return {
         "facility_sku": str(facility.get("sku") or ""),
         "facility_name": str(product.get("name") or facility.get("sku") or "训练设施"),
-        "scene": scene,
-        "floor": floor,
     }
 
 
@@ -461,20 +418,54 @@ def _assert_facility_capacity(
         raise ValueError(message)
 
 
-def _append_training_records(
+def append_training_task(
     payload: dict[str, Any], focus: dict[str, Any], session: dict[str, Any],
-    client_submission_id: str | None,
+    client_submission_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Append one task to an already-loaded document without saving it."""
     if client_submission_id:
         submission_id = str(client_submission_id)
         focus["client_submission_id"] = submission_id
         session["client_submission_id"] = submission_id
     payload["focuses"].append(focus)
-    payload["focuses"] = payload["focuses"][-500:]
     payload["sessions"].append(session)
-    payload["sessions"] = payload["sessions"][-500:]
-    save_training_ground(payload)
+    # The recent-task window is not the lifetime of a paid request's receipt.
+    # Archive receipts before trimming, and never evict an active task.
+    retired = [row for row in payload["focuses"][:-500] if row.get("status") != "active"]
+    if retired:
+        sessions_by_focus = {row.get("focus_id"): row for row in payload["sessions"]}
+        receipts = payload.setdefault("submission_receipts", {})
+        for row in retired:
+            submission_id = str(row.get("client_submission_id") or "")
+            previous_session = sessions_by_focus.get(row.get("id"))
+            if (
+                submission_id and previous_session is not None
+                and int(row.get("task_rules_version") or 0) >= TASK_RULES_VERSION
+            ):
+                receipts.setdefault(submission_id, {
+                    "focus": deepcopy(row), "session": deepcopy(previous_session),
+                })
+    focus_cutoff = len(payload["focuses"]) - 500
+    payload["focuses"] = [
+        row for index, row in enumerate(payload["focuses"])
+        if index >= focus_cutoff or row.get("status") == "active"
+    ]
+    retained_ids = {row.get("id") for row in payload["focuses"]}
+    session_cutoff = len(payload["sessions"]) - 500
+    payload["sessions"] = [
+        row for index, row in enumerate(payload["sessions"])
+        if index >= session_cutoff or row.get("focus_id") in retained_ids
+    ]
     return dict(focus), dict(session)
+
+
+def _append_training_records(
+    payload: dict[str, Any], focus: dict[str, Any], session: dict[str, Any],
+    client_submission_id: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = append_training_task(payload, focus, session, client_submission_id)
+    save_training_ground(payload)
+    return result
 
 
 def _active_focus(
@@ -511,8 +502,8 @@ def _now() -> str:
 
 def _new_state() -> dict[str, Any]:
     return {
-        "schema_version": 12, "facilities": [], "sessions": [],
-        "focuses": [], "history": [], "unlocked_floors": [],
+        "schema_version": 12, "task_rules_version": TASK_RULES_VERSION,
+        "facilities": [], "sessions": [], "focuses": [], "history": [],
     }
 
 
@@ -631,6 +622,11 @@ def estimated_training_days_to_20(
 
 
 def _focus_training_multiplier(focus: dict[str, Any]) -> int:
+    project_sku = str(focus.get("project_sku") or "")
+    if project_sku in FACILITIES:
+        return max(1, int(
+            FACILITIES[project_sku].get("training_multiplier") or TRAINING_MULTIPLIER,
+        ))
     facility_id = str(focus.get("facility_id") or "")
     sku = _BUILT_IN_FACILITY_SKUS.get(facility_id)
     if sku:
@@ -693,7 +689,6 @@ def load_training_ground() -> dict[str, Any]:
     payload.setdefault("sessions", [])
     payload.setdefault("focuses", [])
     payload.setdefault("history", [])
-    payload.setdefault("unlocked_floors", [])
     payload["schema_version"] = 12
     original_facilities = list(payload["facilities"])
     removed_facility_ids = {
@@ -721,22 +716,9 @@ def load_training_ground() -> dict[str, Any]:
                 "facility_ids": sorted(removed_facility_ids),
             })
             payload["history"] = payload["history"][-500:]
-    payload["unlocked_floors"] = [
-        str(scene) for scene in payload["unlocked_floors"]
-        if str(scene) in TRAINING_FLOORS
-        and not TRAINING_FLOORS[str(scene)].get("unlocked_by_default")
-    ]
-    # Existing 3F office placements remain usable after the office moves to 6F.
-    if any(row.get("scene") == "office_3f" for row in payload["facilities"]):
-        payload["unlocked_floors"].append("office_6f")
-    payload["unlocked_floors"] = list(dict.fromkeys(payload["unlocked_floors"]))
-    for facility in payload["facilities"]:
-        facility.setdefault("scale", 1.0)
-        if (
-            facility.get("sku") == "rules_learning_desk"
-            and facility.get("scene") == "comprehensive_7f"
-        ):
-            facility["scene"] = "office_6f"
+    # Floors are gone: stale floor unlocks are dropped (no refund). Kept
+    # facility records are read by sku only; their scene/coordinates are ignored.
+    payload.pop("unlocked_floors", None)
     for focus in payload["focuses"]:
         focus.setdefault("focus_type", "attribute")
         focus.setdefault("initial_attribute", None)
@@ -789,64 +771,60 @@ def save_training_ground(payload: dict[str, Any]) -> None:
     save_document("training_ground", payload, legacy_path=training_ground_path())
 
 
-def _training_floor_unlocked(payload: dict[str, Any], scene: str) -> bool:
-    floor = TRAINING_FLOORS.get(str(scene))
-    if not floor:
+def _training_project_identity(
+    facility: dict[str, Any], project_sku: str | None, module: str | None,
+) -> dict[str, Any]:
+    """Project identity for a new task; the facility instance stays historical only."""
+    sku = str(project_sku or facility.get("sku") or "")
+    product = FACILITIES.get(sku)
+    if not product:
+        raise ValueError("训练项目不存在")
+    expected_module = training_module_for_product(sku, product)
+    resolved_module = str(module or expected_module)
+    if resolved_module != expected_module:
+        raise ValueError("训练模块无效")
+    return {
+        "project_sku": sku,
+        "module": resolved_module,
+        "task_rules_version": TASK_RULES_VERSION,
+    }
+
+
+def migrate_training_tasks(payload: dict[str, Any], *, game_date: str = "") -> bool:
+    """Cancel pre-version-1 active tasks once and stamp the document.
+
+    Mutates only ``payload``; the caller saves it (together with released 8F
+    rooms) in one atomic account write. A failed save leaves the stored version
+    unstamped, so retrying repeats this same one-time cancellation.
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("训练文档无效")
+    if int(payload.get("task_rules_version") or 0) >= TASK_RULES_VERSION:
         return False
-    return bool(
-        floor.get("unlocked_by_default")
-        or str(scene) in set(payload.get("unlocked_floors") or [])
-    )
-
-
-def _training_floor_status(
-    payload: dict[str, Any], settings: dict[str, Any],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "scene": scene,
-            **details,
-            "price": local_purchase_price(details["price"], settings),
-            "unlocked": _training_floor_unlocked(payload, scene),
-        }
-        for scene, details in TRAINING_FLOORS.items()
-    ]
-
-
-def training_floor_status(game_date: str = "") -> list[dict[str, Any]]:
-    with _LOCK:
-        return _training_floor_status(load_training_ground(), load_settings())
-
-
-def assert_training_floor_unlocked(scene: str) -> dict[str, Any]:
-    scene = str(scene or "")
-    option = TRAINING_FLOORS.get(scene)
-    if not option:
-        raise ValueError("训练场楼层无效")
-    with _LOCK:
-        payload = load_training_ground()
-        if not _training_floor_unlocked(payload, scene):
-            raise ValueError(f"请先解锁{option['name']}")
-    return dict(option)
-
-
-def unlock_training_floor(scene: str) -> dict[str, Any]:
-    scene = str(scene or "")
-    option = TRAINING_FLOORS.get(scene)
-    if not option:
-        raise ValueError("训练场楼层无效")
-    if option.get("unlocked_by_default"):
-        raise ValueError(f"{option['name']}无需购买")
-    with _LOCK:
-        payload = load_training_ground()
-        unlocked = payload.setdefault("unlocked_floors", [])
-        if scene in unlocked:
-            raise ValueError(f"{option['name']}已经解锁")
-        unlocked.append(scene)
-        payload["history"].append({"at": _now(), "type": "floor_unlock", "scene": scene})
+    migrated_at = _now()
+    cancelled_ids: list[str] = []
+    for focus in payload.get("focuses") or []:
+        if (
+            focus.get("status") != "active"
+            or int(focus.get("task_rules_version") or 0) >= TASK_RULES_VERSION
+        ):
+            continue
+        focus["status"] = "cancelled"
+        focus["cancelled_at"] = migrated_at
+        focus["cancelled_on"] = game_date or None
+        focus["cancel_reason"] = TRAINING_TASK_MIGRATION_REASON
+        cancelled_ids.append(str(focus.get("id") or ""))
+    if cancelled_ids:
+        payload.setdefault("history", []).append({
+            "at": migrated_at,
+            "type": TRAINING_TASK_MIGRATION_REASON,
+            "game_date": game_date or None,
+            "count": len(cancelled_ids),
+            "focus_ids": cancelled_ids,
+        })
         payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return {"scene": scene, "unlocked": True}
+    payload["task_rules_version"] = TASK_RULES_VERSION
+    return True
 
 
 def clear_training_ground() -> dict[str, int]:
@@ -931,6 +909,10 @@ def advance_training_focuses(game_date: str) -> list[dict[str, Any]]:
                 _normalize_attribute_focus(focus, migrated=False)
             required = int(focus.get("required_points") or 0)
             if not required:
+                # A maxed position task has no points to earn; return it as due
+                # so the settlement pass can finish it instead of leaving it
+                # active forever.
+                due.append(dict(focus))
                 continue
             last_text = focus.get("last_progress_on")
             if not last_text:
@@ -1257,14 +1239,7 @@ def public_training_ground(game_date: str = "") -> dict[str, Any]:
             if row.get("status") != "active"
         ][:50]
         return {
-            "floors": _training_floor_status(payload, settings),
-            "catalog": [
-                {
-                    "sku": sku, **details,
-                    "price": local_purchase_price(details["price"], settings),
-                }
-                for sku, details in FACILITIES.items()
-            ],
+            "catalog": build_training_project_catalog(FACILITIES, settings),
             "facilities": [
                 *[dict(row) for row in payload["facilities"]],
                 *_built_in_facilities(),
@@ -1279,132 +1254,6 @@ def public_training_ground(game_date: str = "") -> dict[str, Any]:
             "training_point_requirements": dict(TRAINING_POINT_REQUIREMENTS),
             "coaching_license_course_days": dict(COACHING_LICENSE_COURSE_DAYS),
         }
-
-
-def purchase_facility(sku: str) -> dict[str, Any]:
-    if sku not in FACILITIES:
-        raise ValueError("训练器材不存在")
-    if FACILITIES[sku].get("built_in"):
-        raise ValueError("该训练区域由场地自带，无需购买")
-    if FACILITIES[sku].get("available", True) is False:
-        raise ValueError("该训练器材暂未开放购买")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = {
-            "id": str(uuid.uuid4()), "sku": sku, "scene": FACILITIES[sku]["scene"],
-            "status": "stored", "x": 50.0, "y": 50.0, "rotation": 0,
-            "scale": 1.0,
-            "purchased_at": _now(),
-        }
-        payload["facilities"].append(facility)
-        payload["history"].append({"at": _now(), "type": "purchase", "sku": sku})
-        payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def remove_facility(facility_id: str) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域不能出售")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        if any(
-            row.get("status") == "active" and row.get("facility_id") == facility_id
-            for row in payload["focuses"]
-        ):
-            raise ValueError("该器材仍有球员正在使用，不能出售")
-        payload["facilities"].remove(facility)
-        payload["history"].append({"at": _now(), "type": "sale", "sku": facility["sku"]})
-        payload["history"] = payload["history"][-500:]
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def restore_facility(facility: dict[str, Any]) -> None:
-    with _LOCK:
-        payload = load_training_ground()
-        if not any(row.get("id") == facility.get("id") for row in payload["facilities"]):
-            payload["facilities"].append(dict(facility))
-            save_training_ground(payload)
-
-
-def _scene_accepts_product(scene: str, product_scene: str) -> bool:
-    if product_scene == "indoor":
-        return scene in {
-            "indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f",
-        }
-    if product_scene == "office_6f":
-        return scene in {"office_3f", "office_6f"}
-    if product_scene == "comprehensive_7f":
-        return scene == "comprehensive_7f"
-    if product_scene == "outdoor":
-        return scene in {"outdoor", "outdoor_2"}
-    return scene == product_scene
-
-
-def place_facility(
-    facility_id: str, scene: str, x: Any, y: Any, rotation: Any = 0,
-    scale: Any = None,
-) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域无需放置")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        product = FACILITIES[facility["sku"]]
-        if not _scene_accepts_product(scene, str(product["scene"])):
-            raise ValueError("该器材不能放置在这个场地")
-        floor_scene = "office_6f" if scene == "office_3f" else scene
-        if not _training_floor_unlocked(payload, floor_scene):
-            option = TRAINING_FLOORS.get(floor_scene)
-            raise ValueError(f"请先解锁{option['name'] if option else '该训练场楼层'}")
-        position_x, position_y = float(x), float(y)
-        if not 5 <= position_x <= 95 or not 8 <= position_y <= 92:
-            raise ValueError("器材位置超出可用区域")
-        resolved_scale = float(facility.get("scale") or 1.0) if scale is None else float(scale)
-        if not 0.5 <= resolved_scale <= 2.0:
-            raise ValueError("器材尺寸必须处于50%至200%")
-        already_in_scene = facility.get("status") == "placed" and facility.get("scene") == scene
-        if scene in {
-            "indoor", "indoor_2f", "indoor_3f", "indoor_4f", "indoor_5f",
-            "office_3f", "office_6f", "comprehensive_7f",
-        } and not already_in_scene:
-            placed_count = sum(
-                row.get("status") == "placed" and row.get("scene") == scene
-                for row in payload["facilities"]
-            )
-            if placed_count >= INDOOR_FACILITY_LIMIT:
-                raise ValueError(f"室内每层最多放置{INDOOR_FACILITY_LIMIT}个器材")
-        facility.update({
-            "scene": scene, "status": "placed", "x": round(position_x, 2),
-            "y": round(position_y, 2), "rotation": int(rotation) % 2,
-            "scale": round(resolved_scale, 2),
-        })
-        save_training_ground(payload)
-        return dict(facility)
-
-
-def store_facility(facility_id: str) -> dict[str, Any]:
-    if facility_id in _BUILT_IN_FACILITY_SKUS:
-        raise ValueError("场地自带训练区域不能收纳")
-    with _LOCK:
-        payload = load_training_ground()
-        facility = next((row for row in payload["facilities"] if row.get("id") == facility_id), None)
-        if not facility:
-            raise ValueError("训练器材不存在")
-        if any(
-            row.get("status") == "active" and row.get("facility_id") == facility_id
-            for row in payload["focuses"]
-        ):
-            raise ValueError("该器材仍有球员正在使用，不能收回器材库")
-        facility["status"] = "stored"
-        save_training_ground(payload)
-        return dict(facility)
 
 
 def assert_training_available(
@@ -1422,242 +1271,7 @@ def assert_training_available(
         return dict(facility), dict(product)
 
 
-def record_training_focus(
-    facility_id: str, player_id: int, player_name: str, game_date: str,
-    attribute_key: str, attribute_id: int | None, duration_mode: str,
-    initial_attribute: int, allow_ca_over_pa: bool = False,
-    client_submission_id: str | None = None,
-    *, player_address: Any = None, player_team_id: int | None = None,
-    player_team_name: str | None = None, player_team_type: str | None = None,
-    attribute_kind: str = "visible", direction: int = 1,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    with _LOCK:
-        payload = load_training_ground()
-        if _expire_focuses(payload, game_date):
-            save_training_ground(payload)
-        _assert_player_available(payload, player_id)
-        facility, product = _placed_facility_product(payload, facility_id)
-        resolved_kind = "hidden" if attribute_kind == "hidden" else "visible"
-        resolved_direction = -1 if int(direction) < 0 else 1
-        target_attribute = training_target_attribute(
-            duration_mode, int(initial_attribute), resolved_direction,
-        )
-        _assert_facility_capacity(payload, facility, product)
-        if not 1 <= int(initial_attribute) <= 20:
-            raise ValueError("所选属性当前值无效")
-        if resolved_direction > 0 and int(initial_attribute) >= 20:
-            raise ValueError("该属性已经达到20，不能继续训练")
-        if resolved_direction < 0 and int(initial_attribute) <= 1:
-            raise ValueError("该属性已经达到1，不能继续降低")
-        required_points = training_points_required_for_direction(
-            int(initial_attribute), resolved_direction,
-        )
-        previous = next((
-            row for row in reversed(payload["focuses"])
-            if row.get("status") == "cancelled"
-            and row.get("focus_type") == "attribute"
-            and int(row.get("player_id") or 0) == int(player_id)
-            and row.get("attribute_key") == attribute_key
-            and str(row.get("attribute_kind") or "visible") == resolved_kind
-            and int(row.get("direction") or 1) == resolved_direction
-            and int(row.get("initial_attribute") or 0) == int(initial_attribute)
-        ), None)
-        carried_points = min(
-            required_points - 1,
-            max(0, int((previous or {}).get("progress_points") or 0)),
-        )
-        resolved_multiplier = max(1, int(
-            product.get("training_multiplier") or TRAINING_MULTIPLIER,
-        ))
-        focus = {
-            "id": str(uuid.uuid4()), "at": _now(), "status": "active",
-            "focus_type": "attribute",
-            "facility_id": facility_id, "player_id": int(player_id),
-            "player_name": player_name, "attribute_key": attribute_key,
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "attribute_id": int(attribute_id) if attribute_id is not None else None,
-            "attribute_kind": resolved_kind, "direction": resolved_direction,
-            "started_on": game_date,
-            "duration_mode": duration_mode, "duration_days": None,
-            "expires_on": None,
-            "initial_attribute": int(initial_attribute),
-            "started_attribute": int(initial_attribute),
-            "target_attribute": target_attribute,
-            "allow_ca_over_pa": bool(allow_ca_over_pa),
-            "multiplier": resolved_multiplier,
-            "required_points": required_points,
-            "progress_points": carried_points,
-            "last_progress_on": game_date,
-            "training_content": str(attribute_key),
-            **_training_archive_location(facility, product),
-        }
-        session = {
-            "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
-            "facility_id": facility_id, "player_id": int(player_id),
-            "player_name": player_name, "operation": "attribute_focus",
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "attribute_key": attribute_key, "preferred_move_bit": None,
-            "attribute_kind": resolved_kind, "direction": resolved_direction,
-            "focus_id": focus["id"], "duration_mode": duration_mode,
-            "allow_ca_over_pa": bool(allow_ca_over_pa),
-            "multiplier": resolved_multiplier,
-        }
-        return _append_training_records(
-            payload, focus, session, client_submission_id,
-        )
-
-
-def record_position_training_focus(
-    facility_id: str, player_id: int, player_name: str, game_date: str,
-    position_key: str, duration_mode: str, initial_position: int,
-    client_submission_id: str | None = None, *, player_address: Any = None,
-    player_team_id: int | None = None, player_team_name: str | None = None,
-    player_team_type: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    position = str(position_key or "").upper()
-    if position not in TRAINING_POSITION_NAMES:
-        raise ValueError("所选训练位置无效")
-    current = max(1, int(initial_position))
-    target = 20 if current >= 20 else training_target_attribute(duration_mode, current)
-    with _LOCK:
-        payload = load_training_ground()
-        if _expire_focuses(payload, game_date):
-            save_training_ground(payload)
-        _assert_player_available(payload, player_id)
-        facility, product = _placed_facility_product(
-            payload, facility_id, sku="position_training_area",
-            missing_message="位置训练场当前不可用",
-        )
-        _assert_facility_capacity(payload, facility, product)
-        required_points = position_training_points_required(current)
-        previous = next((
-            row for row in reversed(payload["focuses"])
-            if row.get("status") == "cancelled"
-            and row.get("focus_type") == "position"
-            and int(row.get("player_id") or 0) == int(player_id)
-            and str(row.get("position_key") or "") == position
-            and int(row.get("initial_position") or 0) == current
-        ), None)
-        carried_points = (
-            min(
-                required_points - 1,
-                max(0, int((previous or {}).get("progress_points") or 0)),
-            )
-            if required_points else 0
-        )
-        multiplier = max(1, int(
-            product.get("training_multiplier") or POSITION_TRAINING_MULTIPLIER,
-        ))
-        focus = {
-            "id": str(uuid.uuid4()), "at": _now(), "status": "active",
-            "focus_type": "position", "facility_id": facility_id,
-            "player_id": int(player_id), "player_name": str(player_name),
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "position_key": position, "attribute_key": f"位置:{position}",
-            "started_on": game_date, "duration_mode": duration_mode,
-            "duration_days": None, "expires_on": None,
-            "initial_position": current, "started_position": current,
-            "target_position": target, "initial_attribute": current,
-            "started_attribute": current, "target_attribute": target,
-            "direction": 1, "multiplier": multiplier,
-            "no_change": current >= 20,
-            "required_points": required_points,
-            "progress_points": carried_points,
-            "last_progress_on": game_date,
-            "training_content": f"{position} 位置熟练度",
-            "archive_category": "equipment",
-            **_training_archive_location(facility, product),
-        }
-        session = {
-            "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
-            "facility_id": facility_id, "player_id": int(player_id),
-            "player_name": str(player_name), "operation": "position_focus",
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "position_key": position, "attribute_key": f"位置:{position}",
-            "focus_id": focus["id"], "duration_mode": duration_mode,
-            "multiplier": multiplier,
-        }
-        return _append_training_records(
-            payload, focus, session, client_submission_id,
-        )
-
-
-def record_habit_training_focus(
-    facility_id: str, player_id: int, player_name: str, game_date: str,
-    preferred_move_bit: int, preferred_move_name: str, operation: str,
-    client_submission_id: str | None = None,
-    *, player_address: Any = None, player_team_id: int | None = None,
-    player_team_name: str | None = None, player_team_type: str | None = None,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    if operation not in {"learn", "unlearn"}:
-        raise ValueError("请选择学习或戒除个人习惯")
-    with _LOCK:
-        payload = load_training_ground()
-        if _expire_focuses(payload, game_date):
-            save_training_ground(payload)
-        _assert_player_available(payload, player_id)
-        facility, product = _placed_facility_product(
-            payload, facility_id, sku="habit_lab",
-            missing_message="请先把习惯塑形机放置到场地",
-        )
-        _assert_facility_capacity(payload, facility, product)
-        started = date.fromisoformat(game_date)
-        expires_on = (started + timedelta(days=7)).isoformat()
-        focus = {
-            "id": str(uuid.uuid4()), "at": _now(), "status": "active",
-            "focus_type": "preferred_move", "facility_id": facility_id,
-            "player_id": int(player_id), "player_name": player_name,
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "preferred_move_bit": int(preferred_move_bit),
-            "preferred_move_name": preferred_move_name, "operation": operation,
-            "started_on": game_date, "duration_mode": "week", "duration_days": 7,
-            "expires_on": expires_on, "multiplier": 1,
-            "training_content": (
-                f"{'学习' if operation == 'learn' else '戒除'}个人习惯：{preferred_move_name}"
-            ),
-            **_training_archive_location(facility, product),
-        }
-        session = {
-            "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
-            "facility_id": facility_id, "player_id": int(player_id),
-            "player_name": player_name, "operation": operation,
-            "player_address": player_address,
-            "player_team_id": int(player_team_id) if player_team_id else None,
-            "player_team_name": player_team_name,
-            "player_team_type": player_team_type,
-            "attribute_key": None, "preferred_move_bit": int(preferred_move_bit),
-            "preferred_move_name": preferred_move_name, "focus_id": focus["id"],
-            "duration_mode": "week",
-        }
-        return _append_training_records(
-            payload, focus, session, client_submission_id,
-        )
-
-
-def _coaching_course_available(
-    payload: dict[str, Any], facility_id: str, staff_id: int, game_date: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    facility, product = _placed_facility_product(
-        payload, facility_id, sku="coaching_desk",
-        missing_message="请先把教练学习桌放置到3F办公室",
-    )
-    if not game_date:
-        raise ValueError("尚未读取游戏日期")
+def _assert_staff_available(payload: dict[str, Any], staff_id: int) -> None:
     if any(
         row.get("status") == "active"
         and (
@@ -1673,6 +1287,494 @@ def _coaching_course_available(
         for row in payload["focuses"]
     ):
         raise ValueError("该教练已有进行中的考证课程或综合训练指导任务")
+
+
+def expire_training_focuses(payload: dict[str, Any], game_date: str) -> bool:
+    """Apply date-expiry rules to an already-loaded training document."""
+    return _expire_focuses(payload, game_date)
+
+
+def _project_facility(
+    project_sku: str, facility_id: str = "", facility: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    product = FACILITIES.get(str(project_sku))
+    if not product:
+        raise ValueError("训练项目不存在")
+    if facility:
+        return dict(facility)
+    return {
+        "id": str(facility_id or ""),
+        "sku": str(project_sku),
+        "status": "placed",
+    }
+
+
+def training_project_for_request(
+    payload: dict[str, Any], *, project_sku: str = "", facility_id: str = "",
+) -> tuple[dict[str, Any], dict[str, Any], str]:
+    """Resolve a run request to (facility, product, module) without ownership gates."""
+    sku = str(project_sku or "").strip()
+    facility: dict[str, Any] | None = None
+    if sku:
+        if sku not in FACILITIES:
+            raise ValueError("训练项目不存在")
+        resolved_id = str(facility_id or "").strip()
+        if resolved_id:
+            facility = _placed_facility(payload, resolved_id)
+            if facility is None:
+                facility = next((
+                    dict(row) for row in payload.get("facilities") or []
+                    if str(row.get("id") or "") == resolved_id
+                ), None)
+            if (
+                facility is not None
+                and str(facility.get("sku") or "") != sku
+            ):
+                raise ValueError("训练项目不匹配，请刷新训练场后重试")
+    else:
+        resolved_id = str(facility_id or "").strip()
+        facility = _placed_facility(payload, resolved_id)
+        if facility is None:
+            facility = next((
+                dict(row) for row in payload.get("facilities") or []
+                if str(row.get("id") or "") == resolved_id
+            ), None)
+        if facility is None:
+            raise ValueError("训练项目不存在，请刷新训练场后重试")
+        sku = str(facility.get("sku") or "")
+        if sku not in FACILITIES:
+            raise ValueError("训练项目已下架，请刷新训练场后重试")
+    product = FACILITIES[sku]
+    resolved_facility = _project_facility(
+        sku, str((facility or {}).get("id") or facility_id), facility,
+    )
+    return resolved_facility, dict(product), training_module_for_product(sku, product)
+
+
+def _task_payment_fields(payment: dict[str, Any] | None) -> dict[str, Any]:
+    return {"payment": dict(payment)} if isinstance(payment, dict) else {}
+
+
+def build_training_focus(
+    payload: dict[str, Any], *, project_sku: str, module: str | None = None,
+    facility_id: str = "", facility: dict[str, Any] | None = None,
+    player_id: int, player_name: str, game_date: str,
+    attribute_key: str, attribute_id: int | None, duration_mode: str,
+    initial_attribute: int, allow_ca_over_pa: bool = False,
+    attribute_kind: str = "visible", direction: int = 1,
+    client_submission_id: str | None = None,
+    payment: dict[str, Any] | None = None,
+    player_address: Any = None, player_team_id: int | None = None,
+    player_team_name: str | None = None, player_team_type: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build one attribute task without saving; caller owns the transaction."""
+    product = FACILITIES.get(str(project_sku))
+    if not product:
+        raise ValueError("训练项目不存在")
+    resolved_facility = _project_facility(project_sku, facility_id, facility)
+    project_identity = _training_project_identity(
+        resolved_facility, project_sku, module,
+    )
+    resolved_kind = "hidden" if attribute_kind == "hidden" else "visible"
+    resolved_direction = -1 if int(direction) < 0 else 1
+    target_attribute = training_target_attribute(
+        duration_mode, int(initial_attribute), resolved_direction,
+    )
+    if not 1 <= int(initial_attribute) <= 20:
+        raise ValueError("所选属性当前值无效")
+    if resolved_direction > 0 and int(initial_attribute) >= 20:
+        raise ValueError("该属性已经达到20，不能继续训练")
+    if resolved_direction < 0 and int(initial_attribute) <= 1:
+        raise ValueError("该属性已经达到1，不能继续降低")
+    required_points = training_points_required_for_direction(
+        int(initial_attribute), resolved_direction,
+    )
+    _assert_player_available(payload, player_id)
+    previous = next((
+        row for row in reversed(payload["focuses"])
+        if row.get("status") == "cancelled"
+        and row.get("focus_type") == "attribute"
+        and int(row.get("player_id") or 0) == int(player_id)
+        and row.get("attribute_key") == attribute_key
+        and str(row.get("attribute_kind") or "visible") == resolved_kind
+        and int(row.get("direction") or 1) == resolved_direction
+        and int(row.get("initial_attribute") or 0) == int(initial_attribute)
+    ), None)
+    carried_points = min(
+        required_points - 1,
+        max(0, int((previous or {}).get("progress_points") or 0)),
+    )
+    resolved_multiplier = max(1, int(
+        product.get("training_multiplier") or TRAINING_MULTIPLIER,
+    ))
+    focus = {
+        "id": str(uuid.uuid4()), "at": _now(), "status": "active",
+        "focus_type": "attribute",
+        **project_identity,
+        "facility_id": facility_id, "player_id": int(player_id),
+        "player_name": player_name, "attribute_key": attribute_key,
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "attribute_id": int(attribute_id) if attribute_id is not None else None,
+        "attribute_kind": resolved_kind, "direction": resolved_direction,
+        "started_on": game_date,
+        "duration_mode": duration_mode, "duration_days": None,
+        "expires_on": None,
+        "initial_attribute": int(initial_attribute),
+        "started_attribute": int(initial_attribute),
+        "target_attribute": target_attribute,
+        "allow_ca_over_pa": bool(allow_ca_over_pa),
+        "multiplier": resolved_multiplier,
+        "required_points": required_points,
+        "progress_points": carried_points,
+        "last_progress_on": game_date,
+        "training_content": str(attribute_key),
+        **_task_payment_fields(payment),
+        **_training_archive_location(resolved_facility, product),
+    }
+    session = {
+        "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
+        "facility_id": facility_id, "player_id": int(player_id),
+        "player_name": player_name, "operation": "attribute_focus",
+        **project_identity,
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "attribute_key": attribute_key, "preferred_move_bit": None,
+        "attribute_kind": resolved_kind, "direction": resolved_direction,
+        "focus_id": focus["id"], "duration_mode": duration_mode,
+        "allow_ca_over_pa": bool(allow_ca_over_pa),
+        "multiplier": resolved_multiplier,
+        **_task_payment_fields(payment),
+    }
+    return focus, session
+
+
+def build_position_training_focus(
+    payload: dict[str, Any], *, project_sku: str = "position_training_area",
+    module: str | None = None, facility_id: str = "",
+    facility: dict[str, Any] | None = None,
+    player_id: int, player_name: str, game_date: str,
+    position_key: str, duration_mode: str, initial_position: int,
+    client_submission_id: str | None = None,
+    payment: dict[str, Any] | None = None,
+    player_address: Any = None, player_team_id: int | None = None,
+    player_team_name: str | None = None, player_team_type: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build one position task without saving; caller owns the transaction."""
+    position = str(position_key or "").upper()
+    if position not in TRAINING_POSITION_NAMES:
+        raise ValueError("所选训练位置无效")
+    product = FACILITIES.get(str(project_sku))
+    if not product or training_module_for_product(project_sku, product) != "position_training":
+        raise ValueError("位置训练场当前不可用")
+    resolved_facility = _project_facility(project_sku, facility_id, facility)
+    project_identity = _training_project_identity(
+        resolved_facility, project_sku, module,
+    )
+    current = max(1, int(initial_position))
+    target = 20 if current >= 20 else training_target_attribute(duration_mode, current)
+    _assert_player_available(payload, player_id)
+    required_points = position_training_points_required(current)
+    previous = next((
+        row for row in reversed(payload["focuses"])
+        if row.get("status") == "cancelled"
+        and row.get("focus_type") == "position"
+        and int(row.get("player_id") or 0) == int(player_id)
+        and str(row.get("position_key") or "") == position
+        and int(row.get("initial_position") or 0) == current
+    ), None)
+    carried_points = (
+        min(
+            required_points - 1,
+            max(0, int((previous or {}).get("progress_points") or 0)),
+        )
+        if required_points else 0
+    )
+    multiplier = max(1, int(
+        product.get("training_multiplier") or POSITION_TRAINING_MULTIPLIER,
+    ))
+    focus = {
+        "id": str(uuid.uuid4()), "at": _now(), "status": "active",
+        "focus_type": "position", "facility_id": facility_id,
+        **project_identity,
+        "player_id": int(player_id), "player_name": str(player_name),
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "position_key": position, "attribute_key": f"位置:{position}",
+        "started_on": game_date, "duration_mode": duration_mode,
+        "duration_days": None, "expires_on": None,
+        "initial_position": current, "started_position": current,
+        "target_position": target, "initial_attribute": current,
+        "started_attribute": current, "target_attribute": target,
+        "direction": 1, "multiplier": multiplier,
+        "no_change": current >= 20,
+        "required_points": required_points,
+        "progress_points": carried_points,
+        "last_progress_on": game_date,
+        "training_content": f"{position} 位置熟练度",
+        "archive_category": "equipment",
+        **_task_payment_fields(payment),
+        **_training_archive_location(resolved_facility, product),
+    }
+    session = {
+        "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
+        "facility_id": facility_id, "player_id": int(player_id),
+        "player_name": str(player_name), "operation": "position_focus",
+        **project_identity,
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "position_key": position, "attribute_key": f"位置:{position}",
+        "focus_id": focus["id"], "duration_mode": duration_mode,
+        "multiplier": multiplier,
+        **_task_payment_fields(payment),
+    }
+    return focus, session
+
+
+def build_habit_training_focus(
+    payload: dict[str, Any], *, project_sku: str = "habit_lab",
+    module: str | None = None, facility_id: str = "",
+    facility: dict[str, Any] | None = None,
+    player_id: int, player_name: str, game_date: str,
+    preferred_move_bit: int, preferred_move_name: str, operation: str,
+    client_submission_id: str | None = None,
+    payment: dict[str, Any] | None = None,
+    player_address: Any = None, player_team_id: int | None = None,
+    player_team_name: str | None = None, player_team_type: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build one habit task without saving; caller owns the transaction."""
+    if operation not in {"learn", "unlearn"}:
+        raise ValueError("请选择学习或戒除个人习惯")
+    product = FACILITIES.get(str(project_sku))
+    if not product or training_module_for_product(project_sku, product) != "player_training":
+        raise ValueError("该训练项目不支持个人习惯训练")
+    resolved_facility = _project_facility(project_sku, facility_id, facility)
+    project_identity = _training_project_identity(
+        resolved_facility, project_sku, module,
+    )
+    _assert_player_available(payload, player_id)
+    started = date.fromisoformat(game_date)
+    expires_on = (started + timedelta(days=7)).isoformat()
+    focus = {
+        "id": str(uuid.uuid4()), "at": _now(), "status": "active",
+        "focus_type": "preferred_move", "facility_id": facility_id,
+        **project_identity,
+        "player_id": int(player_id), "player_name": player_name,
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "preferred_move_bit": int(preferred_move_bit),
+        "preferred_move_name": preferred_move_name, "operation": operation,
+        "started_on": game_date, "duration_mode": "week", "duration_days": 7,
+        "expires_on": expires_on, "multiplier": 1,
+        "training_content": (
+            f"{'学习' if operation == 'learn' else '戒除'}个人习惯：{preferred_move_name}"
+        ),
+        **_task_payment_fields(payment),
+        **_training_archive_location(resolved_facility, product),
+    }
+    session = {
+        "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
+        "facility_id": facility_id, "player_id": int(player_id),
+        "player_name": player_name, "operation": operation,
+        **project_identity,
+        "player_address": player_address,
+        "player_team_id": int(player_team_id) if player_team_id else None,
+        "player_team_name": player_team_name,
+        "player_team_type": player_team_type,
+        "attribute_key": None, "preferred_move_bit": int(preferred_move_bit),
+        "preferred_move_name": preferred_move_name, "focus_id": focus["id"],
+        "duration_mode": "week",
+        **_task_payment_fields(payment),
+    }
+    return focus, session
+
+
+def build_coaching_license_focus(
+    payload: dict[str, Any], *, project_sku: str = "coaching_desk",
+    module: str | None = None, facility_id: str = "",
+    facility: dict[str, Any] | None = None,
+    staff_id: int, staff_name: str, staff_role: str, staff_address: Any,
+    team_id: int, team_name: str, game_date: str,
+    current_code: int, target_code: int,
+    client_submission_id: str | None = None, subject_type: str = "staff",
+    payment: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build one coaching-license task without saving; caller owns the transaction."""
+    product = FACILITIES.get(str(project_sku))
+    if not product or not product.get("staff_training"):
+        raise ValueError("训练项目不存在")
+    current_code = int(current_code)
+    target_code = int(target_code)
+    if COACHING_LICENSE_NEXT.get(current_code) != target_code:
+        raise ValueError("教练证书只能按顺序提升一级")
+    if not game_date:
+        raise ValueError("尚未读取游戏日期")
+    resolved_facility = _project_facility(project_sku, facility_id, facility)
+    project_identity = _training_project_identity(
+        resolved_facility, project_sku, module,
+    )
+    _assert_staff_available(payload, staff_id)
+    duration_days = int(COACHING_LICENSE_COURSE_DAYS[current_code])
+    due_on = (date.fromisoformat(game_date) + timedelta(days=duration_days)).isoformat()
+    focus = {
+        "id": str(uuid.uuid4()), "at": _now(), "status": "active",
+        "focus_type": "coaching_license", "facility_id": facility_id,
+        **project_identity,
+        "subject_type": (
+            "player_manager" if subject_type == "player_manager" else "staff"
+        ),
+        "staff_id": int(staff_id), "staff_name": staff_name,
+        "staff_role": staff_role, "staff_address": str(staff_address),
+        "staff_team_id": int(team_id), "staff_team_name": team_name,
+        "player_id": int(staff_id), "player_name": staff_name,
+        "player_address": str(staff_address), "player_team_id": int(team_id),
+        "player_team_name": team_name, "player_team_type": "club",
+        "started_on": game_date, "duration_mode": "coaching_license",
+        "duration_days": duration_days, "due_on": due_on, "expires_on": None,
+        "initial_license_code": current_code,
+        "target_license_code": target_code, "multiplier": 1,
+        "training_content": "教练证书进修",
+        **_task_payment_fields(payment),
+        **_training_archive_location(resolved_facility, product),
+    }
+    session = {
+        "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
+        "facility_id": facility_id, "focus_id": focus["id"],
+        "operation": "coaching_license", "staff_id": int(staff_id),
+        **project_identity,
+        "subject_type": (
+            "player_manager" if subject_type == "player_manager" else "staff"
+        ),
+        "staff_name": staff_name, "staff_role": staff_role,
+        "staff_address": str(staff_address), "team_id": int(team_id),
+        "team_name": team_name, "initial_license_code": current_code,
+        "target_license_code": target_code,
+        **_task_payment_fields(payment),
+    }
+    return focus, session
+
+
+def record_training_focus(
+    facility_id: str, player_id: int, player_name: str, game_date: str,
+    attribute_key: str, attribute_id: int | None, duration_mode: str,
+    initial_attribute: int, allow_ca_over_pa: bool = False,
+    client_submission_id: str | None = None,
+    *, player_address: Any = None, player_team_id: int | None = None,
+    player_team_name: str | None = None, player_team_type: str | None = None,
+    attribute_kind: str = "visible", direction: int = 1,
+    project_sku: str | None = None, module: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    with _LOCK:
+        payload = load_training_ground()
+        if _expire_focuses(payload, game_date):
+            save_training_ground(payload)
+        facility, product = _placed_facility_product(payload, facility_id)
+        _assert_facility_capacity(payload, facility, product)
+        focus, session = build_training_focus(
+            payload, project_sku=str(project_sku or facility.get("sku") or ""),
+            module=module, facility_id=facility_id, facility=facility,
+            player_id=player_id, player_name=player_name, game_date=game_date,
+            attribute_key=attribute_key, attribute_id=attribute_id,
+            duration_mode=duration_mode, initial_attribute=initial_attribute,
+            allow_ca_over_pa=allow_ca_over_pa, attribute_kind=attribute_kind,
+            direction=direction, client_submission_id=client_submission_id,
+            player_address=player_address, player_team_id=player_team_id,
+            player_team_name=player_team_name, player_team_type=player_team_type,
+        )
+        return _append_training_records(
+            payload, focus, session, client_submission_id,
+        )
+
+
+def record_position_training_focus(
+    facility_id: str, player_id: int, player_name: str, game_date: str,
+    position_key: str, duration_mode: str, initial_position: int,
+    client_submission_id: str | None = None, *, player_address: Any = None,
+    player_team_id: int | None = None, player_team_name: str | None = None,
+    player_team_type: str | None = None,
+    project_sku: str | None = None, module: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    position = str(position_key or "").upper()
+    if position not in TRAINING_POSITION_NAMES:
+        raise ValueError("所选训练位置无效")
+    with _LOCK:
+        payload = load_training_ground()
+        if _expire_focuses(payload, game_date):
+            save_training_ground(payload)
+        facility, product = _placed_facility_product(
+            payload, facility_id, sku="position_training_area",
+            missing_message="位置训练场当前不可用",
+        )
+        _assert_facility_capacity(payload, facility, product)
+        focus, session = build_position_training_focus(
+            payload, project_sku=str(project_sku or facility.get("sku") or ""),
+            module=module, facility_id=facility_id, facility=facility,
+            player_id=player_id, player_name=player_name, game_date=game_date,
+            position_key=position, duration_mode=duration_mode,
+            initial_position=initial_position,
+            client_submission_id=client_submission_id,
+            player_address=player_address, player_team_id=player_team_id,
+            player_team_name=player_team_name, player_team_type=player_team_type,
+        )
+        return _append_training_records(
+            payload, focus, session, client_submission_id,
+        )
+
+
+def record_habit_training_focus(
+    facility_id: str, player_id: int, player_name: str, game_date: str,
+    preferred_move_bit: int, preferred_move_name: str, operation: str,
+    client_submission_id: str | None = None,
+    *, player_address: Any = None, player_team_id: int | None = None,
+    player_team_name: str | None = None, player_team_type: str | None = None,
+    project_sku: str | None = None, module: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if operation not in {"learn", "unlearn"}:
+        raise ValueError("请选择学习或戒除个人习惯")
+    with _LOCK:
+        payload = load_training_ground()
+        if _expire_focuses(payload, game_date):
+            save_training_ground(payload)
+        facility, product = _placed_facility_product(
+            payload, facility_id, sku="habit_lab",
+            missing_message="请先把习惯塑形机放置到场地",
+        )
+        _assert_facility_capacity(payload, facility, product)
+        focus, session = build_habit_training_focus(
+            payload, project_sku=str(project_sku or facility.get("sku") or ""),
+            module=module, facility_id=facility_id, facility=facility,
+            player_id=player_id, player_name=player_name, game_date=game_date,
+            preferred_move_bit=preferred_move_bit,
+            preferred_move_name=preferred_move_name, operation=operation,
+            client_submission_id=client_submission_id,
+            player_address=player_address, player_team_id=player_team_id,
+            player_team_name=player_team_name, player_team_type=player_team_type,
+        )
+        return _append_training_records(
+            payload, focus, session, client_submission_id,
+        )
+
+
+def _coaching_course_available(
+    payload: dict[str, Any], facility_id: str, staff_id: int, game_date: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    facility, product = _placed_facility_product(
+        payload, facility_id, sku="coaching_desk",
+        missing_message="请先把教练学习桌放置到3F办公室",
+    )
+    if not game_date:
+        raise ValueError("尚未读取游戏日期")
+    _assert_staff_available(payload, staff_id)
     _assert_facility_capacity(
         payload, facility, product,
         message="该学习桌当前使用人数已满",
@@ -1694,6 +1796,7 @@ def record_coaching_license_focus(
     staff_address: Any, team_id: int, team_name: str, game_date: str,
     current_code: int, target_code: int,
     client_submission_id: str | None = None, subject_type: str = "staff",
+    project_sku: str | None = None, module: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     current_code = int(current_code)
     target_code = int(target_code)
@@ -1701,44 +1804,21 @@ def record_coaching_license_focus(
         raise ValueError("教练证书只能按顺序提升一级")
     if not game_date:
         raise ValueError("尚未读取游戏日期")
-    duration_days = int(COACHING_LICENSE_COURSE_DAYS[current_code])
-    due_on = (date.fromisoformat(game_date) + timedelta(days=duration_days)).isoformat()
     with _LOCK:
         payload = load_training_ground()
         facility, product = _coaching_course_available(
             payload, facility_id, int(staff_id), game_date,
         )
-        focus = {
-            "id": str(uuid.uuid4()), "at": _now(), "status": "active",
-            "focus_type": "coaching_license", "facility_id": facility_id,
-            "subject_type": (
-                "player_manager" if subject_type == "player_manager" else "staff"
-            ),
-            "staff_id": int(staff_id), "staff_name": staff_name,
-            "staff_role": staff_role, "staff_address": str(staff_address),
-            "staff_team_id": int(team_id), "staff_team_name": team_name,
-            "player_id": int(staff_id), "player_name": staff_name,
-            "player_address": str(staff_address), "player_team_id": int(team_id),
-            "player_team_name": team_name, "player_team_type": "club",
-            "started_on": game_date, "duration_mode": "coaching_license",
-            "duration_days": duration_days, "due_on": due_on, "expires_on": None,
-            "initial_license_code": current_code,
-            "target_license_code": target_code, "multiplier": 1,
-            "training_content": "教练证书进修",
-            **_training_archive_location(facility, product),
-        }
-        session = {
-            "id": str(uuid.uuid4()), "at": _now(), "game_date": game_date,
-            "facility_id": facility_id, "focus_id": focus["id"],
-            "operation": "coaching_license", "staff_id": int(staff_id),
-            "subject_type": (
-                "player_manager" if subject_type == "player_manager" else "staff"
-            ),
-            "staff_name": staff_name, "staff_role": staff_role,
-            "staff_address": str(staff_address), "team_id": int(team_id),
-            "team_name": team_name, "initial_license_code": current_code,
-            "target_license_code": target_code,
-        }
+        focus, session = build_coaching_license_focus(
+            payload, project_sku=str(project_sku or facility.get("sku") or ""),
+            module=module, facility_id=facility_id, facility=facility,
+            staff_id=int(staff_id), staff_name=staff_name,
+            staff_role=staff_role, staff_address=staff_address,
+            team_id=int(team_id), team_name=team_name, game_date=game_date,
+            current_code=current_code, target_code=target_code,
+            client_submission_id=client_submission_id,
+            subject_type=subject_type,
+        )
         return _append_training_records(
             payload, focus, session, client_submission_id,
         )
@@ -1786,6 +1866,36 @@ def complete_coaching_license_focus(
     return completed
 
 
+def find_training_submission_in(
+    payload: dict[str, Any], client_submission_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Find one new-rules submission in an already-loaded training document."""
+    submission_id = str(client_submission_id or "").strip()
+    if not submission_id:
+        return None
+    receipt = (payload.get("submission_receipts") or {}).get(submission_id) or {}
+
+    def matches(row: dict[str, Any]) -> bool:
+        return (
+            str(row.get("client_submission_id") or "") == submission_id
+            and int(row.get("task_rules_version") or 0) >= TASK_RULES_VERSION
+        )
+
+    focus = next(
+        (row for row in reversed(payload.get("focuses") or []) if matches(row)),
+        receipt.get("focus"),
+    )
+    if not focus:
+        return None
+    session = next(
+        (row for row in reversed(payload.get("sessions") or []) if matches(row)),
+        receipt.get("session"),
+    )
+    if not session:
+        return None
+    return dict(focus), dict(session)
+
+
 def find_training_submission(
     client_submission_id: str,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
@@ -1793,20 +1903,7 @@ def find_training_submission(
     if not submission_id:
         return None
     with _LOCK:
-        payload = load_training_ground()
-        focus = next((
-            row for row in reversed(payload["focuses"])
-            if str(row.get("client_submission_id") or "") == submission_id
-        ), None)
-        if not focus:
-            return None
-        session = next((
-            row for row in reversed(payload["sessions"])
-            if str(row.get("client_submission_id") or "") == submission_id
-        ), None)
-        if not session:
-            return None
-        return dict(focus), dict(session)
+        return find_training_submission_in(load_training_ground(), submission_id)
 
 
 def rebind_training_focus_player(focus_id: str, player_address: Any) -> dict[str, Any]:

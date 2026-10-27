@@ -5,13 +5,14 @@ import math
 import re
 import threading
 import uuid
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Any
 
 from tools.account_store import (
-    load_document, save_document, save_documents, update_documents,
+    load_document, locked_account, save_document, save_documents, update_documents,
 )
 from tools.app_paths import save_data_root
 from tools.money import (
@@ -252,6 +253,14 @@ def _adjust_wallet(
     write_minor(transaction, "balance_after", balance_minor)
     wallet.setdefault("transactions", []).append(transaction)
     return wallet
+
+
+@contextmanager
+def account_transaction():
+    """Hold wallet and cross-process account locks through read/validate/commit."""
+    # Wallet helpers always acquire _ACCOUNT_LOCK before account-store locks.
+    with _ACCOUNT_LOCK, locked_account(key="wallet", legacy_path=wallet_path()):
+        yield
 
 
 @_account_locked
@@ -553,8 +562,8 @@ def cheat_balance(amount: float | None = None, clear: bool = False) -> dict[str,
         delta_minor = -before_minor
         transaction_type = "cheat_balance_clear"
     else:
-        if amount not in {500, 5000}:
-            raise ValueError("作弊资金金额必须为 500 或 5000")
+        if amount not in {100, 500, 5000, 100_000_000_000}:
+            raise ValueError("作弊资金金额必须为 100、500、5000 或 100B")
         delta_minor = to_minor(amount)
         transaction_type = "cheat_funding"
     _adjust_wallet(wallet, from_minor(delta_minor), transaction_type)

@@ -14,10 +14,7 @@ ODDS_SCOPE_OPTIONS = {"favorite_schedule", "famous", "all"}
 ODDS_DAYS_OPTIONS = {3, 7, 14}
 ODDS_AUTO_REFRESH_OPTIONS = {0, 8, 30, 60}
 PREFERRED_GAME_VERSION_OPTIONS = {"fm24", "fm26"}
-UI_LOCALE_OPTIONS = {
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP",
-    "pt-BR", "pt-PT",
-}
+UI_LOCALE_OPTIONS = {"en-GB", "zh-CN"}
 DEFAULT_UI_LOCALE = "en-GB"
 LEGACY_UI_LOCALE = "zh-CN"
 DEFAULT_ODDS_AUTO_REFRESH_SECONDS = 8
@@ -117,13 +114,18 @@ def load_settings() -> dict[str, Any]:
         preferred_game_version = str(payload.get("preferred_game_version") or "")
         if preferred_game_version not in PREFERRED_GAME_VERSION_OPTIONS:
             preferred_game_version = ""
-        # Existing installations predate the locale field and were Chinese.
-        # Preserve that experience while making English the default for a
-        # genuinely new installation.
-        locale_default = LEGACY_UI_LOCALE if settings_existed else DEFAULT_UI_LOCALE
-        ui_locale = str(payload.get("ui_locale") or locale_default)
-        if ui_locale not in UI_LOCALE_OPTIONS:
-            ui_locale = locale_default
+        if "ui_locale" in payload:
+            # Removed locale values in saved settings migrate to the current
+            # default. The Chinese fallback applies only to legacy settings
+            # that never stored a locale.
+            ui_locale = str(payload.get("ui_locale") or "")
+            if ui_locale not in UI_LOCALE_OPTIONS:
+                ui_locale = DEFAULT_UI_LOCALE
+        else:
+            # Existing installations predate the locale field and were Chinese.
+            # Preserve that experience while making English the default for a
+            # genuinely new installation.
+            ui_locale = LEGACY_UI_LOCALE if settings_existed else DEFAULT_UI_LOCALE
         raw_portrait_xml_paths = payload.get("portrait_xml_paths")
         if isinstance(raw_portrait_xml_paths, (list, tuple)):
             portrait_xml_paths = list(dict.fromkeys(
@@ -306,7 +308,7 @@ def set_ui_locale(locale: Any) -> dict[str, Any]:
     resolved = str(locale or "").strip()
     if resolved not in UI_LOCALE_OPTIONS:
         raise ValueError(
-            "ui locale must be en-GB, zh-CN, zh-TW, ko-KR, de-DE, es-ES, fr-FR, ru-RU, ja-JP, pt-BR or pt-PT"
+            "ui locale must be en-GB or zh-CN"
         )
     with _LOCK:
         payload = load_settings()

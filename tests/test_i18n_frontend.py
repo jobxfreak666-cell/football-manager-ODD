@@ -1,34 +1,20 @@
 from pathlib import Path
+import json
 import re
 import subprocess
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
-SUPPORTED_LOCALES = (
-    "en-GB", "zh-CN", "zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP",
-    "pt-BR", "pt-PT",
-)
-LOCALE_PACK_SOURCES = (
-    "/i18n.tw.js", "/i18n.de.js", "/i18n.es.js", "/i18n.fr.js", "/i18n.ru.js", "/i18n.ja.js",
-    "/i18n.pt-BR.js", "/i18n.pt-PT.js",
-)
+SUPPORTED_LOCALES = ("en-GB", "zh-CN")
 NATIVE_LOCALE_NAMES = (
-    ("en-GB", "English"), ("zh-CN", "简体中文"), ("zh-TW", "繁體中文"),
-    ("ja-JP", "日本語"), ("ko-KR", "한국어"), ("de-DE", "Deutsch"),
-    ("es-ES", "Español"), ("fr-FR", "Français"), ("ru-RU", "Русский"),
-    ("pt-BR", "Português (Brasil)"), ("pt-PT", "Português (Portugal)"),
+    ("en-GB", "English"), ("zh-CN", "简体中文"),
 )
-
-
-def object_keys(source: str, start: str, end: str) -> set[str]:
-    body = source.split(start, 1)[1].split(end, 1)[0]
-    return set(re.findall(r'(?:^|,)\s*"([^"\\]+)"\s*:', body, flags=re.MULTILINE))
 
 
 def sources() -> tuple[str, str, str, str, str]:
     return (
         (ROOT / "web" / "i18n.js").read_text(encoding="utf-8"),
-        (ROOT / "web" / "i18n.ko.js").read_text(encoding="utf-8"),
+        (ROOT / "web" / "i18n.static.js").read_text(encoding="utf-8"),
         (ROOT / "web" / "app.js").read_text(encoding="utf-8"),
         (ROOT / "web" / "index.html").read_text(encoding="utf-8"),
         (ROOT / "web" / "app.css").read_text(encoding="utf-8"),
@@ -36,21 +22,64 @@ def sources() -> tuple[str, str, str, str, str]:
 
 
 def test_i18n_runtime_is_loaded_before_application_script() -> None:
-    i18n, korean, _script, html, _css = sources()
-    relationship = html.index('script src="/i18n.relationship.js"')
+    i18n, _static, _script, html, _css = sources()
     core = html.index('script src="/i18n.js"')
     app = html.index('script src="/app.js"')
-    assert relationship < core < app
-    assert all(html.index(f'script src="{source}"') < core for source in LOCALE_PACK_SOURCES)
+    assert html.index('script src="/i18n.relationship.js"') < core < app
     assert 'DEFAULT_LOCALE = "en-GB"' in i18n
-    for locale in SUPPORTED_LOCALES:
-        assert f'"{locale}"' in i18n.split("const SUPPORTED_LOCALES", 1)[1].split("];", 1)[0]
+    supported = re.search(r"const SUPPORTED_LOCALES = Object.freeze\(\[(.*?)\]\);", i18n, re.S)
+    assert supported
+    assert tuple(re.findall(r'"([^"]+)"', supported.group(1))) == SUPPORTED_LOCALES
     assert 'window.FMODDI18n' in i18n
-    assert 'window.FMODDKoreanCatalog' in korean
+
+
+def test_only_english_and_simplified_chinese_are_selectable_and_stale_preferences_fall_back() -> None:
+    i18n, _static, script, html, _css = sources()
+    notice = html.split('<select id="usage-notice-language"', 1)[1].split("</select>", 1)[0]
+    notice_options = tuple(re.findall(r'<option value="([^"]+)"', notice))
+    names = script.split("const UI_LOCALE_NATIVE_NAMES = Object.freeze([", 1)[1].split("]);", 1)[0]
+    setting_options = tuple(re.findall(r'\["([^"]+)",\s*"[^"]+"\]', names))
+    assert notice_options == setting_options == SUPPORTED_LOCALES
+    assert tuple(re.findall(r'\["([^"]+)",\s*"([^"]+)"\]', names)) == NATIVE_LOCALE_NAMES
+
+    probe = r'''
+const fs = require("fs"), vm = require("vm"), root = process.argv[1];
+const source = fs.readFileSync(root + "/web/i18n.js", "utf8");
+function boot(saved) {
+  const values = new Map([["fmodd-ui-locale", saved]]);
+  const context = {
+    window:{FMODDI18nModules:[]},
+    document:{documentElement:{dataset:{}}, querySelector:()=>null, dispatchEvent:()=>{}},
+    localStorage:{getItem:key=>values.get(key) || null, setItem:(key,value)=>values.set(key,value)},
+    NodeFilter:{SHOW_TEXT:4}, CustomEvent:class CustomEvent {},
+  };
+  vm.createContext(context);
+  vm.runInContext(source, context);
+  return {locale:context.window.FMODDI18n.locale, lang:context.document.documentElement.lang};
+}
+const unsupported = ["zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT"];
+console.log(JSON.stringify({
+  unsupported:Object.fromEntries(unsupported.map(locale=>[locale,boot(locale)])),
+  retained:Object.fromEntries(["en-GB", "zh-CN"].map(locale=>[locale,boot(locale)])),
+}));
+'''
+    result = subprocess.run(
+        ["node", "-e", probe, str(ROOT)], check=True, capture_output=True,
+        text=True, encoding="utf-8",
+    )
+    output = json.loads(result.stdout)
+    assert output["unsupported"] == {
+        locale: {"locale": "en-GB", "lang": "en-GB"}
+        for locale in ("zh-TW", "ko-KR", "de-DE", "es-ES", "fr-FR", "ru-RU", "ja-JP", "pt-BR", "pt-PT")
+    }
+    assert output["retained"] == {
+        "en-GB": {"locale": "en-GB", "lang": "en-GB"},
+        "zh-CN": {"locale": "zh-CN", "lang": "zh-CN"},
+    }
 
 
 def test_ui_locale_is_scoped_to_settings_and_server_authoritative() -> None:
-    i18n, _korean, script, _html, css = sources()
+    i18n, _static, script, _html, css = sources()
     assert 'const UI_LOCALE_STORAGE_KEY' in script
     assert 'settings.ui_locale' in script
     assert '/api/settings/ui-locale' in script
@@ -75,20 +104,16 @@ def test_ui_locale_is_scoped_to_settings_and_server_authoritative() -> None:
 
 
 def test_english_shell_has_long_label_layout_guardrails() -> None:
-    i18n, _korean, _script, _html, css = sources()
+    i18n, _static, _script, _html, css = sources()
     assert '"home.connect": "Connect save"' in i18n
-    assert '[data-locale="en-GB"],[data-locale="zh-TW"],[data-locale="ko-KR"],[data-locale="de-DE"],[data-locale="es-ES"],[data-locale="fr-FR"],[data-locale="ru-RU"],[data-locale="ja-JP"],[data-locale="pt-BR"],[data-locale="pt-PT"]' in css
     assert '.ui-locale-setting' in css
 
 
 def test_support_author_uses_qr_for_simplified_chinese_and_external_links_elsewhere() -> None:
-    _i18n, _korean, script, html, css = sources()
+    _i18n, _static, script, html, css = sources()
     locale_sources = "\n".join(
         (ROOT / "web" / filename).read_text(encoding="utf-8")
-        for filename in (
-            "i18n.static.js", "i18n.tw.js", "i18n.de.js", "i18n.es.js",
-            "i18n.fr.js", "i18n.ru.js", "i18n.ja.js", "i18n.pt-BR.js", "i18n.pt-PT.js",
-        )
+        for filename in ("i18n.static.js", "i18n.shell.js", "i18n.settings.js")
     )
     assert 'id="support-author-button" class="support-zh-cn-control"' in html
     assert 'id="support-kofi-link" class="support-kofi-control"' in html
@@ -99,10 +124,7 @@ def test_support_author_uses_qr_for_simplified_chinese_and_external_links_elsewh
     assert 'id="support-other-link" class="support-other-control"' in html
     assert html.count('href="https://fmodd.com/donate"') == 3
     assert 'data-i18n="settings.other_ways">Other ways</span>' in html
-    for translation in (
-        '"Other ways"', '"其他方式"', '"다른 방법"', '"Weitere Möglichkeiten"',
-        '"Otras formas"', '"Autres moyens"', '"Другие способы"', '"その他の方法"', '"Outras formas"',
-    ):
+    for translation in ('"Other ways"', '"其他方式"'):
         assert translation in locale_sources
     assert '[data-locale]:not([data-locale="zh-CN"]) .support-setting .support-zh-cn-control { display:none; }' in css
     assert '[data-locale]:not([data-locale="zh-CN"]) .support-setting :is(.support-kofi-control,.support-other-control) { display:inline-flex; }' in css
@@ -110,9 +132,9 @@ def test_support_author_uses_qr_for_simplified_chinese_and_external_links_elsewh
 
 
 def test_usage_notice_can_be_suppressed_for_seven_days_without_explaining_the_period() -> None:
-    _i18n, _korean, script, html, css = sources()
+    _i18n, _static, script, html, css = sources()
     notice_html = html.split('<dialog id="usage-notice-dialog"', 1)[1].split("</dialog>", 1)[0]
-    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function lotteryData", 1)[0]
+    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function leagueData()", 1)[0]
     confirm_notice = script.split('$("#usage-notice-confirm").addEventListener', 1)[1].split(
         '$("#manager-select")', 1,
     )[0]
@@ -146,9 +168,9 @@ def test_usage_notice_can_be_suppressed_for_seven_days_without_explaining_the_pe
 
 
 def test_first_launch_offers_language_selection_inside_the_usage_notice() -> None:
-    _i18n, _korean, script, html, css = sources()
+    _i18n, _static, script, html, css = sources()
     notice_html = html.split('<dialog id="usage-notice-dialog"', 1)[1].split("</dialog>", 1)[0]
-    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function lotteryData", 1)[0]
+    show_notice = script.split("function showInitialUsageNotice()", 1)[1].split("function leagueData()", 1)[0]
     locale_saver = script.split("async function saveUiLocaleSelection", 1)[1].split(
         "function ensureProfitLossColorControl", 1,
     )[0]
@@ -173,13 +195,13 @@ def test_first_launch_offers_language_selection_inside_the_usage_notice() -> Non
 
 
 def test_core_pages_apply_translations_after_dynamic_render() -> None:
-    _i18n, _korean, script, _html, _css = sources()
+    _i18n, _static, script, _html, _css = sources()
     assert 'window.FMODDI18n?.apply(document.querySelector(`#page-${app.page}`));' in script
     assert "every feature can use" in script
 
 
 def test_betting_navigation_translates_dynamic_labels_and_quantity_templates() -> None:
-    i18n, _korean, script, _html, _css = sources()
+    i18n, _static, script, _html, _css = sources()
     for source in (
         '"全部赛事":"All competitions"',
         '"联赛赛事":"League competitions"',
@@ -193,17 +215,8 @@ def test_betting_navigation_translates_dynamic_labels_and_quantity_templates() -
     assert 'label.textContent = settled > 0 ? uiPlural("topbar.up_to_date_settled", settled) : uiText("topbar.up_to_date")' in script
 
 
-def test_korean_catalog_covers_the_existing_english_transition_catalog() -> None:
-    i18n, korean, _script, _html, _css = sources()
-    english_legacy = object_keys(i18n, "const legacyEnglish = Object.freeze({", "\n  });")
-    korean_legacy = object_keys(korean, "const legacy = Object.freeze({", "\n  });")
-    assert english_legacy
-    assert korean_legacy == english_legacy
-    assert '"shell.desktop": "FMODD 데스크톱"' in korean
-
-
 def test_locale_switch_is_in_place_and_plural_categories_are_not_collapsed() -> None:
-    i18n, _korean, script, _html, _css = sources()
+    i18n, _static, script, _html, _css = sources()
     assert "function setLocale(value" in i18n
     assert "document.documentElement.dataset.locale = locale" in i18n
     assert "`${key}.${rule}`" in i18n
@@ -215,9 +228,9 @@ def test_locale_switch_is_in_place_and_plural_categories_are_not_collapsed() -> 
 
 
 def test_page_headings_are_semantic_and_do_not_repeat_the_screenshot_label() -> None:
-    i18n, korean, _script, html, css = sources()
+    i18n, _static, _script, html, css = sources()
     page_keys = (
-        "shop", "car_lottery", "inventory", "bank", "activity", "hospital",
+        "shop", "inventory", "bank", "activity", "hospital",
         "training", "canteen", "club", "hall_of_fame", "relations",
         "world_clubs", "world_players", "world_nations", "my_clubs",
     )
@@ -225,7 +238,6 @@ def test_page_headings_are_semantic_and_do_not_repeat_the_screenshot_label() -> 
         for suffix in ("eyebrow", "title"):
             key = f'page.{page}.{suffix}'
             assert i18n.count(f'"{key}"') == 2
-            assert f'"{key}"' in korean
             assert f'data-i18n="{key}"' in html
     assert '"page.my_clubs.eyebrow": "CLUB PORTFOLIO"' in i18n
     assert '"page.my_clubs.title": "My Group"' in i18n
@@ -237,10 +249,9 @@ def test_page_headings_are_semantic_and_do_not_repeat_the_screenshot_label() -> 
 
 
 def test_i18n_core_supports_domain_catalogs_and_dynamic_dom_updates() -> None:
-    i18n, _korean, _script, _html, _css = sources()
+    i18n, _static, _script, _html, _css = sources()
     assert "window.FMODDI18nModules" in i18n
     assert "buildMessageCatalog" in i18n
-    assert "window.FMODDLocalePacks" in i18n
     assert "function observe(root = document.body)" in i18n
     assert "new MutationObserver" in i18n
     assert "formatNumber, formatDate, compare" in i18n
@@ -250,7 +261,7 @@ def test_i18n_core_supports_domain_catalogs_and_dynamic_dom_updates() -> None:
 
 
 def test_dynamic_translation_does_not_rewrite_an_already_translated_text_node() -> None:
-    i18n, _korean, _script, _html, _css = sources()
+    i18n, _static, _script, _html, _css = sources()
     translator = i18n.split("function translateTextNode(node)", 1)[1].split(
         "function updatePageHeadingSemantics", 1,
     )[0]
@@ -260,7 +271,7 @@ def test_dynamic_translation_does_not_rewrite_an_already_translated_text_node() 
 
 
 def test_observer_does_not_restore_static_keys_over_dynamic_text_updates() -> None:
-    i18n, _korean, _script, _html, _css = sources()
+    i18n, _static, _script, _html, _css = sources()
     observer = i18n.split("translationObserver = new MutationObserver", 1)[1].split(
         "translationObserver.observe", 1,
     )[0]
@@ -281,7 +292,7 @@ const document = {
   createTreeWalker:()=>({currentNode:null,nextNode:()=>false}),
 };
 const context = {
-  window:{FMODDI18nModules:[],FMODDLocalePacks:{}}, document,
+  window:{FMODDI18nModules:[]}, document,
   NodeFilter:{SHOW_TEXT:4}, CustomEvent:class CustomEvent {},
 };
 vm.createContext(context);

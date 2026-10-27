@@ -32,14 +32,14 @@ const english = [
   i18n.t("relations3d.screenshot.saved", {path: "data/screenshots/graph.png"}),
   i18n.t("relations.reason.colleague"),
 ];
-i18n.setLocale("ko-KR", {persist: false, root: null});
-const korean = [
+i18n.setLocale("zh-CN", {persist: false, root: null});
+const chinese = [
   i18n.t("relations3d.title"),
   i18n.t("relations3d.network_summary", {people: 4, links: 7}),
   i18n.t("relations3d.screenshot.saved", {path: "data/screenshots/graph.png"}),
   i18n.t("relations.reason.colleague"),
 ];
-console.log(JSON.stringify({keys, messages: module.messages, english, korean}));
+console.log(JSON.stringify({keys, messages: module.messages, english, chinese}));
 '''
     result = subprocess.run(
         ["node", "-e", probe], cwd=ROOT, check=True, capture_output=True,
@@ -55,21 +55,22 @@ def placeholders(value: str) -> set[str]:
 def test_relationship_catalog_has_locale_and_placeholder_parity() -> None:
     output = relationship_probe()
     keys = output["keys"]
-    assert keys["en-GB"] == keys["zh-CN"] == keys["ko-KR"]
+    assert set(keys) == {"en-GB", "zh-CN"}
+    assert keys["en-GB"] == keys["zh-CN"]
     for key in keys["en-GB"]:
-        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN", "ko-KR")]
-        assert placeholders(variants[0]) == placeholders(variants[1]) == placeholders(variants[2]), key
+        variants = [output["messages"][locale][key] for locale in ("en-GB", "zh-CN")]
+        assert placeholders(variants[0]) == placeholders(variants[1]), key
     assert output["english"] == [
         "3D relationship links",
         "4 people · 7 relationship links",
         "Saved: data/screenshots/graph.png",
         "Colleague",
     ]
-    assert output["korean"] == [
-        "3D 관계 연결",
-        "4명 · 관계 링크 7개",
-        "저장됨: data/screenshots/graph.png",
-        "동료",
+    assert output["chinese"] == [
+        "3D 关系连线",
+        "4 人 · 7 条关系链路",
+        "已保存：data/screenshots/graph.png",
+        "同事",
     ]
 
 
@@ -90,11 +91,9 @@ def test_relationship_scripts_and_renderers_use_semantic_messages() -> None:
         'uiText("relations3d.hint.node")',
         'uiText("relations.toast.scope_missing")',
         'relationshipTrainingRoleLabel(role)',
-        'uiText(RELATIONSHIP_TRAINING_POSITION_LABELS[position])',
-        'uiText("relationship.room.preview_title")',
-        'uiText("relationship.room.effect_summary"',
-        'uiText("relationship.room.confirm_enter")',
-        'uiText("relationship.room.unlock_action")',
+        'uiText("training.team.settle_pending")',
+        'uiText("training.team.target")',
+        'uiText("training.team.end_early_title")',
         "relationshipTimelineSourceLabel(row.source)",
         "relationshipEventRoleLabel(from)",
         "window.FMODDRelationshipEventOutcomeKeys",
