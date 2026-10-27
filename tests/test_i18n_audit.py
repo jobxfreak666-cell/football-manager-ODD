@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from tools.i18n_audit import apply_baseline, scan_html
 
 
@@ -41,6 +43,48 @@ def test_python_and_javascript_extract_literals_and_classify_directives() -> Non
     assert any(item.category == "user-visible" for item in py_findings)
     assert any(item.kind == "python-fstring" and "球员" in item.text for item in py_findings)
     assert any(item.allowlisted and item.category == "game-or-user-data" for item in py_findings)
+
+
+@pytest.mark.parametrize("prefix", ["f", "F", "fr", "fR", "Fr", "FR", "rf", "rF", "Rf", "RF"])
+def test_python_fstring_prefixes_keep_fstring_kind_and_directive(prefix: str) -> None:
+    from tools.i18n_audit import scan_python
+
+    source = f'message = {prefix}"球员 {{name}}"  # i18n-audit: internal\n'
+    findings = scan_python(source, "tools/example.py")
+
+    assert len(findings) == 1
+    item = findings[0]
+    assert item.kind == "python-fstring"
+    assert "球员" in item.text
+    assert item.line == 1
+    assert item.category == "internal-diagnostic"
+    assert item.allowlisted is True
+
+
+def test_python_adjacent_literals_preserve_kind_line_comments_and_directives() -> None:
+    from tools.i18n_audit import scan_python
+
+    source = (
+        '# f"注释不应计入"\n'
+        'plain = r"原样\\n中文"  # i18n-audit: ignore\n'
+        'message = (\n'
+        '    u"前缀"  # i18n-audit: game-data\n'
+        '    f"球员 {name}"  # i18n-audit: internal\n'
+        '    "后缀"\n'
+        ')\n'
+    )
+    findings = scan_python(source, "tools/example.py")
+
+    assert [(item.kind, item.line, item.category, item.allowlisted) for item in findings] == [
+        ("python-string", 2, "allowlisted", True),
+        ("python-string", 4, "game-or-user-data", True),
+        ("python-fstring", 5, "internal-diagnostic", True),
+        ("python-string", 6, "uncertain", False),
+    ]
+    assert findings[0].text == r"原样\n中文"
+    assert findings[1].text == "前缀"
+    assert "球员" in findings[2].text
+    assert findings[3].text == "后缀"
 
 
 def test_app_js_long_lines_do_not_hide_frontend_literals() -> None:

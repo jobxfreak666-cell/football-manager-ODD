@@ -380,6 +380,12 @@ def scan_python(source: str, file: str) -> list[Finding]:
         for token in tokens:
             if token.type not in {tokenize.STRING, fstring_middle}:
                 continue
+            # Before Python 3.12, tokenize returns each complete f-string as
+            # STRING, so its prefix must supply the kind instead of token type.
+            prefix = PY_STRING_PREFIX_RE.match(token.string)
+            is_fstring = token.type == fstring_middle or (
+                prefix is not None and "f" in prefix.group(1).lower()
+            )
             value = (
                 _python_string_value(token.string)
                 if token.type == tokenize.STRING
@@ -391,7 +397,7 @@ def scan_python(source: str, file: str) -> list[Finding]:
                 source=source,
                 starts=starts,
                 offset=offset,
-                kind="python-string" if token.type == tokenize.STRING else "python-fstring",
+                kind="python-fstring" if is_fstring else "python-string",
                 text=value,
             )
             if item:
