@@ -58,7 +58,7 @@ def test_repeated_data_attribute_selects_receive_distinct_keys() -> None:
 def test_lucide_rendering_removes_processed_markers() -> None:
     script, _ = sources()
     icons = script.split("function finalizeLucideIcons", 1)[1].split(
-        "async function copyText", 1
+        "function renderCompetitions", 1
     )[0]
 
     assert 'scope?.querySelectorAll?.("svg[data-lucide]")' in icons
@@ -74,7 +74,7 @@ def test_explicit_svg_icon_changes_remain_renderable() -> None:
     script, _ = sources()
     icon_update = 'icon.setAttribute("data-lucide", confirmed ? "lock-keyhole-open" : "lock-keyhole");'
     renderer = script.split("function renderIcons(root = null)", 1)[1].split(
-        "async function copyText", 1
+        "function renderCompetitions", 1
     )[0]
 
     assert icon_update in script
@@ -85,7 +85,7 @@ def test_explicit_svg_icon_changes_remain_renderable() -> None:
 def test_icon_and_select_enhancement_remains_root_scoped() -> None:
     script, _ = sources()
     renderer = script.split("function renderIcons(root = null)", 1)[1].split(
-        "async function copyText", 1
+        "function renderCompetitions", 1
     )[0]
 
     assert "const roots = iconRenderRoots(root)" in renderer
