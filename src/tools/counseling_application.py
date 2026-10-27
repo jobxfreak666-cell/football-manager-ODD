@@ -2,7 +2,7 @@
 
 The service owns the use-case control flow, compensation order and response
 shape only.  ``LocalOddsState`` remains the single owner of runtime state,
-locks, save/manager binding and relationship archiving; all external domain
+locks and save/manager binding; all external domain
 and wallet collaborators are supplied through the frozen :class:`CounselingIO`
 callables so importing this module never imports the HTTP entrypoint or the
 native FM core.
@@ -10,7 +10,35 @@ native FM core.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Any, Callable, Protocol
+
+from tools.domain_errors import CounselingCommitUnknownError, DomainError
+from tools.player_effects import PlayerEffectRollbackError
+
+
+class _CounselingCompensationError(DomainError):
+    """Retain private causes while publishing only safe compensation state."""
+
+    def __init__(
+        self, operation_error: Exception, compensation_error: Exception, *,
+        phase: str, native_restored: bool,
+    ) -> None:
+        super().__init__(
+            f"{phase}_incomplete", "心理辅导补偿未完成，请勿重复操作",
+            HTTPStatus.INTERNAL_SERVER_ERROR, phase, False,
+            {
+                "native_restored": native_restored, "wallet_debited": True,
+                "refund_attempted": phase == "refund",
+                "refund_state": "unknown" if phase == "refund" else "not_attempted",
+            },
+            "error.request_failed",
+        )
+        self.operation_error = operation_error
+        if phase == "rollback":
+            self.rollback_error = compensation_error
+        else:
+            self.refund_error = compensation_error
 
 
 @dataclass(frozen=True)
@@ -48,8 +76,6 @@ class CounselingRuntime(Protocol):
         self, player_id: int, requested_team_id: int,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]: ...
 
-    def _archive_activity_relationship(self, **kwargs: Any) -> bool: ...
-
 
 class CounselingApplicationService:
     def __init__(self, runtime: CounselingRuntime, io: CounselingIO) -> None:
@@ -74,8 +100,6 @@ class CounselingApplicationService:
                     runtime.output.get("selected_manager_id")
                     or manager.get("id") or 0
                 )
-                team = dict(profile.get("team") or {})
-                team_id = int(team.get("id") or 0)
                 current_intimacy = int(player.get("manager_intimacy") or 0)
                 game_date = str(
                     (io.read_game_clock() or {}).get("date")
@@ -101,61 +125,58 @@ class CounselingApplicationService:
 
             def apply_effects(outcome: str, points: int) -> dict[str, Any]:
                 nonlocal applied_effect
+                # Paid counseling only clears unhappiness. Legacy relationship
+                # writes do not provide an exact undo token for this use case.
+                if outcome != "unlocked" or points != 0:
+                    raise ValueError("心理辅导仅支持清除不满且不改变亲密度")
                 effect = io.apply_effect(player_id, player_address, outcome)
                 applied_effect = effect
-                try:
-                    intimacy = io.adjust_manager_intimacy(
-                        player_id, player_address, manager_id, team_id,
-                        team_address=team.get("address"),
-                        manager_address=manager.get("manager_address"),
-                        points=points,
-                    ) if points else {
-                        "before": current_intimacy, "after": current_intimacy,
-                        "applied": 0,
-                    }
-                except Exception:
-                    io.restore_effect(effect)
-                    applied_effect = None
-                    raise
                 public_effect = {
                     key: value for key, value in effect.items()
                     if not key.startswith("_")
                 }
-                return {**intimacy, "effect": public_effect}
+                return {
+                    "before": current_intimacy, "after": current_intimacy,
+                    "applied": 0, "effect": public_effect,
+                }
 
             try:
                 result = io.perform_counseling(
                     manager_id, player_id, player_name, game_date,
                     current_intimacy, apply_effects,
                 )
-            except Exception:
+            except Exception as operation_error:
+                if isinstance(operation_error, CounselingCommitUnknownError):
+                    # Neither native state nor payment can be reversed while
+                    # the session may already be durably recorded.
+                    raise
+                if isinstance(operation_error, PlayerEffectRollbackError):
+                    raise _CounselingCompensationError(
+                        operation_error.operation_error, operation_error.rollback_error,
+                        phase="rollback", native_restored=False,
+                    ) from operation_error.operation_error
                 if applied_effect is not None:
                     try:
                         io.restore_effect(applied_effect)
-                    except Exception:
-                        pass
-                io.adjust_balance(
-                    price, "psychological_counseling_session_rollback",
-                    manager_id=manager_id, player_id=player_id,
-                    player_name=player_name, game_date=game_date,
-                )
+                    except Exception as rollback_error:
+                        raise _CounselingCompensationError(
+                            operation_error, rollback_error,
+                            phase="rollback", native_restored=False,
+                        ) from operation_error
+                try:
+                    io.adjust_balance(
+                        price, "psychological_counseling_session_rollback",
+                        manager_id=manager_id, player_id=player_id,
+                        player_name=player_name, game_date=game_date,
+                    )
+                except Exception as refund_error:
+                    raise _CounselingCompensationError(
+                        operation_error, refund_error,
+                        phase="refund", native_restored=True,
+                    ) from operation_error
                 raise
             result["payment"] = payment
-            result["relationship_archived"] = runtime._archive_activity_relationship(
-                target=player, target_kind="player", manager=manager,
-                manager_id=manager_id, result=result, game_date=game_date,
-                source_key="activity:psychological_counseling",
-                source_label=(
-                    f"心理辅导 · {result.get('outcome_name') or '关系变化'}"
-                ),
-                target_role="counselee", intimacy_before=current_intimacy,
-                details={
-                    "event_family": "心理辅导",
-                    "outcome": result.get("outcome"),
-                    "outcome_name": result.get("outcome_name"),
-                    "team_id": team_id,
-                },
-            )
+            result["relationship_archived"] = False
             with runtime.lock:
                 if int(result.get("integer_applied") or 0):
                     player["manager_intimacy"] = int(float(result["intimacy"]))
@@ -167,8 +188,14 @@ class CounselingApplicationService:
                         and change.get("after") is False
                     ):
                         player["has_unhappiness"] = False
-            return {
-                "counseling": result,
-                "economy": io.public_economy(),
-                "welfare": io.welfare_status(),
-            }
+            # The session is complete. A failed view refresh cannot change
+            # that outcome or send the client back through the paid operation.
+            response = {"counseling": result}
+            for key, project in (
+                ("economy", io.public_economy), ("welfare", io.welfare_status),
+            ):
+                try:
+                    response[key] = project()
+                except Exception:
+                    response["state_refresh_required"] = True
+            return response

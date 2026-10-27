@@ -490,6 +490,22 @@ def load_document(
         return deepcopy(payload["documents"].get(str(key), default))
 
 
+def read_persisted_document(
+    key: str, scope_id: str | None = None, *, legacy_path: Path | None = None,
+) -> Any:
+    """Read only the current primary file, without cache, recovery or migration.
+
+    Missing, unreadable or invalid primary data raises; a backup or cached
+    document is never evidence of the outcome of a particular disk commit.
+    The decoded document is private and this read does not update the cache.
+    """
+    with _LOCK:
+        path, _legacy_root = _storage_paths(scope_id, key, legacy_path)
+        with storage_lock(path):
+            payload = _decode_container(path, path.read_bytes())
+            return payload["documents"][str(key)]
+
+
 def update_document(
     key: str, default: Any, mutator: Callable[[Any], Any],
     scope_id: str | None = None, *, legacy_path: Path | None = None,

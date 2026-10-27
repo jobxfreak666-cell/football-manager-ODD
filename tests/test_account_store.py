@@ -17,6 +17,53 @@ class AccountStoreTests(unittest.TestCase):
         account_store._CONTAINER_CACHE.clear()
         account_store._SPLIT_RECOVERY_CHECKED.clear()
 
+    def test_persisted_document_read_ignores_hot_cache_and_signature(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "account.fmodd"
+            account_store._write_container(path, {"documents": {"economy": {"history": ["disk"]}}})
+            signature = account_store._container_signature(path)
+            account_store._CONTAINER_CACHE[path] = (
+                signature, {"documents": {"economy": {"history": ["cache"]}}},
+            )
+            with (
+                patch.object(account_store, "account_save_path", return_value=path),
+                patch.object(account_store, "save_data_root", return_value=root / "legacy"),
+                patch.object(account_store, "_container_signature", side_effect=OSError("stat failed")),
+            ):
+                result = account_store.read_persisted_document("economy")
+                result["history"].append("caller")
+                reloaded = account_store.read_persisted_document("economy")
+            self.assertEqual(reloaded, {"history": ["disk"]})
+            self.assertEqual(account_store._CONTAINER_CACHE[path][1]["documents"]["economy"], {"history": ["cache"]})
+
+    def test_persisted_document_read_never_recovers_backup_or_migrates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "account.fmodd"
+            account_store._write_container(path, {"documents": {"economy": {"history": []}}})
+            backup = path.with_suffix(".fmodd.backup")
+            backup.write_bytes(path.read_bytes())
+            legacy = root / "legacy" / "economy" / "club_economy.json"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text('{"activity_history": []}', encoding="utf-8")
+            for corrupted in (b"broken", None):
+                with self.subTest(corrupted=corrupted):
+                    if corrupted is None:
+                        path.unlink()
+                    else:
+                        path.write_bytes(corrupted)
+                    before = {item: item.read_bytes() for item in root.rglob("*") if item.is_file()}
+                    with (
+                        patch.object(account_store, "account_save_path", return_value=path),
+                        patch.object(account_store, "save_data_root", return_value=legacy.parents[1]),
+                        patch.object(account_store, "atomic_write_bytes", side_effect=AssertionError("read must not write")),
+                    ):
+                        with self.assertRaises((OSError, RuntimeError)):
+                            account_store.read_persisted_document("economy")
+                    after = {item: item.read_bytes() for item in root.rglob("*") if item.is_file()}
+                    self.assertEqual(after, before)
+
     def test_repeated_document_reads_decode_container_once(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

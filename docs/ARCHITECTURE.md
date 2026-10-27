@@ -133,7 +133,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 青训计划与名单事务 | `src/tools/youth_intake.py` |
 | 原生青训生成 Hook | `src/tools/youth_generation_hook.py` |
 | 活动中心楼层、冷却、语言课程、医疗策略、治疗任务与扣费 | `src/tools/club_economy.py` |
-| 单次心理辅导的余额校验、钱包付费、效果/关系补偿与响应编排 | `src/tools/counseling_application.py`；`LocalOddsState` 保留兼容门面和唯一运行时状态，通过显式 `CounselingIO` 在每次调用时绑定当前依赖，关系归档仍由门面持有 |
+| 单次心理辅导的余额校验、钱包付费、效果恢复、退款与响应编排 | `src/tools/counseling_application.py`；`LocalOddsState` 保留兼容门面和唯一运行时状态，通过显式 `CounselingIO` 在每次调用时绑定当前依赖；固定清除不满且亲密度变化为零，不写关系档案。辅导保存异常由 `club_economy` 严格核对主容器，提交未确认时不补偿；恢复未完成时停止退款，退款失败保留双重原因，均返回不可重试的错误分类 |
 | 手动/默认治疗及按游戏日推进的医疗编排 | `src/tools/medical_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、名单快照和 `club_medical_auto_result`，通过显式 `MedicalIO` 在每次调用时绑定当前依赖；默认治疗仍经 `_apply_default_medical_treatments` 替换点，治疗存储、扣费与游戏日调度仍归 `club_economy.py` 和现有刷新流程 |
 | 食堂单人/批量海参奖励编排 | `src/tools/canteen_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、账户/地址绑定和实时目标解析，通过显式 `CanteenIO` 在每次调用时绑定当前依赖；批量仍使用一个短生命周期写会话和逐人独立事务，经 `_canteen_sea_cucumber_context`/`_canteen_sea_cucumber_one` 替换点调用；`canteen_plan_update`、CA Hook 方案、底层写会话与 `commit_player_effect` 未迁移 |
 | 球员/职员 Person 语言 vector 读取、验证式写入与回滚 | `src/tools/player_languages.py`；职员写入能力由 `src/tools/game_layout.py` 按实机证据门控 |

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools import app_settings, betting_account, club_economy, club_reader
+from tools import account_store, app_settings, betting_account, club_economy, club_reader
 from tools.money import to_minor, write_minor
 
 
@@ -158,7 +158,8 @@ def native_effect() -> dict:
 
 def run_old_facade(
     scratch_dir, wallet_balance: float, *, relationship_error=None, archive_error=None,
-    force_points: int | None = None,
+    force_points: int | None = None, force_outcome="unlocked", save_error=None,
+    restore_error=None, refund_error=None, apply_error=None,
 ):
     economy = economy_state(balance=5_000_000.0)
     state, player, events, _facade, namespace = counseling_host(
@@ -169,7 +170,7 @@ def run_old_facade(
     def perform_with_points(
         manager_id, player_id, player_name, game_date, current_intimacy, apply_effects,
     ):
-        memory = apply_effects("unlocked", int(force_points))
+        memory = apply_effects(force_outcome, int(force_points))
         return {
             "id": "row", "outcome": "unlocked", "outcome_name": "彻底释怀",
             "integer_applied": int(force_points),
@@ -181,16 +182,36 @@ def run_old_facade(
         perform_with_points if force_points is not None
         else club_economy.perform_psychological_counseling
     )
+    wallet_calls = []
+    restore_balances = []
+
+    def restore(_effect):
+        restore_balances.append(betting_account.available_balance())
+        if restore_error is not None:
+            raise restore_error
+
+    def payment(amount, kind, **metadata):
+        wallet_calls.append((amount, kind))
+        result = betting_account.adjust_balance(amount, kind, **metadata)
+        # A failing refund can have committed already; its result is unknown.
+        if amount > 0 and refund_error is not None:
+            raise refund_error
+        return result
+
     with (
         patch("tools.betting_account.save_data_root", return_value=scratch_dir),
+        patch.object(club_economy, "save_data_root", return_value=scratch_dir),
         patch.object(club_economy, "load_economy", return_value=economy),
-        patch.object(club_economy, "save_economy"),
+        patch.object(club_economy, "save_economy", side_effect=save_error),
         patch.dict(namespace, {
             "read_game_clock": MagicMock(return_value={"date": "2028-01-01"}),
             "player_has_unhappiness": MagicMock(return_value=True),
             "local_purchase_price": MagicMock(side_effect=float),
             "charge_combined_funds": MagicMock(),
-            "apply_psychological_counseling_effect": MagicMock(return_value=effect),
+            "adjust_balance": payment,
+            "apply_psychological_counseling_effect": MagicMock(
+                return_value=effect, side_effect=apply_error,
+            ),
             "adjust_manager_intimacy_points": MagicMock(
                 side_effect=relationship_error,
                 return_value={
@@ -198,7 +219,7 @@ def run_old_facade(
                     "effect": effect,
                 },
             ),
-            "restore_player_activity_effect": MagicMock(),
+            "restore_player_activity_effect": MagicMock(side_effect=restore),
             "public_economy": MagicMock(return_value={}),
             "welfare_status": MagicMock(return_value={}),
             "perform_psychological_counseling": perform,
@@ -207,6 +228,7 @@ def run_old_facade(
         wallet = betting_account.load_wallet()
         write_minor(wallet, "balance", to_minor(wallet_balance))
         betting_account.save_wallet(wallet)
+        account_store.save_document("economy", economy, legacy_path=club_economy.economy_path())
         outcome = {"response": None, "error": None}
         try:
             outcome["response"] = state.psychological_counseling(
@@ -221,7 +243,7 @@ def run_old_facade(
         outcome["restore"] = namespace["restore_player_activity_effect"]
     outcome.update(
         state=state, player=player, events=events, bank_after=economy["general_balance"],
-        namespace=namespace,
+        namespace=namespace, wallet_calls=wallet_calls, restore_balances=restore_balances,
     )
     return outcome
 
@@ -240,7 +262,9 @@ def test_old_facade_always_unlocks_and_charges_wallet_not_bank(scratch_dir):
     assert run["wallet_after"] == 250_000.0 - price
     assert run["bank_after"] == 5_000_000.0
     run["combined"].assert_not_called()
-    run["state"]._archive_activity_relationship.assert_called_once()
+    run["state"]._archive_activity_relationship.assert_not_called()
+    run["intimacy"].assert_not_called()
+    assert counseling["relationship_archived"] is False
     assert run["player"]["has_unhappiness"] is False
 
 
@@ -268,32 +292,36 @@ def test_old_facade_takes_memory_lock_before_state_lock(scratch_dir):
     assert run["events"][-1] == ("exit", "memory_lock")
 
 
-def test_old_facade_restores_effect_and_refunds_when_relationship_write_fails(scratch_dir):
+@pytest.mark.parametrize("outcome,points", [("unlocked", 1), ("relieved", 0)])
+def test_paid_facade_rejects_unsupported_effect_before_native_write(scratch_dir, outcome, points):
     run = run_old_facade(
-        scratch_dir, 150_000.0, relationship_error=RuntimeError("relationship failed"),
-        force_points=1,
+        scratch_dir, 150_000.0, force_outcome=outcome, force_points=points,
     )
 
-    assert isinstance(run["error"], RuntimeError)
+    assert isinstance(run["error"], ValueError)
     assert run["wallet_after"] == 150_000.0
     assert run["bank_after"] == 5_000_000.0
-    run["restore"].assert_called_once_with(native_effect())
+    run["apply_effect"].assert_not_called()
+    run["intimacy"].assert_not_called()
+    run["restore"].assert_not_called()
     run["state"]._archive_activity_relationship.assert_not_called()
     assert run["player"]["manager_intimacy"] == 40
     assert run["player"]["has_unhappiness"] is True
 
 
-def test_old_facade_archive_failure_is_outside_compensation_boundary(scratch_dir):
+def test_fixed_unlock_never_calls_legacy_relationship_archive(scratch_dir):
     run = run_old_facade(
         scratch_dir, 150_000.0, archive_error=RuntimeError("archive failed"),
     )
 
-    assert isinstance(run["error"], RuntimeError)
+    assert run["error"] is None
     assert run["wallet_after"] == 50_000.0
     assert run["bank_after"] == 5_000_000.0
     run["restore"].assert_not_called()
     assert run["player"]["manager_intimacy"] == 40
-    assert run["player"]["has_unhappiness"] is True
+    assert run["player"]["has_unhappiness"] is False
+    assert run["response"]["counseling"]["relationship_archived"] is False
+    run["state"]._archive_activity_relationship.assert_not_called()
 
 
 
@@ -373,9 +401,10 @@ def test_direct_service_owns_use_case_flow_and_response_shape():
     assert response["counseling"]["payment"] == {
         "bank": 0.0, "wallet": 100_000.0, "total": 100_000.0,
     }
-    assert response["counseling"]["relationship_archived"] is True
+    assert response["counseling"]["relationship_archived"] is False
     assert response["economy"] == {"wallet": 150_000.0}
     assert response["welfare"] == {"treatments": {}}
+    assert set(response) == {"counseling", "economy", "welfare"}
     assert calls["adjust"] == [(
         -100_000.0, "psychological_counseling_session",
         {
@@ -385,7 +414,7 @@ def test_direct_service_owns_use_case_flow_and_response_shape():
     )]
     assert calls["restore"] == []
     runtime._bind_current_save.assert_called_once()
-    runtime._archive_activity_relationship.assert_called_once()
+    runtime._archive_activity_relationship.assert_not_called()
     assert player["has_unhappiness"] is False
 
 
@@ -457,62 +486,96 @@ def test_service_module_imports_without_native_dll():
     assert result.returncode == 0
 
 
-@pytest.mark.parametrize("failure_stage", ["native_apply", "domain_after_effect", "relationship_restore"])
-def test_failure_preserves_restore_attempts_refund_order_and_original_exception(failure_stage):
-    """Refunding must not imply that a failed native restoration succeeded."""
-    from dataclasses import replace
-    from tools.counseling_application import CounselingApplicationService
+def test_real_domain_save_failure_restores_once_then_refunds_original_error(scratch_dir):
+    failure = OSError("economy save failed")
+    run = run_old_facade(scratch_dir, 150_000.0, save_error=failure)
 
-    io, effect, _calls = direct_io()
-    runtime, player = direct_runtime()
-    events = []
-    failure = RuntimeError(failure_stage)
-    restore_failure = OSError("restore failed")
-
-    def payment(amount, kind, **metadata):
-        events.append(("wallet", amount, kind))
-
-    def apply(*args):
-        events.append(("apply",))
-        if failure_stage == "native_apply":
-            raise failure
-        return effect
-
-    def relationship(*args, **kwargs):
-        events.append(("relationship",))
-        raise failure
-
-    def restore(value):
-        assert value is effect
-        events.append(("restore",))
-        raise restore_failure
-
-    def settle(*args):
-        callback = args[-1]
-        callback("unlocked", 1 if failure_stage == "relationship_restore" else 0)
-        raise failure
-
-    service = CounselingApplicationService(runtime, replace(
-        io, adjust_balance=payment, apply_effect=apply,
-        adjust_manager_intimacy=relationship, restore_effect=restore,
-        perform_counseling=settle,
-    ))
-    expected_error = restore_failure if failure_stage == "relationship_restore" else failure
-    with pytest.raises(type(expected_error)) as caught:
-        service.counsel({"player_id": 2, "team_id": 3})
-    assert caught.value is expected_error
-    middle = {
-        "native_apply": [("apply",)],
-        "domain_after_effect": [("apply",), ("restore",)],
-        "relationship_restore": [("apply",), ("relationship",), ("restore",), ("restore",)],
-    }[failure_stage]
-    assert events == [
-        ("wallet", -100_000.0, "psychological_counseling_session"),
-        *middle,
-        ("wallet", 100_000.0, "psychological_counseling_session_rollback"),
+    assert run["error"] is failure
+    run["apply_effect"].assert_called_once_with(2, "0x2000", "unlocked")
+    run["restore"].assert_called_once_with(native_effect())
+    assert run["restore_balances"] == [50_000.0]
+    assert run["wallet_after"] == 150_000.0
+    assert run["wallet_calls"] == [
+        (-100_000.0, "psychological_counseling_session"),
+        (100_000.0, "psychological_counseling_session_rollback"),
     ]
-    assert player["has_unhappiness"] is True
-    runtime._archive_activity_relationship.assert_not_called()
+    assert run["player"]["has_unhappiness"] is True
+
+
+def test_real_domain_restore_failure_stops_refund_and_retains_both_causes(scratch_dir):
+    import json
+    from tools.domain_errors import DomainError
+
+    failure = OSError("save failed at 0xDEADBEEF")
+    rollback_failure = RuntimeError("restore failed at 0xABCDEF")
+    run = run_old_facade(
+        scratch_dir, 150_000.0, save_error=failure, restore_error=rollback_failure,
+    )
+
+    error = run["error"]
+    assert isinstance(error, DomainError)
+    assert (error.code, error.phase, error.retryable) == ("rollback_incomplete", "rollback", False)
+    assert error.operation_error is failure
+    assert error.rollback_error is rollback_failure
+    assert error.__cause__ is failure
+    assert error.details == {
+        "native_restored": False, "wallet_debited": True,
+        "refund_attempted": False, "refund_state": "not_attempted",
+    }
+    assert "0x" not in json.dumps(error.payload())
+    run["restore"].assert_called_once_with(native_effect())
+    assert run["wallet_after"] == 50_000.0
+    assert run["wallet_calls"] == [(-100_000.0, "psychological_counseling_session")]
+    assert run["player"]["has_unhappiness"] is True
+
+
+def test_refund_failure_retains_original_error_and_unknown_committed_state(scratch_dir):
+    from tools.domain_errors import DomainError
+
+    failure = OSError("economy save failed")
+    refund_failure = OSError("refund acknowledgement failed")
+    run = run_old_facade(
+        scratch_dir, 150_000.0, save_error=failure, refund_error=refund_failure,
+    )
+
+    error = run["error"]
+    assert isinstance(error, DomainError)
+    assert (error.code, error.phase, error.retryable) == ("refund_incomplete", "refund", False)
+    assert error.operation_error is failure
+    assert error.refund_error is refund_failure
+    assert error.__cause__ is failure
+    assert error.details == {
+        "native_restored": True, "wallet_debited": True,
+        "refund_attempted": True, "refund_state": "unknown",
+    }
+    run["restore"].assert_called_once_with(native_effect())
+    assert run["wallet_after"] == 150_000.0
+    assert len(run["wallet_calls"]) == 2  # Never blindly repeat an uncertain refund.
+
+
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_apply_failure_refunds_only_if_native_rollback_is_confirmed(scratch_dir, incomplete):
+    from tools.domain_errors import DomainError
+    from tools.player_effects import PlayerEffectRollbackError
+
+    failure = OSError("native write failed")
+    rollback_failure = OSError("native rollback failed")
+    apply_failure = PlayerEffectRollbackError(failure, rollback_failure) if incomplete else failure
+    run = run_old_facade(scratch_dir, 150_000.0, apply_error=apply_failure)
+
+    run["restore"].assert_not_called()  # No successful effect token was returned.
+    if incomplete:
+        error = run["error"]
+        assert isinstance(error, DomainError)
+        assert (error.code, error.phase, error.retryable) == ("rollback_incomplete", "rollback", False)
+        assert error.operation_error is failure
+        assert error.rollback_error is rollback_failure
+        assert run["wallet_after"] == 50_000.0
+        assert len(run["wallet_calls"]) == 1
+    else:
+        assert run["error"] is failure
+        assert run["wallet_after"] == 150_000.0
+        assert len(run["wallet_calls"]) == 2
 
 
 def test_converted_price_controls_wallet_debit_and_response():
@@ -555,3 +618,177 @@ def test_reused_service_resolves_new_addresses_and_output_date_after_account_swi
     assert observed == [(2, "0x2000"), (9, "0x9999")]
     assert [entry[2]["manager_id"] for entry in calls["adjust"]] == [1, 7]
     assert [entry[2]["game_date"] for entry in calls["adjust"]] == ["2028-01-01", "2028-02-02"]
+
+
+def run_persisted_counseling(
+    tmp_path, *, fail_before_replace=False, verification="readable", invoke=None,
+):
+    """Exercise the real store replacement and fail its following signature read."""
+    import gzip
+    import json
+    from contextlib import contextmanager
+    from dataclasses import replace
+    from tools import account_store
+    from tools.counseling_application import CounselingApplicationService
+
+    native = {"unhappy": True}
+    events = []
+    original_atomic = account_store.atomic_write_bytes
+    original_signature = account_store._container_signature
+    original_read = Path.read_bytes
+    original_transaction = club_economy.account_transaction
+    save_error = OSError("post-replace signature failed at 0xDEADBEEF")
+    pending_signature = False
+    failed_save = False
+    signature_failures = 0
+    projection_reads = []
+    account_path = tmp_path / ".account.fmodd"
+
+    def atomic(path, encoded):
+        nonlocal pending_signature
+        container = json.loads(gzip.decompress(encoded))
+        rows = (container["documents"].get("economy") or {}).get("activity_history", [])
+        if rows and not failed_save:
+            if fail_before_replace:
+                raise save_error
+            original_atomic(path, encoded)
+            if verification == "lock_exit":
+                return
+            if verification == "corrupt":
+                path.write_bytes(b"corrupt current container")
+            elif verification == "inconsistent":
+                container["documents"]["economy"]["activity_floor_cooldowns"] = {}
+                original_atomic(path, gzip.compress(json.dumps(container).encode("utf-8")))
+            pending_signature = True
+            return
+        original_atomic(path, encoded)
+
+    def signature(path):
+        nonlocal pending_signature, failed_save, signature_failures
+        if path == account_path and (
+            pending_signature or (failed_save and verification == "persistent_signature")
+        ):
+            pending_signature = False
+            failed_save = True
+            signature_failures += 1
+            raise save_error
+        return original_signature(path)
+
+    def read(path):
+        if failed_save and verification == "unreadable" and path == account_path:
+            raise OSError("strict read denied")
+        return original_read(path)
+
+    def apply(*_args):
+        native["unhappy"] = False
+        events.append("apply")
+        return native_effect()
+
+    def restore(_effect):
+        native["unhappy"] = True
+        events.append("restore")
+
+    def payment(amount, kind, **metadata):
+        events.append(("wallet", amount))
+        return betting_account.adjust_balance(amount, kind, **metadata)
+
+    def project_economy():
+        projection_reads.append("economy")
+        return club_economy.public_economy()
+
+    def project_welfare():
+        projection_reads.append("welfare")
+        return club_economy.welfare_status()
+
+    @contextmanager
+    def transaction():
+        with original_transaction():
+            yield
+        if verification == "lock_exit" and not native["unhappy"]:
+            raise save_error
+
+    with (
+        patch.object(betting_account, "save_data_root", return_value=tmp_path),
+        patch.object(club_economy, "save_data_root", return_value=tmp_path),
+    ):
+        wallet = betting_account.load_wallet()
+        write_minor(wallet, "balance", to_minor(150_000.0))
+        betting_account.save_wallet(wallet)
+        initial_economy = economy_state(balance=5_000_000.0)
+        initial_economy["wallet_mode"] = "bank_v2"
+        club_economy.save_economy(initial_economy)
+        club_economy.load_economy()  # Complete normal schema defaults before fault injection.
+        club_economy.load_economy()
+        account_path.with_suffix(".fmodd.backup").write_bytes(account_path.read_bytes())
+        io, _effect, _calls = direct_io()
+        runtime, player = direct_runtime()
+        if verification == "persistent_signature":
+            io = replace(io, public_economy=project_economy, welfare_status=project_welfare)
+        service = CounselingApplicationService(runtime, replace(
+            io, apply_effect=apply, restore_effect=restore,
+            available_balance=betting_account.available_balance, adjust_balance=payment,
+            perform_counseling=club_economy.perform_psychological_counseling,
+        ))
+        response = error = None
+        with (
+            patch.object(account_store, "atomic_write_bytes", side_effect=atomic),
+            patch.object(account_store, "_container_signature", side_effect=signature),
+            patch.object(Path, "read_bytes", read),
+            patch.object(club_economy, "account_transaction", transaction),
+        ):
+            try:
+                response = invoke(service) if invoke else service.counsel({"player_id": 2, "team_id": 3})
+            except Exception as caught:
+                error = caught
+        raw = account_path.read_bytes()
+        persisted = json.loads(gzip.decompress(raw)) if verification != "corrupt" else None
+    return {
+        "response": response, "error": error, "save_error": save_error,
+        "native": native, "events": events, "persisted": persisted,
+        "raw": raw, "player": player,
+        "signature_failures": signature_failures, "projection_reads": projection_reads,
+    }
+
+
+def test_actual_post_replace_signature_failure_keeps_committed_session_and_charge(tmp_path):
+    run = run_persisted_counseling(tmp_path)
+
+    assert run["error"] is None
+    result = run["response"]["counseling"]
+    documents = run["persisted"]["documents"]
+    assert any(row["id"] == result["id"] for row in documents["economy"]["activity_history"])
+    assert documents["economy"]["psychological_counseling"]["1:2"]["cooldown_until"] == "2028-01-03"
+    assert documents["economy"]["activity_floor_cooldowns"]["1:2:talk_room"]["cooldown_until"] == "2028-01-03"
+    assert documents["wallet"]["balance"] == 50_000.0
+    assert run["native"]["unhappy"] is False
+    assert run["events"] == [("wallet", -100_000.0), "apply"]
+
+
+def test_actual_pre_replace_failure_restores_and_refunds_uncommitted_session(tmp_path):
+    run = run_persisted_counseling(tmp_path, fail_before_replace=True)
+
+    assert run["error"] is run["save_error"]
+    assert run["persisted"]["documents"]["economy"]["activity_history"] == []
+    assert run["persisted"]["documents"]["wallet"]["balance"] == 150_000.0
+    assert run["native"]["unhappy"] is True
+    assert run["events"] == [("wallet", -100_000.0), "apply", "restore", ("wallet", 100_000.0)]
+
+
+@pytest.mark.parametrize("verification", ["unreadable", "corrupt", "inconsistent", "lock_exit"])
+def test_uncertain_persisted_session_never_restores_or_refunds(tmp_path, verification):
+    import json
+    from tools.domain_errors import DomainError
+
+    run = run_persisted_counseling(tmp_path, verification=verification)
+
+    error = run["error"]
+    assert isinstance(error, DomainError)
+    assert (error.code, error.phase, error.retryable) == ("commit_unknown", "commit", False)
+    assert error.operation_error is run["save_error"]
+    assert error.__cause__ is run["save_error"]
+    assert error.details["refund_attempted"] is False
+    assert "0x" not in json.dumps(error.payload())
+    assert run["native"]["unhappy"] is False
+    assert run["events"] == [("wallet", -100_000.0), "apply"]
+    if verification == "corrupt":
+        assert run["raw"] == b"corrupt current container"  # Never recover the old backup.

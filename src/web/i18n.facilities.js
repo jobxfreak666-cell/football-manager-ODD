@@ -223,6 +223,8 @@
     "activity.managed_club":["Managed club", "执教俱乐部"],
     "activity.counselling_roster_description":["Choose a dissatisfied player for counselling", "选择有不满的球员进行心理辅导"],
     "activity.start_counselling":["Start conversation", "开始谈话"],
+    "activity.counselling_sync_failed":["Counselling completed, but state could not be synced. Refresh to view it.", "辅导已完成，状态同步失败，请刷新查看。"],
+    "activity.counselling_review_required":["The result or refund needs checking. Refresh to confirm; do not pay again.", "结果或退款尚待核对，请刷新确认，勿重复支付。"],
     "activity.confirm_counselling_unlock":["Pay {price} from the wallet to counsel {player}?\n\nThis directly modifies FM process memory; back up your save first.", "确认从钱包支付 {price} 为 {player} 进行心理辅导？\n\n这会直接修改 FM 进程内存，请先备份存档。"],
     "activity.retirement_roster_description":["Players with retirement plans", "选择有退役计划的球员"],
     "activity.black_room_description":["Add a random injury to the player", "为球员添加随机伤病"],
