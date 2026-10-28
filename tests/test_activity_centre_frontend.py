@@ -1,7 +1,102 @@
 from pathlib import Path
+import subprocess
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
+
+
+def test_activity_module_navigation_renders_and_switches_without_floor_or_review_placeholders():
+    script = r'''
+const fs = require("fs"), vm = require("vm"), assert = require("node:assert/strict");
+const source = fs.readFileSync(process.argv[1] + "/web/app.js", "utf8");
+const stored = new Map([["fmodd-activity-floor", "international"]]);
+const localStorage = {getItem:key => stored.get(key) ?? null,
+  setItem:(key, value) => stored.set(key, value), removeItem:key => stored.delete(key)};
+const container = {innerHTML:"", setAttribute(){}};
+const ranking = {innerHTML:""};
+const person = {id:1,name:"Player",languages:[]};
+const moduleKeys = ["entertainment", "talk_room", "international", "intelligence"];
+const app = {state:{data_scope_id:"test",welfare:{
+    activity_centres:Object.fromEntries(moduleKeys.map(key => [key,{owned:key === "international"}])),
+    activity_facilities:{naturalization:{owned:true}}}},
+  departureScope:"test", activityModule:"entertainment", activityFloor:"entertainment",
+  activityNode:null, activityPlayerIds:new Map(), activitySelections:new Map(),
+  activityStaffLanguages:new Map(), internationalNations:[], activityNationalityWorldPlayers:[],
+  activityNationalityScope:"club", retirementPlayers:[], retirementScope:"club",
+  retirementPlayersScope:"club", retirementPlayersCacheScopeId:"test",
+};
+const index = {players:[person],clubPlayers:[person],clubPlayersById:new Map([[1,person]]),
+  retirementPlayers:[],orderedLanguages:[],languagesById:new Map(),orderedLanguagesById:new Map(),
+  nationsById:new Map()};
+const buttons = new Map();
+function selectedButtons(selector) {
+  if (!["[data-activity-module]", "[data-activity-floor]"].includes(selector)) return [];
+  const attribute = selector.slice(1,-1);
+  return [...container.innerHTML.matchAll(new RegExp(`<button[^>]*${attribute}="([^"]+)"[^>]*>`, "g"))]
+    .map(match => {
+      const key = match[1];
+      const button = {dataset:{activityModule:key,activityFloor:key},
+        addEventListener:(event, handler) => {assert.equal(event,"click");button.click = handler;}};
+      buttons.set(key,button);
+      return button;
+    });
+}
+const context = {app,localStorage,console,Map,Set,
+  $:selector => selector === "#activity-content" ? container : selector === "#intimacy-ranking-list" ? ranking : null,
+  document:{querySelectorAll:selectedButtons,querySelector:() => null},
+  interactiveSurfaceBusy:() => false,syncFacilityViewMode(){},renderFundingSummary(){},
+  activityRenderStateSignature:() => `${app.activityModule}:${app.activityFloor}:${app.activityNode}`,
+  activityDataIndex:() => index, output:() => ({selected_manager_id:1,game_date:"2026-10-28"}),
+  allManagedStaff:() => [],staffSortInCategory:() => 0,uiText:key => key,
+  escapeHtml:String,formatPounds:String,toPurchaseInternalMoney:Number,
+  renderIntimacyRanking(){},renderIcons(){},setTimeout(){},
+};
+vm.createContext(context);
+const start = source.indexOf("function renderActivity() {");
+const end = source.indexOf("function remainingInjuryDays(",start);
+vm.runInContext(source.slice(start,end),context);
+context.renderActivity();
+assert.deepEqual([...buttons.keys()],moduleKeys,"four module buttons must replace numbered floors");
+assert.ok(container.innerHTML.includes('class="segmented activity-module-tabs"'));
+assert.ok(!/>[1245]F</.test(container.innerHTML));
+assert.ok(container.innerHTML.includes('data-activity-unlock="entertainment"'),"purchase rights remain enforced");
+for (const key of ["international", "talk_room", "entertainment", "international"]) {
+  buttons.get(key).click();
+  assert.equal(app.activityModule,key);
+  assert.equal(stored.get("fmodd-activity-module"),key);
+  assert.ok(new RegExp(`aria-selected="true"[^>]*data-activity-module="${key}"`).test(container.innerHTML));
+  assert.ok(!container.innerHTML.includes("nationality_review"));
+  assert.ok(!container.innerHTML.includes("activity.node_review"));
+  if (key === "international") {
+    assert.ok(container.innerHTML.includes('data-activity-node="naturalization"'));
+    assert.ok(container.innerHTML.includes("activity.activity_count"));
+  }
+}
+const initializer = source.split("\n").find(line => /^\s*activityModule:/.test(line));
+assert.ok(initializer,"module preference must have a persisted initializer");
+stored.delete("fmodd-activity-module");
+assert.equal(vm.runInContext(`({${initializer}}).activityModule`,context),"international",
+  "preserve the old saved category without losing owned rights");
+stored.set("fmodd-activity-module","talk_room");
+assert.equal(vm.runInContext(`({${initializer}}).activityModule`,context),"talk_room");
+app.activityModule = "media";
+app.activityNode = "nationality_review";
+context.renderActivity();
+assert.equal(app.activityModule,"entertainment");
+assert.equal(app.activityNode,null);
+index.players = [];
+index.clubPlayers = [];
+index.clubPlayersById.clear();
+app.activityRenderSignature = null;
+buttons.clear();
+context.renderActivity();
+assert.deepEqual([...buttons.keys()],moduleKeys,"module navigation remains usable without roster data");
+buttons.get("intelligence").click();
+assert.equal(app.activityModule,"intelligence");
+'''
+    result = subprocess.run(["node", "-e", script, str(ROOT)], capture_output=True,
+                            text=True, encoding="utf-8", timeout=20)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_activity_text_view_is_a_header_level_service_directory() -> None:
@@ -19,8 +114,8 @@ def test_activity_text_view_is_a_header_level_service_directory() -> None:
     assert 'checkbox.checked = mode === "text";' in script
     assert 'checkbox.addEventListener("change"' in script
     assert 'facilityViewMode("activity")' in script
-    assert 'app.activityFloor, app.activityNode, app.activityRosterTab' in script
-    assert 'data-activity-floor="${key}"' in script
+    assert 'app.activityModule, app.activityNode, app.activityRosterTab' in script
+    assert 'data-activity-module="${key}"' in script
     assert 'data-activity-node="${escapeHtml(node.key)}"' in script
     assert 'data-activity-submit' in script
     assert '.activity-page.facility-text-view .activity-scene' in styles
@@ -53,13 +148,13 @@ def test_facility_page_header_controls_share_the_right_aligned_tool_group() -> N
     assert ".canteen-header { min-height:74px; display:flex; align-items:center; justify-content:space-between" in styles
 
 
-def test_activity_centre_uses_floor_scene_layout():
+def test_activity_centre_uses_module_scene_layout():
     index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     styles = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
 
     assert 'class="app-page activity-page" id="page-activity"' in index
-    assert 'data-activity-floor="${key}"' in script
+    assert 'data-activity-module="${key}"' in script
     assert '"activity.floor_entertainment"' in script
     assert '"activity.floor_talk_room"' in script
     assert '"activity.node_salary"' in script
@@ -156,13 +251,13 @@ def test_intimacy_ranking_has_player_and_staff_tabs():
     assert "profile.staff" in script
 
 
-def test_floor_and_room_unlock_rules_match_activity_centre_contract():
+def test_module_and_room_unlock_rules_match_activity_centre_contract():
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
-    assert 'entertainment:{floor:"1F"' in script
+    assert 'entertainment:{icon:"wine"' in script
     assert "?? 2000000" in script
     assert '"activity.node_social_bar"' in script
-    assert 'talk_room:{floor:"2F"' in script
+    assert 'talk_room:{icon:"messages-square"' in script
     assert script.count("?? 2000000") >= 2
     assert '"activity.node_counselling"' in script
     assert '"activity.node_retirement"' in script
@@ -194,12 +289,13 @@ def test_floor_and_room_unlock_rules_match_activity_centre_contract():
     assert '"activity.node_retirement"' in script
     assert 'media:{floor:"3F"' not in script
     assert '"relations3d.tune.on"' in script
-    assert 'international:{floor:"4F"' in script
+    assert 'international:{icon:"globe-2"' in script
     assert '"activity.floor_international"' in script
     assert "?? 10000000" in script
     assert '"activity.node_naturalization"' in script
     assert '"activity.node_naturalization"' in script
-    assert '"activity.node_review"' in script
+    assert "nationality_review" not in script
+    assert '"activity.node_review"' not in script
     assert 'club_price ?? toPurchaseInternalMoney(1000000)' in script
     assert 'world_price ?? toPurchaseInternalMoney(100000000)' in script
     assert '"activity.per_person"' in script
@@ -341,7 +437,7 @@ def test_activity_render_skips_unchanged_dom_and_coalesces_search():
 
     assert "const renderSignature = activityRenderStateSignature();" in renderer
     assert "if (app.activityRenderSignature === renderSignature) return;" in renderer
-    assert renderer.index("app.activityRenderSignature === renderSignature") < renderer.index("const floors = {")
+    assert renderer.index("app.activityRenderSignature === renderSignature") < renderer.index("const modules = {")
     assert renderer.index("app.activityRenderSignature === renderSignature") < renderer.index("container.innerHTML =")
     assert "app.activityRenderSignature = renderSignature;" in renderer
     assert "scheduleActivityRender();" in search
@@ -405,12 +501,12 @@ def test_activity_workspace_exposes_busy_selection_and_motion_feedback():
     assert 'role="status" aria-live="polite" hidden' in markup
     assert 'id="activity-content" class="activity-centre-content" aria-busy="false"' in markup
     assert 'container.setAttribute("aria-busy", String(Boolean(activityBusyLabel)))' in renderer
-    assert 'class="activity-floor-tabs" role="tablist" aria-label="' in renderer
-    assert 'role="tab" aria-selected="${key === app.activityFloor}"' in renderer
+    assert 'class="segmented activity-module-tabs" role="tablist" aria-label="' in renderer
+    assert 'role="tab" aria-selected="${key === app.activityModule}"' in renderer
     assert 'aria-pressed="${app.intelligenceMode === mode}"' in renderer
     assert "node.key === app.activityNode" in renderer
     assert 'class="activity-roster-list" role="group" aria-label="' in renderer
-    assert ".activity-floor-tabs button:focus-visible" in styles
+    assert ".activity-module-tabs button:focus-visible" in styles
     assert ".activity-scene-node:focus-visible" in styles
     reduced_motion = styles.split("@media (prefers-reduced-motion: reduce)", 1)[1]
     assert ".activity-sync-status > i" in reduced_motion

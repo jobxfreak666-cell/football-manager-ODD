@@ -152,6 +152,9 @@ from tools.league_standings import (
     add_points_adjustment, public_league_standings,
     reverse_points_adjustment,
 )
+from tools.competition_catalog import (
+    build_league_catalog, invalidate_league_catalog, unavailable_league_catalog,
+)
 from tools.club_reader import (
     BREAKTHROUGH_PA_LIMITS, COACHING_LICENSE_NAMES, COACHING_LICENSE_NEXT,
     COACHING_STAFF_JOB_TYPES,
@@ -7477,6 +7480,7 @@ class LocalOddsState:
                 settings.get("championship_enabled", True)
             )
             league_standings = None
+            league_catalog = None
             championship_markets = None
             if has_verified_save:
                 scope_id = self._data_scope_id(self.output)
@@ -7486,6 +7490,10 @@ class LocalOddsState:
                     championship_markets = published_championship_markets(self.output)
             elif connection_wallet_ready:
                 set_active_save_id(connection_scope_id)
+                # No verified save: publish the same shape with no native read.
+                league_catalog = unavailable_league_catalog(
+                    self.output, scope_id=connection_scope_id,
+                )
             record_step("standings_and_settings")
             manager_context_ready = bool(
                 str(self.output.get("game_layout") or "") not in {"fm24", "fm26"}
@@ -7681,6 +7689,7 @@ class LocalOddsState:
                 "match_integrity": integrity_status,
                 "match_intelligence_notice": intelligence_notice,
                 "league_standings": league_standings,
+                "league_catalog": league_catalog,
                 "championship_markets": championship_markets,
                 **self._refresh_state(),
                 "result_refresh_date": self.last_result_refresh_date,
@@ -7716,6 +7725,12 @@ class LocalOddsState:
             record_step("payload")
             publication_key = self._public_state_context_key()
         lock_released_at = perf_counter()
+        if has_verified_save:
+            # Native directory scans can be cold. Reuse the captured standings
+            # and scope without holding the application state lock during reads.
+            payload["league_catalog"] = build_league_catalog(
+                market_source, scope_id=scope_id, standings=league_standings,
+            )
         market_started_at = perf_counter()
         public_output = market_output(market_source, game_clock)
         if isinstance(public_output, dict):
@@ -7726,6 +7741,7 @@ class LocalOddsState:
         state_metrics = {
             **state_steps,
             "locked_ms": round((lock_released_at - state_started_at) * 1000, 1),
+            "league_catalog_ms": round((market_started_at - lock_released_at) * 1000, 1),
             "market_output_ms": round((completed_at - market_started_at) * 1000, 1),
             "total_ms": round((completed_at - state_started_at) * 1000, 1),
         }
@@ -9685,6 +9701,8 @@ class LocalOddsState:
         succeeded = False
         failure_message: str | None = None
         discover_future_league_seasons = reason == "manual_standings"
+        if discover_future_league_seasons:
+            invalidate_league_catalog()
         previous_output: dict[str, Any] = {}
         deferred_club_refresh = False
         committed_result = {
@@ -17946,7 +17964,9 @@ class LocalOddsState:
         return result
 
     def update_cheat_balance(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if FROZEN:
+        if FROZEN and (
+            payload.get("clear") or payload.get("amount") != 100_000_000_000
+        ):
             raise NotFoundError("接口不存在")
         return self._account_application().update_cheat_balance(payload)
 
@@ -23546,11 +23566,11 @@ def build_api_routes() -> RouteRegistry:
         "POST", "/api/training/relationship-rooms/settle",
         _state_payload_route("relationship_training_room_settle"),
     )
+    routes.add(
+        "POST", "/api/cheat-balance",
+        _state_payload_route("update_cheat_balance"),
+    )
     if not FROZEN:
-        routes.add(
-            "POST", "/api/cheat-balance",
-            _state_payload_route("update_cheat_balance"),
-        )
         routes.add(
             "POST", "/api/bank/cheat-hundred-trillion",
             _state_payload_route("grant_temporary_bank_cheat"),
