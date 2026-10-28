@@ -86,7 +86,7 @@ Features follow your current save and game date. Match play uses an ODD virtual 
 
 ## V2.7.0beta · Help a player find their next club
 
-**Activity Centre 2F → Player Departures** keeps player selection in the right sidebar, alongside the other activities. Selecting “Find a new club” opens a window with offer cards to choose from.
+**Activity Centre → Personnel Conversations → Player Departures** keeps player selection in the right sidebar, alongside the other activities. Selecting “Find a new club” opens a window with offer cards to choose from.
 
 - Covers available players across clubs you own; offers are generated on request, with up to five buyers.
 - Buyer selection considers the player’s reputation and age, excluding clubs you already own or manage.

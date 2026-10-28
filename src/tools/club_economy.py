@@ -1112,9 +1112,9 @@ def assert_activity_centre_unlocked(centre: str) -> dict[str, Any]:
     centre = str(centre or "")
     option = ACTIVITY_CENTRES.get(centre)
     if not option:
-        raise ValueError("活动中心楼层无效")
+        raise ValueError("活动模块无效")
     if not _activity_centre_available(option):
-        raise ValueError(str(option.get("unavailable_reason") or "该楼层暂未开启"))
+        raise ValueError(str(option.get("unavailable_reason") or "该活动模块暂未开启"))
     with _LOCK:
         payload = load_economy()
         if not _activity_centre_owned(payload, centre):
@@ -1126,9 +1126,9 @@ def purchase_activity_centre(centre: str) -> dict[str, Any]:
     centre = str(centre or "")
     option = ACTIVITY_CENTRES.get(centre)
     if not option:
-        raise ValueError("活动中心楼层无效")
+        raise ValueError("活动模块无效")
     if not _activity_centre_available(option):
-        raise ValueError(str(option.get("unavailable_reason") or "该楼层暂未开启"))
+        raise ValueError(str(option.get("unavailable_reason") or "该活动模块暂未开启"))
     with _LOCK:
         payload = load_economy()
         owned_centres = payload.setdefault("owned_activity_centres", list(DEFAULT_ACTIVITY_CENTRES))
@@ -1156,7 +1156,7 @@ def _assert_activity_facility_owned(
     centre = str(option["centre"])
     centre_option = ACTIVITY_CENTRES[centre]
     if not _activity_centre_available(centre_option):
-        raise ValueError(str(centre_option.get("unavailable_reason") or "该楼层暂未开启"))
+        raise ValueError(str(centre_option.get("unavailable_reason") or "该活动模块暂未开启"))
     if not _activity_centre_owned(payload, centre):
         raise ValueError(f"请先解锁{centre_option['name']}")
     if not _activity_facility_owned(payload, facility):
@@ -1175,7 +1175,8 @@ def purchase_activity_facility(facility: str) -> dict[str, Any]:
     if not option:
         raise ValueError("活动房间无效")
     if option.get("included_with_centre"):
-        raise ValueError(f"{option['name']}随楼层自动开放")
+        centre_name = ACTIVITY_CENTRES[str(option["centre"])]["name"]
+        raise ValueError(f"{option['name']}随{centre_name}模块自动开放")
     centre = str(option["centre"])
     with _LOCK:
         payload = load_economy()
@@ -1799,9 +1800,9 @@ def _assert_activity_floor_available(
     previous = dict((payload.get("activity_floor_cooldowns") or {}).get(cooldown_key) or {})
     cooldown_until = str(previous.get("cooldown_until") or "")
     if cooldown_until and current_date < date.fromisoformat(cooldown_until):
-        floor = str(ACTIVITY_CENTRES.get(centre, {}).get("floor") or centre)
+        module_name = str(ACTIVITY_CENTRES.get(centre, {}).get("name") or "活动模块")
         target_label = "职员" if str(target_kind) == "staff" else "球员"
-        raise ValueError(f"该{target_label}的{floor}活动冷却至 {cooldown_until}")
+        raise ValueError(f"该{target_label}的{module_name}活动冷却至 {cooldown_until}")
     return cooldown_key, current_date
 
 
@@ -2675,7 +2676,7 @@ def perform_player_activity(
         else:
             centre_option = ACTIVITY_CENTRES[centre]
             if not _activity_centre_available(centre_option):
-                raise ValueError(str(centre_option.get("unavailable_reason") or "该楼层暂未开启"))
+                raise ValueError(str(centre_option.get("unavailable_reason") or "该活动模块暂未开启"))
             if not _activity_centre_owned(payload, centre):
                 raise ValueError(f"请先解锁{centre_option['name']}")
         _assert_activity_floor_available(
