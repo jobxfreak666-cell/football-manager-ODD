@@ -31,7 +31,9 @@ def extract(start: str, end: str) -> str:
     return start + body.split(end, 1)[0] + "\n"
 
 
-HELPERS = extract("const TRAINING_MODULES = [", "function managedFixtures() {")
+HELPERS = extract("function coachingLicenceLabel(", "const COACHING_STAFF_JOB_TYPES = ") + extract(
+    "const TRAINING_MODULES = [", "function managedFixtures() {",
+)
 DATA_INDEX = extract("function trainingDataIndex() {", "function trainingProduct(sku)")
 FOCUS_SUMMARY = extract("function trainingFocusSummaryText(", "async function settleTrainingProgress")
 PROJECT_LABEL = extract("function trainingProjectName(", "function trainingFeeLabel(")
@@ -213,6 +215,33 @@ app.trainingScopeKey = trainingScopeKey();
 
 
 class TrainingTaskFrontendTests(unittest.TestCase):
+    def test_person_training_card_reopens_after_collapsing_the_same_person(self) -> None:
+        for kind, module in (("player", "player_training"), ("staff", "staff_training")):
+            with self.subTest(kind=kind):
+                result = harness(SUBMISSION_SETUP + r'''
+    fixtures.profiles[0].staff = [staff(101, "Coach")];
+    fixtures.data.catalog.push({sku:"coaching_desk",module:"staff_training",staff_training:true});
+    app.trainingModule = MODULE;
+    app.trainingPersonKind = null;
+    app.trainingPersonId = null;
+    const personId = KIND === "player" ? 1 : 101;
+    const content = {dataset:{},innerHTML:""};
+    fixtures.dom["#training-dock-content"] = content;
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      openTrainingPerson(KIND, personId);
+      renderTrainingPersonDetail();
+      assert.ok(content.innerHTML.includes('id="training-inline-form"'),
+        `training card must reopen on cycle ${cycle + 1}: ${content.innerHTML}`);
+      assert.ok(content.innerHTML.includes(KIND === "player" ? "One" : "Coach"));
+      openTrainingPerson(KIND, personId);
+      renderTrainingPersonDetail();
+      assert.ok(content.innerHTML.includes("training-detail-empty"));
+      assert.ok(!content.innerHTML.includes('id="training-inline-form"'));
+    }
+    assert.equal(requestCalls.length, 0);
+                '''.replace("KIND", '"' + kind + '"').replace("MODULE", '"' + module + '"'))
+                assert_node_ok(result)
+
     def test_selected_hidden_direction_controls_modes_estimate_and_payload(self) -> None:
         result = harness(SUBMISSION_SETUP + r'''
     Object.assign(fixtures.data.catalog[0], {attribute_kind:"hidden", direction:1});

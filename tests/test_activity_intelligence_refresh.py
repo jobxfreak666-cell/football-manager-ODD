@@ -15,7 +15,7 @@ assert.ok(start >= 0, "manual search must have a real request handler");
 const end = source.indexOf("async function loadMatchIntelligence", start);
 assert.ok(end > start);
 const old = {candidates:[{fixture_id:"old"}]};
-const app = {state:{data_scope_id:"save-a"}, page:"activity", activityFloor:"intelligence",
+const app = {state:{data_scope_id:"save-a"}, page:"activity", activityModule:"intelligence",
   matchIntelligence:old, matchIntelligenceLoading:false, activityActionBusy:false};
 const pending = [], notices = [], renders = [];
 let click;
@@ -165,7 +165,7 @@ const start = source.indexOf("async function loadMatchIntelligence(");
 const end = source.indexOf("async function loadRetirementPlayers(", start);
 assert.ok(start >= 0 && end > start);
 const old = {candidates:[{fixture_id:"kept"}]};
-const app = {state:{data_scope_id:"save-a"}, page:"activity", activityFloor:"intelligence",
+const app = {state:{data_scope_id:"save-a"}, page:"activity", activityModule:"intelligence",
   matchIntelligence:old, matchIntelligenceLoading:false, matchIntelligenceError:"", activityActionBusy:false};
 const pending = [];
 let click;
@@ -230,7 +230,7 @@ const old = process.argv[2] === "true"
   ? {pricing:{game_date:"2026-10-25"}, candidates:[{fixture_id:"kept"}]}
   : null;
 const app = {state:{data_scope_id:"save-a", welfare:{activity_centres:{intelligence:{owned:true}}}},
-  gameClock:{date:"2026-10-26"}, page:"activity", activityFloor:"intelligence",
+  gameClock:{date:"2026-10-26"}, page:"activity", activityModule:"intelligence",
   matchIntelligence:old, matchIntelligenceLoading:false, matchIntelligenceError:"", activityActionBusy:false};
 const timers = [], pending = [];
 let search;
