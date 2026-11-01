@@ -472,7 +472,6 @@ const app = {
   refreshProgressPhase: null,
   page: "home",
   leagueSelections: null,
-  leagueSelectionLayout: null,
   leagueIndexSource: null,
   leagueIndex: null,
   leagueRenderSignature: null,
@@ -724,7 +723,7 @@ const app = {
   medicalTreatmentBusy: new Set(),
   unlimitedBettingSyncBusy: false,
   activityPlayerIds: new Map(),
-  activityFloor: localStorage.getItem("fmodd-activity-floor") || "entertainment",
+  activityModule: localStorage.getItem("fmodd-activity-module") || localStorage.getItem("fmodd-activity-floor") || "entertainment",
   activityRosterTab: localStorage.getItem("fmodd-activity-roster-tab") === "staff" ? "staff" : "players",
   activityNode: null,
   activitySelections: new Map(),
@@ -3107,7 +3106,7 @@ async function loadGameClock() {
         renderInlineMarket();
         renderSlip();
       }
-      if (previous !== current && app.page === "activity" && app.activityFloor === "intelligence") {
+      if (previous !== current && app.page === "activity" && app.activityModule === "intelligence") {
         renderActivity();
       }
       if (previousDate !== clock.date) {
@@ -10238,20 +10237,64 @@ function showInitialUsageNotice() {
   dialog.showModal();
 }
 
+const LEAGUE_CATALOG_SOURCE_NATIVE = "native_competition_table";
+const LEAGUE_PICKER_ROW_LIMIT = 50;
+
+function leagueCatalog() {
+  const catalog = app.state?.league_catalog;
+  if (!catalog || catalog.source !== LEAGUE_CATALOG_SOURCE_NATIVE) return null;
+  return catalog;
+}
+
+function leagueCatalogEntries(catalog) {
+  const entries = Array.isArray(catalog?.competitions) ? catalog.competitions : [];
+  const seen = new Set();
+  const rows = [];
+  for (const entry of entries) {
+    const id = Number(entry?.competition_id);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue;
+    seen.add(id);
+    const name = String(entry.name || "").trim() || String(id);
+    const shortName = String(entry.short_name || "").trim() || name;
+    rows.push({
+      id, name, shortName,
+      reputation: Number(entry.reputation || 0),
+      standingsAvailable: entry.standings_available === true,
+      standingsSource: entry.standings_source == null ? null : String(entry.standings_source),
+      standingsReason: entry.standings_reason == null ? null : String(entry.standings_reason),
+      search: `${name} ${shortName} ${id}`.toLowerCase(),
+    });
+  }
+  rows.sort((left, right) => right.reputation - left.reputation
+    || left.name.localeCompare(right.name, activeUiLocale()) || left.id - right.id);
+  return rows;
+}
+
 function leagueData() {
   return app.state?.league_standings || {competitions:[]};
 }
 
 function leagueDataIndex() {
   const data = leagueData();
-  if (app.leagueIndexSource === data && app.leagueIndex) return app.leagueIndex;
+  const catalog = leagueCatalog();
+  if (app.leagueIndexSource === data && app.leagueIndexCatalog === catalog && app.leagueIndex) return app.leagueIndex;
+  const catalogRows = leagueCatalogEntries(catalog);
+  const catalogRowsById = new Map(catalogRows.map((row) => [row.id, row]));
   const competitions = [...(data.competitions || [])].sort((left, right) =>
-    Number(right.reputation || 0) - Number(left.reputation || 0)
+    (catalogRowsById.get(Number(right.competition_id))?.reputation ?? Number(right.reputation || 0))
+    - (catalogRowsById.get(Number(left.competition_id))?.reputation ?? Number(left.reputation || 0))
     || String(left.competition_name || "").localeCompare(String(right.competition_name || ""), activeUiLocale())
   );
   app.leagueIndexSource = data;
+  app.leagueIndexCatalog = catalog;
   app.leagueIndex = {
     competitions,
+    catalogRows,
+    catalogRowsById,
+    catalogSignature:JSON.stringify(catalogRows.map((row) => [
+      row.id, row.name, row.shortName, row.reputation,
+      row.standingsAvailable, row.standingsSource, row.standingsReason,
+    ])),
     competitionsById:new Map(
       competitions.map((item) => [Number(item.competition_id), item]),
     ),
@@ -10268,20 +10311,28 @@ function leagueDataIndex() {
   return app.leagueIndex;
 }
 
+function leagueSelectionScope() {
+  return String(app.state?.data_scope_id || output().save_instance_id || "").trim();
+}
+
 function leagueSelectionStorageKey() {
-  return `fm-odds-league-slots-${output().game_layout || "default"}`;
+  const scope = leagueSelectionScope() || output().game_layout || "default";
+  // A new preference bucket lets existing users start with native reputation
+  // defaults instead of carrying forward the old auto-filled nine competitions.
+  return `fm-odds-league-slots-reputation-${scope}`;
 }
 
 function leagueSelections(competitions) {
+  const index = leagueDataIndex();
   const available = new Set(competitions.map((item) => Number(item.competition_id)));
-  const layout = output().game_layout || "default";
-  if (!Array.isArray(app.leagueSelections) || app.leagueSelectionLayout !== layout) {
-    try { app.leagueSelections = JSON.parse(localStorage.getItem(leagueSelectionStorageKey()) || "[]"); }
-    catch (_error) { app.leagueSelections = []; }
-    app.leagueSelectionLayout = layout;
-  }
+  for (const row of index.catalogRows) available.add(row.id);
+  const key = leagueSelectionStorageKey();
+  let preferred;
+  try { preferred = JSON.parse(localStorage.getItem(key) || "[]"); }
+  catch (_error) { preferred = []; }
+  if (!Array.isArray(preferred)) preferred = [];
   const selected = [];
-  for (const value of app.leagueSelections) {
+  for (const value of preferred) {
     const id = Number(value);
     if (available.has(id) && !selected.includes(id) && selected.length < 9) selected.push(id);
   }
@@ -10289,36 +10340,228 @@ function leagueSelections(competitions) {
     const id = Number(competition.competition_id);
     if (!selected.includes(id) && selected.length < Math.min(9, competitions.length)) selected.push(id);
   }
-  app.leagueSelections = selected;
-  const serialized = JSON.stringify(selected);
-  if (localStorage.getItem(leagueSelectionStorageKey()) !== serialized) {
-    localStorage.setItem(leagueSelectionStorageKey(), serialized);
+  if (!competitions.length) {
+    // A catalog-only save still needs boards to hang pickers on; catalogRows is already reputation-sorted.
+    for (const row of index.catalogRows) {
+      if (selected.length >= Math.min(9, Number(app.leagueDisplayCount) || 9)) break;
+      if (!selected.includes(row.id)) selected.push(row.id);
+    }
   }
+  app.leagueSelections = selected;
+  // Persist only explicit replacements. Automatic defaults must follow newly
+  // available native reputations instead of freezing a temporary fallback.
   return selected;
 }
 
+const LEAGUE_REASON_KEYS = {
+  no_native_format:"league.reason.no_native_format",
+  not_a_league:"league.reason.not_a_league",
+  not_league_opening_stage:"league.reason.not_league_opening_stage",
+  opening_field_incomplete:"league.reason.opening_field_incomplete",
+  opening_slot_count_invalid:"league.reason.opening_slot_count_invalid",
+  team_standing_unverified:"league.reason.team_standing_unverified",
+  native_rows_incomplete:"league.reason.native_rows_incomplete",
+  reconstructed_ahead_of_native:"league.reason.reconstructed_ahead_of_native",
+};
+
+const leaguePickerState = {slot:null, query:"", active:-1, scopeKey:""};
+
+function leagueReasonLabel(row) {
+  return uiText(LEAGUE_REASON_KEYS[row?.standingsReason] || "league.reason.unknown");
+}
+
+function leaguePickerMatches(query) {
+  const rows = leagueDataIndex().catalogRows;
+  const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matched = tokens.length
+    ? rows.filter((row) => tokens.every((token) => row.search.includes(token)))
+    : rows;
+  return {rows:matched.slice(0, LEAGUE_PICKER_ROW_LIMIT), total:matched.length};
+}
+
+function leaguePickerOptionRow(row, slot, selectedId, activeId) {
+  const classes = ["league-picker-option"];
+  if (row.id === selectedId) classes.push("selected");
+  if (row.id === activeId) classes.push("active");
+  if (!row.standingsAvailable) classes.push("unavailable");
+  const state = uiText(row.standingsAvailable ? "league.picker.available" : "league.picker.unavailable");
+  return `<div class="${classes.join(" ")}" role="option" id="league-picker-option-${slot}-${row.id}" aria-selected="${row.id === selectedId}" data-league-option="${row.id}" data-league-slot-option="${slot}" tabindex="-1"><span class="league-picker-option-name">${escapeHtml(row.name)}</span><span class="league-picker-option-state">${escapeHtml(state)}</span></div>`;
+}
+
+function leaguePickerOptionRows(rows, total, slot, selectedId, activeId) {
+  if (!rows.length) {
+    return `<p class="league-picker-empty">${escapeHtml(uiText("league.picker.empty_result"))}</p>`;
+  }
+  const options = rows.map((row) => leaguePickerOptionRow(row, slot, selectedId, activeId)).join("");
+  const refine = total > rows.length
+    ? `<p class="league-picker-refine">${escapeHtml(uiText("league.picker.refine", {shown:rows.length, total}))}</p>`
+    : "";
+  return options + refine;
+}
+
+function leaguePickerMarkup(slot, selectedId, label) {
+  const {rows, total} = leaguePickerMatches(leaguePickerState.query);
+  return `<div class="league-picker" data-league-picker="${slot}"><button type="button" class="league-picker-trigger" data-league-slot="${slot}" aria-haspopup="listbox" aria-expanded="false" aria-controls="league-picker-panel-${slot}" aria-label="${escapeHtml(uiText("league.slot_label", {slot:slot + 1}))}"><span class="league-picker-value">${escapeHtml(label)}</span><i data-lucide="chevrons-up-down"></i></button><div class="league-picker-panel" id="league-picker-panel-${slot}" hidden><div class="league-picker-search"><i data-lucide="search"></i><input type="search" class="league-picker-input" data-league-search="${slot}" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="league-picker-options-${slot}" value="${escapeHtml(leaguePickerState.query)}" placeholder="${escapeHtml(uiText("league.picker.placeholder"))}" aria-label="${escapeHtml(uiText("league.picker.placeholder"))}" autocomplete="off" spellcheck="false"><button type="button" class="league-picker-clear" data-league-search-clear="${slot}" aria-label="${escapeHtml(uiText("league.picker.clear"))}"><i data-lucide="x"></i></button></div><div class="league-picker-options" id="league-picker-options-${slot}" role="listbox" aria-label="${escapeHtml(uiText("league.picker.results_label"))}" data-league-options="${slot}">${leaguePickerOptionRows(rows, total, slot, selectedId, null)}</div><p class="league-picker-note">${escapeHtml(uiText("league.picker.hint"))}</p></div></div>`;
+}
+
+function leaguePickerPane(slot) {
+  return document.querySelector(`.league-picker[data-league-picker="${slot}"]`);
+}
+
+function leaguePickerSyncActiveDescendant(slot) {
+  const pane = leaguePickerPane(slot);
+  const input = pane?.querySelector(".league-picker-input");
+  if (!input) return;
+  input.setAttribute("aria-expanded", "true");
+  const active = pane.querySelector('[data-league-options] [role="option"].active');
+  if (active?.id) input.setAttribute("aria-activedescendant", active.id);
+  else input.removeAttribute("aria-activedescendant");
+}
+
+function leaguePickerFillOptions(slot, selectedId) {
+  const pane = leaguePickerPane(slot);
+  const options = pane?.querySelector("[data-league-options]");
+  if (!options) return [];
+  const {rows, total} = leaguePickerMatches(leaguePickerState.query);
+  const activeId = leaguePickerState.active >= 0 ? rows[leaguePickerState.active]?.id ?? null : null;
+  options.innerHTML = leaguePickerOptionRows(rows, total, slot, selectedId, activeId);
+  renderIcons(options);
+  leaguePickerSyncActiveDescendant(slot);
+  return [...options.querySelectorAll('[role="option"]')];
+}
+
+function leaguePickerClose(slot = leaguePickerState.slot) {
+  const pane = slot === null || slot === undefined ? null : leaguePickerPane(slot);
+  if (pane) {
+    pane.classList.remove("open");
+    const panel = pane.querySelector(".league-picker-panel");
+    if (panel) panel.hidden = true;
+    const trigger = pane.querySelector(".league-picker-trigger");
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    const input = pane.querySelector(".league-picker-input");
+    if (input) {
+      input.value = "";
+      input.setAttribute("aria-expanded", "false");
+      input.removeAttribute("aria-activedescendant");
+    }
+  }
+  leaguePickerState.slot = null;
+  leaguePickerState.query = "";
+  leaguePickerState.active = -1;
+  leaguePickerState.scopeKey = "";
+}
+
+function leaguePickerPosition(pane, trigger) {
+  const panel = pane?.querySelector(".league-picker-panel");
+  if (!panel || !trigger) return;
+  const rect = trigger.getBoundingClientRect();
+  const margin = 8;
+  const width = Math.min(Math.max(rect.width, 260), window.innerWidth - margin * 2);
+  const below = window.innerHeight - rect.bottom - margin;
+  const above = rect.top - margin;
+  const desired = Math.min(360, window.innerHeight - margin * 2);
+  const placeBelow = below >= desired || below >= above;
+  panel.style.width = `${width}px`;
+  panel.style.left = `${Math.min(Math.max(margin, rect.left), window.innerWidth - width - margin)}px`;
+  panel.style.maxHeight = `${Math.max(160, Math.min(desired, placeBelow ? below : above))}px`;
+  panel.style.top = placeBelow ? `${rect.bottom + 5}px` : `${Math.max(margin, rect.top - Math.min(desired, above) - 5)}px`;
+}
+
+function leaguePickerOpen(trigger, focus = true) {
+  const slot = Number(trigger.dataset.leagueSlot);
+  const pane = trigger.closest(".league-picker");
+  if (!pane) return;
+  if (leaguePickerState.slot !== slot) leaguePickerState.query = "";
+  leaguePickerState.slot = slot;
+  leaguePickerState.active = -1;
+  leaguePickerState.scopeKey = leagueSelectionStorageKey();
+  pane.classList.add("open");
+  const panel = pane.querySelector(".league-picker-panel");
+  if (panel) panel.hidden = false;
+  trigger.setAttribute("aria-expanded", "true");
+  leaguePickerPosition(pane, trigger);
+  const input = pane.querySelector(".league-picker-input");
+  if (input) {
+    input.value = leaguePickerState.query;
+    if (focus) input.focus?.();
+  }
+  leaguePickerFillOptions(slot, Number(app.leagueSelections?.[slot] || 0));
+}
+
+function leaguePickerActiveOption(slot) {
+  const options = leaguePickerPane(slot)?.querySelector("[data-league-options]");
+  return options?.querySelector('[role="option"].active') || null;
+}
+
+function leaguePickerMoveActive(slot, delta) {
+  const options = leaguePickerPane(slot)?.querySelector("[data-league-options]");
+  if (!options) return;
+  const items = [...options.querySelectorAll('[role="option"]')];
+  if (!items.length) return;
+  const current = items.findIndex((item) => item.classList.contains("active"));
+  const next = current < 0
+    ? (delta > 0 ? 0 : items.length - 1)
+    : Math.max(0, Math.min(items.length - 1, current + delta));
+  items.forEach((item, index) => item.classList.toggle("active", index === next));
+  leaguePickerState.active = next;
+  leaguePickerSyncActiveDescendant(slot);
+  items[next].scrollIntoView?.({block:"nearest"});
+}
+
+function leaguePickerSelect(slot, nextId) {
+  const selections = Array.isArray(app.leagueSelections) ? app.leagueSelections : [];
+  while (selections.length <= slot) selections.push(null);
+  const previousId = Number(selections[slot]);
+  const duplicate = selections.findIndex((id, index) => index !== slot && Number(id) === nextId);
+  selections[slot] = nextId;
+  if (duplicate >= 0 && Number.isFinite(previousId) && previousId > 0) selections[duplicate] = previousId;
+  app.leagueSelections = selections;
+  localStorage.setItem(leagueSelectionStorageKey(), JSON.stringify(selections));
+  leaguePickerClose(slot);
+  renderLeague();
+  renderIcons();
+}
+
 function leagueBoard(competition, competitions, slot, managed) {
-  const options = competitions.map((item) => `<option value="${Number(item.competition_id)}" ${Number(item.competition_id) === Number(competition.competition_id) ? "selected" : ""}>${escapeHtml(item.competition_name)}</option>`).join("");
-  const rows = (competition.teams || []).map((row) => {
-    const managedClass = managed.has(Number(row.team_id)) ? ' class="managed"' : "";
-    return `<tr${managedClass}>
+  const index = leagueDataIndex();
+  const selectedId = Number(competition?.competition_id || app.leagueSelections?.[slot] || 0);
+  const catalogRow = index.catalogRowsById.get(selectedId) || null;
+  const label = catalogRow?.name || competition?.competition_name || String(selectedId || "");
+  const options = competitions.map((item) => `<option value="${Number(item.competition_id)}" ${Number(item.competition_id) === selectedId ? "selected" : ""}>${escapeHtml(item.competition_name)}</option>`).join("");
+  const header = index.catalogRows.length
+    ? leaguePickerMarkup(slot, selectedId, label)
+    : `<select data-league-slot="${slot}" aria-label="${escapeHtml(uiText("league.slot_label", {slot:slot + 1}))}">${options}</select>`;
+  let body = "";
+  if (competition) {
+    const rows = (competition.teams || []).map((row) => {
+      const managedClass = managed.has(Number(row.team_id)) ? ' class="managed"' : "";
+      return `<tr${managedClass}>
       <td class="league-position">${row.position}</td>
       <td class="league-team-name"><strong>${escapeHtml(row.team_name)}</strong></td>
       <td>${row.played}</td><td>${row.won}</td><td>${row.drawn}</td><td>${row.lost}</td>
       <td>${row.goal_difference}</td>
       <td class="league-points">${row.points}</td>
     </tr>`;
-  }).join("");
-  return `<article class="league-board"><header><span class="league-emblem"><i data-lucide="trophy"></i></span><select data-league-slot="${slot}" aria-label="${escapeHtml(uiText("league.slot_label", {slot:slot + 1}))}">${options}</select></header><div class="league-table-scroll"><table class="league-table"><thead><tr><th>${uiText("league.rank")}</th><th>${uiText("league.team")}</th><th>${uiText("league.played")}</th><th>${uiText("league.won")}</th><th>${uiText("league.drawn")}</th><th>${uiText("league.lost")}</th><th>${uiText("league.goal_difference")}</th><th>${uiText("league.points")}</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
+    }).join("");
+    body = `<div class="league-table-scroll"><table class="league-table"><thead><tr><th>${uiText("league.rank")}</th><th>${uiText("league.team")}</th><th>${uiText("league.played")}</th><th>${uiText("league.won")}</th><th>${uiText("league.drawn")}</th><th>${uiText("league.lost")}</th><th>${uiText("league.goal_difference")}</th><th>${uiText("league.points")}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  } else if (catalogRow ? catalogRow.standingsAvailable === false : index.catalogRows.length > 0) {
+    // A selected competition with no table still needs an explicit reason; a missing catalog row defaults to the plainest one.
+    const reasonRow = catalogRow || {standingsReason:"no_native_format"};
+    body = `<div class="league-unavailable" role="status"><i data-lucide="table-2"></i><strong>${escapeHtml(uiText("league.unavailable_title"))}</strong><span>${escapeHtml(uiText("league.unavailable_notice", {competition:label}))}</span><small class="league-unavailable-reason">${escapeHtml(leagueReasonLabel(reasonRow))}</small><small class="league-unavailable-note">${escapeHtml(uiText("league.unavailable_notice_note"))}</small></div>`;
+  } else {
+    body = `<div class="league-empty" role="status"><i data-lucide="table-2"></i><strong>${escapeHtml(uiText("league.empty"))}</strong><span>${escapeHtml(uiText("league.empty_note"))}</span></div>`;
+  }
+  return `<article class="league-board"><header><span class="league-emblem"><i data-lucide="trophy"></i></span>${header}</header>${body}</article>`;
 }
+
 
 function leagueRenderStateSignature(index, selections, managed) {
   return JSON.stringify([
-    String(app.state?.data_scope_id || ""), Number(app.state?.data_version || 0),
+    leagueSelectionStorageKey(), Number(app.state?.data_version || 0),
     refreshBlocksPublishedState(),
     Number(app.leagueDisplayCount || 0), selections,
     [...managed].sort((left, right) => left - right),
-    index.dataSignature,
+    index.dataSignature, index.catalogSignature,
   ]);
 }
 
@@ -10327,12 +10570,18 @@ function renderLeague() {
   if (!root) return;
   const index = leagueDataIndex();
   const competitions = index.competitions;
-  const selections = competitions.length
+  const selections = index.catalogRows.length || competitions.length
     ? leagueSelections(competitions)
-    : (Array.isArray(app.leagueSelections) ? app.leagueSelections : []);
+    : [];
   const managed = managedTeamIds();
   const signature = leagueRenderStateSignature(index, selections, managed);
   if (app.leagueRenderSignature === signature) return;
+  if (leaguePickerState.slot !== null && leaguePickerState.scopeKey !== leagueSelectionStorageKey()) {
+    leaguePickerClose();
+  }
+  const pickerSlot = leaguePickerState.slot;
+  const pickerInput = pickerSlot === null ? null : leaguePickerPane(pickerSlot)?.querySelector(".league-picker-input");
+  const pickerFocused = pickerInput && document.activeElement === pickerInput;
   app.leagueRenderSignature = signature;
   const busy = refreshBlocksPublishedState();
   $("#page-league").setAttribute("aria-busy", String(busy));
@@ -10341,16 +10590,22 @@ function renderLeague() {
   refreshButton.setAttribute("aria-busy", String(busy));
   const status = $("#league-sync-status");
   status.hidden = !busy;
-  if (!competitions.length) {
+  if (!competitions.length && !index.catalogRows.length) {
+    leaguePickerClose();
     root.innerHTML = `<div class="league-empty" role="status"><i data-lucide="table-2"></i><strong>${uiText(busy ? "league.syncing" : "league.empty")}</strong><span>${uiText(busy ? "league.sync_done" : "league.empty_note")}</span></div>`;
     renderIcons();
     return;
   }
-  const visible = selections.slice(0, Math.min(app.leagueDisplayCount, competitions.length));
+  const visible = selections.slice(0, app.leagueDisplayCount);
   root.style.setProperty("--league-rows", String(Math.max(1, Math.ceil(visible.length / 3))));
   root.innerHTML = visible.map((id, slot) => leagueBoard(
     index.competitionsById.get(id), competitions, slot, managed,
   )).join("");
+  if (pickerSlot !== null) {
+    const trigger = leaguePickerPane(pickerSlot)?.querySelector(".league-picker-trigger");
+    if (index.catalogRows.length && trigger) leaguePickerOpen(trigger, Boolean(pickerFocused));
+    else leaguePickerClose();
+  }
   document.querySelectorAll("[data-league-count]").forEach((button) => {
     const active = Number(button.dataset.leagueCount) === app.leagueDisplayCount;
     button.classList.toggle("active", active);
@@ -12336,7 +12591,7 @@ function renderTrainingPersonDetail() {
   if (!person) {
     app.trainingPersonId = null;
     app.trainingProjectSku = null;
-    app._lastDetailSignature = null;
+    delete content.dataset.signature;
     content.innerHTML = `<div class="training-detail-empty"><i data-lucide="${kind === "staff" || module === "staff_training" ? "briefcase-business" : "user-round"}"></i><strong>${uiText("training.select_person")}</strong><small>${uiText(module === "staff_training" ? "training.select_staff_hint" : "training.select_player_hint")}</small></div>`;
     return;
   }
@@ -13836,7 +14091,7 @@ async function loadInternationalNations() {
     app.internationalNationError = error.message || uiText("world.scan_failed");
   } finally {
     app.internationalNationsLoading = false;
-    if (app.page === "activity" && app.activityFloor === "international") renderActivity();
+    if (app.page === "activity" && app.activityModule === "international") renderActivity();
   }
 }
 
@@ -13859,7 +14114,7 @@ async function loadActivityNationalityWorldPlayers({page = app.activityNationali
     app.activityNationalityWorldError = error.message || uiText("world.players.read_failed");
   } finally {
     app.activityNationalityWorldLoading = false;
-    if (app.page === "activity" && app.activityFloor === "international") {
+    if (app.page === "activity" && app.activityModule === "international") {
       app.activityRenderSignature = null;
       renderActivity();
     }
@@ -13903,7 +14158,7 @@ async function refreshMatchIntelligence() {
     toast(app.matchIntelligenceError);
   } finally {
     app.matchIntelligenceLoading = false;
-    if (app.page === "activity" && app.activityFloor === "intelligence") renderActivity();
+    if (app.page === "activity" && app.activityModule === "intelligence") renderActivity();
   }
 }
 
@@ -13921,7 +14176,7 @@ async function loadMatchIntelligence(force = false) {
     app.matchIntelligenceError = error.message || uiText("activity.intelligence_search_failed");
   } finally {
     app.matchIntelligenceLoading = false;
-    if (app.page === "activity" && app.activityFloor === "intelligence") renderActivity();
+    if (app.page === "activity" && app.activityModule === "intelligence") renderActivity();
   }
 }
 
@@ -14107,7 +14362,7 @@ function activityRenderStateSignature() {
     app.activityNationalityWorldLoading, app.activityNationalityWorldError,
     app.activityNationalityWorldSearch, app.activityNationalityWorldPage,
     app.departureData, app.departureBusy, app.departureError, app.departureSelectedId, app.departureOffersOpen,
-    app.activityFloor, app.activityNode, app.activityRosterTab, facilityViewMode("activity"), app.activityActionBusy,
+    app.activityModule, app.activityNode, app.activityRosterTab, facilityViewMode("activity"), app.activityActionBusy,
     app.activityRosterRefreshing,
     [...app.activityPlayerIds.entries()], selectionState,
     app.activityLanguageId, app.activityLanguagePersonKind,
@@ -14641,12 +14896,6 @@ function renderActivity() {
   const players = activityIndex.players;
   const clubPlayers = activityIndex.clubPlayers;
   renderFundingSummary("#activity-balance");
-  if (!players.length && !["intelligence", "talk_room"].includes(app.activityFloor)) {
-    container.innerHTML = `<div class="empty-feature">${uiText("activity.refreshing_players")}</div>`;
-    $("#intimacy-ranking-list").innerHTML = "";
-    app.activityRenderSignature = renderSignature;
-    return;
-  }
   const activities = app.state?.welfare?.activities || {
     drinks:{name:uiText("activity.drinks"),price:0,intimacy:0.2,centre:"entertainment"},
     hot_spring:{name:uiText("activity.hot_spring"),price:0,intimacy:0.4,centre:"entertainment"},
@@ -14677,7 +14926,7 @@ function renderActivity() {
   const staffLanguageWriteEnabled = Boolean(app.activityStaffLanguageCapability?.write_enabled);
   const intelligencePricingDate = String(app.matchIntelligence?.pricing?.game_date || "");
   if (
-    app.activityFloor === "intelligence"
+    app.activityModule === "intelligence"
     && centreState.intelligence?.owned
     && !app.matchIntelligenceLoading
     && !app.matchIntelligenceError
@@ -14742,8 +14991,8 @@ function renderActivity() {
     || (languagePersonKind === "player" ? languagePlans[`${Number(playerId)}:${Number(languageId)}`] : null)
     || null
   );
-  if (app.activityFloor === "international" && centreState.international?.owned && app.internationalNations === null && !app.internationalNationsLoading && !app.internationalNationError) setTimeout(loadInternationalNations, 0);
-  if (app.activityFloor === "international" && centreState.international?.owned && app.activityNationalityScope === "world" && !app.activityNationalityWorldPlayers.length && !app.activityNationalityWorldLoading && !app.activityNationalityWorldError) setTimeout(() => loadActivityNationalityWorldPlayers({page: 1}), 0);
+  if (app.activityModule === "international" && centreState.international?.owned && app.internationalNations === null && !app.internationalNationsLoading && !app.internationalNationError) setTimeout(loadInternationalNations, 0);
+  if (app.activityModule === "international" && centreState.international?.owned && app.activityNationalityScope === "world" && !app.activityNationalityWorldPlayers.length && !app.activityNationalityWorldLoading && !app.activityNationalityWorldError) setTimeout(() => loadActivityNationalityWorldPlayers({page: 1}), 0);
   const internationalNations = app.internationalNations || [];
   if (internationalNations.length && !activityIndex.nationsById.has(Number(app.internationalNationId))) app.internationalNationId = Number(internationalNations[0].id);
   const nationalityOptions = internationalNations.map((row) => `<option value="${Number(row.id)}" ${Number(row.id) === app.internationalNationId ? "selected" : ""}>${escapeHtml(localizedNationName(row))} · ${escapeHtml(localizedContinentName(row.continent))}</option>`).join("");
@@ -14761,24 +15010,23 @@ function renderActivity() {
   activityMeta.player_departure = {key:"player_departure",name:uiText("departure.title"),description:"",kind:"player_departure",centre:"talk_room",players:[]};
   activityMeta.salary_committee_room = {key:"salary_committee_room",name:uiText("activity.node_salary"),icon:"landmark",description:uiText("activity.salary_description"),kind:"salary_policy",centre:"talk_room",players:[],action:uiText("activity.start_salary_meeting")};
   activityMeta.naturalization = {key:"naturalization",name:uiText("activity.node_naturalization"),icon:"flag",description:"",kind:"naturalization",players:app.activityNationalityScope === "world" ? app.activityNationalityWorldPlayers : clubPlayers,action:uiText("activity.nationality_processing")};
-  activityMeta.nationality_review = {key:"nationality_review",name:uiText("activity.node_review"),icon:"file-check-2",description:uiText("activity.activity_unavailable"),kind:"unavailable",players:[],action:uiText("activity.floor_unavailable")};
   activityMeta.match_intelligence = {key:"match_intelligence",name:uiText("activity.floor_intelligence"),icon:"scan-eye",description:"",kind:"match_intelligence",players:[],action:uiText("activity.confirm_intelligence")};
   const facilityNode = (key, label, icon) => ({key,label,icon,owned:Boolean(facilityState[key]?.owned),price:Number(facilityState[key]?.price || 0)});
-  const floors = {
-     entertainment:{floor:"1F",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),unlocked:Boolean(centreState.entertainment?.owned),available:true,price:Number(centreState.entertainment?.price ?? 2000000),summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_social_bar")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_recovery_spring")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_esports")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_massage")})],nodes:[facilityNode("drinks",uiText("activity.node_social_bar"),"wine"),facilityNode("hot_spring",uiText("activity.node_recovery_spring"),"waves"),facilityNode("football_game",uiText("activity.node_esports"),"gamepad-2"),facilityNode("massage",uiText("activity.node_massage"),"hand-heart")]},
-     talk_room:{floor:"2F",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),unlocked:Boolean(centreState.talk_room?.owned),available:true,price:Number(centreState.talk_room?.price ?? 2000000),summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_counselling")}),uiText("activity.floor_feature_builtin", {name:uiText("activity.node_salary")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_retirement")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_black_room")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_language")})],nodes:[facilityNode("psychological_counseling",uiText("activity.node_counselling"),"heart-handshake"),facilityNode("salary_committee_room",uiText("activity.node_salary"),"landmark"),facilityNode("retirement",uiText("activity.node_retirement"),"messages-square"),facilityNode("black_room",uiText("activity.node_black_room"),"door-closed"),facilityNode("language_classroom",uiText("activity.node_language"),"languages"),{key:"player_departure",label:uiText("departure.title"),icon:"log-out",owned:true}]},
-     international:{floor:"4F",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),unlocked:Boolean(centreState.international?.owned),available:true,price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_naturalization")}),uiText("activity.node_review")],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag",owned:Boolean(facilityState.naturalization?.owned)},{key:"nationality_review",label:uiText("activity.node_review"),icon:"file-check-2",owned:false}]},
-     intelligence:{floor:"5F",name:uiText("activity.floor_intelligence"),eyebrow:uiText("activity.floor_intelligence_eyebrow"),unlocked:Boolean(centreState.intelligence?.owned),available:true,price:Number(centreState.intelligence?.price ?? 50000000),summary:uiText("activity.floor_intelligence_summary"),features:[uiText("activity.intelligence_outcome"),uiText("activity.intelligence_total_goals"),uiText("activity.intelligence_score")],nodes:[{key:"match_intelligence",label:uiText("activity.node_match_intelligence"),icon:"scan-eye",owned:Boolean(centreState.intelligence?.owned)}]},
+  const modules = {
+     entertainment:{icon:"wine",name:uiText("activity.floor_entertainment"),eyebrow:uiText("activity.floor_entertainment_eyebrow"),unlocked:Boolean(centreState.entertainment?.owned),price:Number(centreState.entertainment?.price ?? 2000000),summary:uiText("activity.floor_entertainment_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_social_bar")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_recovery_spring")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_esports")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_massage")})],nodes:[facilityNode("drinks",uiText("activity.node_social_bar"),"wine"),facilityNode("hot_spring",uiText("activity.node_recovery_spring"),"waves"),facilityNode("football_game",uiText("activity.node_esports"),"gamepad-2"),facilityNode("massage",uiText("activity.node_massage"),"hand-heart")]},
+     talk_room:{icon:"messages-square",name:uiText("activity.floor_talk_room"),eyebrow:uiText("activity.floor_talk_room_eyebrow"),unlocked:Boolean(centreState.talk_room?.owned),price:Number(centreState.talk_room?.price ?? 2000000),summary:uiText("activity.floor_talk_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_counselling")}),uiText("activity.floor_feature_builtin", {name:uiText("activity.node_salary")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_retirement")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_black_room")}),uiText("activity.floor_feature_purchase", {name:uiText("activity.node_language")})],nodes:[facilityNode("psychological_counseling",uiText("activity.node_counselling"),"heart-handshake"),facilityNode("salary_committee_room",uiText("activity.node_salary"),"landmark"),facilityNode("retirement",uiText("activity.node_retirement"),"messages-square"),facilityNode("black_room",uiText("activity.node_black_room"),"door-closed"),facilityNode("language_classroom",uiText("activity.node_language"),"languages"),{key:"player_departure",label:uiText("departure.title"),icon:"log-out",owned:true}]},
+     international:{icon:"globe-2",name:uiText("activity.floor_international"),eyebrow:uiText("activity.floor_international_eyebrow"),unlocked:Boolean(centreState.international?.owned),price:Number(centreState.international?.price ?? 10000000),summary:uiText("activity.floor_international_summary"),features:[uiText("activity.floor_feature_builtin", {name:uiText("activity.node_naturalization")})],nodes:[{key:"naturalization",label:uiText("activity.node_naturalization"),icon:"flag",owned:Boolean(facilityState.naturalization?.owned)}]},
+     intelligence:{icon:"scan-eye",name:uiText("activity.floor_intelligence"),eyebrow:uiText("activity.floor_intelligence_eyebrow"),unlocked:Boolean(centreState.intelligence?.owned),price:Number(centreState.intelligence?.price ?? 50000000),summary:uiText("activity.floor_intelligence_summary"),features:[uiText("activity.intelligence_outcome"),uiText("activity.intelligence_total_goals"),uiText("activity.intelligence_score")],nodes:[{key:"match_intelligence",label:uiText("activity.node_match_intelligence"),icon:"scan-eye",owned:Boolean(centreState.intelligence?.owned)}]},
   };
-  if (!floors[app.activityFloor]) {
-    app.activityFloor = "entertainment";
+  if (!modules[app.activityModule]) {
+    app.activityModule = "entertainment";
     app.activityNode = null;
-    localStorage.setItem("fmodd-activity-floor", app.activityFloor);
+    localStorage.setItem("fmodd-activity-module", app.activityModule);
   }
-  const selectedFloor = floors[app.activityFloor];
-  if (app.activityFloor === "intelligence" && selectedFloor.unlocked && !app.activityNode) app.activityNode = "match_intelligence";
-  const selectedNode = selectedFloor.nodes.find((node) => node.key === app.activityNode);
-  if (!selectedFloor.unlocked || !selectedNode || selectedNode.owned === false) app.activityNode = null;
+  const selectedModule = modules[app.activityModule];
+  if (app.activityModule === "intelligence" && selectedModule.unlocked && !app.activityNode) app.activityNode = "match_intelligence";
+  const selectedNode = selectedModule.nodes.find((node) => node.key === app.activityNode);
+  if (!selectedModule.unlocked || !selectedNode || selectedNode.owned === false) app.activityNode = null;
   let selectedActivity = activityMeta[app.activityNode] || null;
   if (selectedActivity?.kind === "retirement"
     && app.retirementPlayersScope !== app.retirementScope
@@ -14841,14 +15089,14 @@ function renderActivity() {
   const selectedPlayersById = new Map(
     (selectedActivity?.players || []).map((player) => [Number(player.id), player]),
   );
-  const activityHead = (title, summary, count, extra = "", action = "") => `<div class="activity-panel-head ${selectedActivity && selectedActivity.kind !== "match_intelligence" ? "activity-roster-head" : ""}"><div><small>${selectedFloor.eyebrow}</small><h2>${escapeHtml(title)}${extra}</h2>${summary ? `<p>${escapeHtml(summary)}</p>` : ""}</div>${action ? `<div class="activity-panel-head-aside"><span>${count}</span>${action}</div>` : `<span>${count}</span>`}</div>`;
+  const activityHead = (title, summary, count, extra = "", action = "") => `<div class="activity-panel-head ${selectedActivity && selectedActivity.kind !== "match_intelligence" ? "activity-roster-head" : ""}"><div><small>${selectedModule.eyebrow}</small><h2>${escapeHtml(title)}${extra}</h2>${summary ? `<p>${escapeHtml(summary)}</p>` : ""}</div>${action ? `<div class="activity-panel-head-aside"><span>${count}</span>${action}</div>` : `<span>${count}</span>`}</div>`;
   const selectedPanel = () => {
-    if (!selectedActivity) return `${activityHead(selectedFloor.name, uiText("activity.choose_activity_hint"), uiText("activity.activity_count", {count:selectedFloor.nodes.length}))}<div class="activity-select-prompt"><i data-lucide="mouse-pointer-click"></i><strong>${uiText("activity.choose_activity")}</strong><span>${uiText("activity.choose_activity_hint")}</span></div>`;
+    if (!selectedActivity) return `${activityHead(selectedModule.name, uiText("activity.choose_activity_hint"), uiText("activity.activity_count", {count:selectedModule.nodes.length}))}<div class="activity-select-prompt"><i data-lucide="mouse-pointer-click"></i><strong>${uiText("activity.choose_activity")}</strong><span>${uiText("activity.choose_activity_hint")}</span></div>`;
     if (selectedActivity.kind === "player_departure") return window.FMODDDepartureView.render(app.departureData ? {...app.departureData, game_date:app.gameClock?.date || app.state?.game_clock?.date || output().game_date || app.departureData.game_date} : null, {
       t:uiText, escape:escapeHtml, money:formatPounds,
       busy:app.departureBusy, error:app.departureError, selectedId:app.departureSelectedId, offersOpen:app.departureOffersOpen,
     });
-    if (selectedActivity.kind === "unavailable") return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.floor_unavailable"))}<div class="activity-select-prompt"><i data-lucide="lock-keyhole"></i><strong>${uiText("activity.activity_unavailable")}</strong><span>${uiText("activity.version_unverified")}</span></div>`;
+
     if (selectedActivity.kind === "match_intelligence") {
       // The service owns the availability window.  Filtering again with the
       // browser clock can hide a still-valid result while the game time has not
@@ -15077,15 +15325,15 @@ function renderActivity() {
      const targetLabel = selectedActivity.kind === "language" ? personLabel : isEntertainmentStaff ? uiText("activity.person_staff") : uiText("activity.person_players");
      return `${activityHead(selectedActivity.name, selectedActivity.description, uiText("activity.member_count_selected", {selected:selections.size,total:targetPlayers.length}), "", rosterRefreshAction)}<div class="activity-roster-shell ${selectedActivity.kind === "language" ? "activity-language-roster-shell" : ""}">${entertainmentTabs}${nationalityTabs}${languageTabs}<div class="activity-roster-toolbar"><button type="button" class="activity-select-all" id="activity-select-all" data-all-selected="${allSelected ? "true" : "false"}" ${selectable.length ? "" : "disabled"}><i data-lucide="${allSelected ? "square-minus" : "square-check-big"}"></i><span>${allSelected ? uiText("activity.clear_all") : uiText("activity.select_all")}</span></button>${nationalityWorldToolbar}${retirementToolbar}${selectedActivity.kind === "retirement" ? "" : `<span role="status" aria-live="polite">${uiText("activity.selected_count", {count:selections.size})}</span>`}</div>${nationalityWorldPager}${options || retirementScopeOption ? `<div class="activity-roster-options">${retirementScopeOption}${options}</div>` : ""}${languageStatuses}<div class="activity-panel-scroll"><div class="activity-roster-list" role="group" aria-label="${uiText("activity.roster_activity_aria", {target:targetLabel})}">${categorizedRows || `<div class="activity-roster-empty">${app.activityNationalityWorldLoading ? uiText("activity.read_world_players") : app.activityNationalityWorldError || (app.retirementPlayersLoading ? uiText("activity.read_retirement_players") : escapeHtml(app.retirementPlayersError || uiText("activity.no_participants", {target:targetLabel})))}</div>`}</div></div>${footer}</div>${nationalityPicker}`;
   };
-   const floorTabs = Object.entries(floors).map(([key,floor]) => `<button type="button" role="tab" aria-selected="${key === app.activityFloor}" aria-controls="activity-floor-panel" class="${key === app.activityFloor ? "active" : ""} ${floor.unlocked ? "" : "locked"}" data-activity-floor="${key}"><span>${floor.floor}</span><strong>${floor.name}</strong>${floor.unlocked ? "" : '<i data-lucide="lock-keyhole"></i>'}</button>`).join("");
-   const stageFeatures = app.activityFloor === "intelligence" && selectedFloor.unlocked
+  const moduleTabs = Object.entries(modules).map(([key,module]) => `<button type="button" role="tab" aria-selected="${key === app.activityModule}" aria-controls="activity-module-panel" class="${key === app.activityModule ? "active" : ""}" data-activity-module="${key}"><i data-lucide="${module.icon}"></i><span>${module.name}</span>${module.unlocked ? "" : '<i data-lucide="lock-keyhole"></i>'}</button>`).join("");
+   const stageFeatures = app.activityModule === "intelligence" && selectedModule.unlocked
      ? [["random",uiText("activity.intelligence_random_title"),"shuffle"],["specific",uiText("activity.intelligence_specific_title"),"list-checks"],["obtained",uiText("activity.intelligence_obtained_title"),"badge-check"]].map(([mode,label,icon],index) => `<button type="button" aria-pressed="${app.intelligenceMode === mode}" class="activity-scene-node node-${index + 1} ${app.intelligenceMode === mode ? "selected" : ""}" data-intelligence-mode="${mode}"><i data-lucide="${icon}"></i><span>${label}</span></button>`).join("")
-     : selectedFloor.nodes.map((node,index) => { const unavailable = node.key === "nationality_review"; const roomOpen = !unavailable && selectedFloor.unlocked && node.owned !== false; const action = unavailable ? "disabled" : roomOpen ? `data-activity-node="${escapeHtml(node.key)}"` : selectedFloor.unlocked ? `data-activity-facility="${escapeHtml(node.key)}"` : selectedFloor.available ? `data-activity-unlock="${app.activityFloor}"` : "disabled"; const hint = unavailable ? uiText("activity.floor_unavailable") : roomOpen ? (node.key === app.activityNode ? uiText("activity.room_selected") : uiText("activity.room_choose")) : selectedFloor.unlocked ? uiText("activity.room_buy_room") : uiText("activity.room_not_open"); const title = unavailable ? uiText("activity.floor_unavailable") : roomOpen ? `${uiText("activity.room_choose")}${node.label}` : selectedFloor.unlocked ? `${uiText("activity.room_buy_room")}${node.label}` : uiText("activity.room_not_open"); return `<button type="button" class="activity-scene-node node-${index + 1} ${roomOpen ? "available" : "locked"} ${node.key === app.activityNode ? "selected" : ""}" ${action} title="${escapeHtml(title)}"><i data-lucide="${roomOpen ? node.icon : "lock-keyhole"}"></i><span>${escapeHtml(node.label)}</span><b>${hint}</b></button>`; }).join("");
-   const unavailablePanel = `<div class="activity-panel-head locked"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.floor_unavailable")}</span></div><div class="activity-select-prompt"><i data-lucide="lock-keyhole"></i><strong>${uiText("activity.floor_unavailable")}</strong><span>${uiText("activity.floor_no_purchase")}</span></div>`;
-   const lockedPanel = `<div class="activity-panel-head locked"><div><small>${selectedFloor.eyebrow}</small><h2>${selectedFloor.name}</h2><p>${selectedFloor.summary}</p></div><span>${uiText("activity.floor_locked")}</span></div><div class="activity-locked-plan"><div class="activity-plan-price"><i data-lucide="building-2"></i><span>${uiText("activity.floor_build_budget")}<strong>${formatPounds(selectedFloor.price)}</strong></span></div><div class="activity-plan-list">${selectedFloor.features.map((feature) => `<div><i data-lucide="circle-dashed"></i><span>${escapeHtml(feature)}</span></div>`).join("")}</div><button type="button" data-activity-unlock="${app.activityFloor}"><i data-lucide="lock-keyhole"></i><span>${uiText("activity.floor_unlock_build")}</span></button><small>${uiText("activity.floor_purchase_open")}</small></div>`;
-  const floorPanel = selectedFloor.unlocked ? selectedPanel() : selectedFloor.available ? lockedPanel : unavailablePanel;
-   const sceneLock = selectedFloor.available ? `<div class="activity-scene-lock"><i data-lucide="lock-keyhole"></i><strong>${formatPounds(selectedFloor.price)}</strong><span>${uiText("activity.floor_open_after_build")}</span><button type="button" data-activity-unlock="${app.activityFloor}">${uiText("activity.floor_unlock_purchase")}</button></div>` : `<div class="activity-scene-lock"><i data-lucide="lock-keyhole"></i><strong>${uiText("activity.floor_unavailable")}</strong><span>${uiText("activity.floor_no_purchase")}</span></div>`;
-   container.innerHTML = `<div class="activity-building ${app.activityNode === "player_departure" ? "departure-building" : app.activityFloor === "intelligence" ? "intelligence-building" : ""}"><div class="activity-floor-tabs" role="tablist" aria-label="${uiText("activity.scene_floor_aria")}">${floorTabs}</div><div class="activity-workspace"><section class="activity-scene ${app.activityFloor} ${selectedFloor.unlocked ? "unlocked" : "locked"}"><div class="activity-scene-shade"></div><div class="activity-scene-labels" aria-label="${uiText("activity.scene_activity_aria")}">${stageFeatures}</div>${selectedFloor.unlocked ? `<span class="activity-open-status"><i data-lucide="badge-check"></i> ${uiText("activity.activity_open")}</span>` : sceneLock}</section><aside class="activity-floor-panel" id="activity-floor-panel" role="tabpanel">${floorPanel}</aside></div></div>`;
+     : selectedModule.nodes.map((node,index) => { const roomOpen = selectedModule.unlocked && node.owned !== false; const action = roomOpen ? `data-activity-node="${escapeHtml(node.key)}"` : selectedModule.unlocked ? `data-activity-facility="${escapeHtml(node.key)}"` : `data-activity-unlock="${app.activityModule}"`; const hint = roomOpen ? (node.key === app.activityNode ? uiText("activity.room_selected") : uiText("activity.room_choose")) : selectedModule.unlocked ? uiText("activity.room_buy_room") : uiText("activity.room_not_open"); const title = roomOpen ? `${uiText("activity.room_choose")}${node.label}` : selectedModule.unlocked ? `${uiText("activity.room_buy_room")}${node.label}` : uiText("activity.room_not_open"); return `<button type="button" class="activity-scene-node node-${index + 1} ${roomOpen ? "available" : "locked"} ${node.key === app.activityNode ? "selected" : ""}" ${action} title="${escapeHtml(title)}"><i data-lucide="${roomOpen ? node.icon : "lock-keyhole"}"></i><span>${escapeHtml(node.label)}</span><b>${hint}</b></button>`; }).join("");
+
+   const lockedPanel = `<div class="activity-panel-head locked"><div><small>${selectedModule.eyebrow}</small><h2>${selectedModule.name}</h2><p>${selectedModule.summary}</p></div><span>${uiText("activity.floor_locked")}</span></div><div class="activity-locked-plan"><div class="activity-plan-price"><i data-lucide="building-2"></i><span>${uiText("activity.floor_build_budget")}<strong>${formatPounds(selectedModule.price)}</strong></span></div><div class="activity-plan-list">${selectedModule.features.map((feature) => `<div><i data-lucide="circle-dashed"></i><span>${escapeHtml(feature)}</span></div>`).join("")}</div><button type="button" data-activity-unlock="${app.activityModule}"><i data-lucide="lock-keyhole"></i><span>${uiText("activity.floor_unlock_build")}</span></button><small>${uiText("activity.floor_purchase_open")}</small></div>`;
+  const modulePanel = selectedModule.unlocked ? selectedPanel() : lockedPanel;
+   const sceneLock = `<div class="activity-scene-lock"><i data-lucide="lock-keyhole"></i><strong>${formatPounds(selectedModule.price)}</strong><span>${uiText("activity.floor_open_after_build")}</span><button type="button" data-activity-unlock="${app.activityModule}">${uiText("activity.floor_unlock_purchase")}</button></div>`;
+   container.innerHTML = `<div class="activity-building ${app.activityNode === "player_departure" ? "departure-building" : app.activityModule === "intelligence" ? "intelligence-building" : ""}"><div class="segmented activity-module-tabs" role="tablist" aria-label="${uiText("activity.modules")}">${moduleTabs}</div><div class="activity-workspace"><section class="activity-scene ${app.activityModule} ${selectedModule.unlocked ? "unlocked" : "locked"}"><div class="activity-scene-shade"></div><div class="activity-scene-labels" aria-label="${uiText("activity.scene_activity_aria")}">${stageFeatures}</div>${selectedModule.unlocked ? `<span class="activity-open-status"><i data-lucide="badge-check"></i> ${uiText("activity.activity_open")}</span>` : sceneLock}</section><aside class="activity-module-panel" id="activity-module-panel" role="tabpanel">${modulePanel}</aside></div></div>`;
   app.activityRenderSignature = renderSignature;
   if (app.activityNode === "player_departure") {
     bindPlayerDepartureControls();
@@ -15093,7 +15341,7 @@ function renderActivity() {
   }
   renderIntimacyRanking();
   const updateRosterControls = () => {
-    if (!selectedActivity || selectedActivity.kind === "unavailable") return;
+    if (!selectedActivity) return;
     const current = app.activitySelections.get(selectedActivity.key) || new Set();
     const visiblePlayers = selectedActivity.kind === "retirement"
       ? selectedActivity.players.filter((player) => {
@@ -15139,7 +15387,7 @@ function renderActivity() {
        instantLabel.textContent = uiText("activity.instant_label", {price:formatPounds(total)});
     }
   };
-  document.querySelectorAll("[data-activity-floor]").forEach((button) => button.addEventListener("click", () => { app.activityFloor = String(button.dataset.activityFloor || "entertainment"); app.activityNode = null; localStorage.setItem("fmodd-activity-floor", app.activityFloor); renderActivity(); }));
+  document.querySelectorAll("[data-activity-module]").forEach((button) => button.addEventListener("click", () => { app.activityModule = String(button.dataset.activityModule || "entertainment"); app.activityNode = null; localStorage.setItem("fmodd-activity-module", app.activityModule); renderActivity(); }));
   document.querySelectorAll("[data-activity-node]").forEach((node) => node.addEventListener("click", () => { app.activityNode = String(node.dataset.activityNode || ""); renderActivity(); }));
   document.querySelectorAll("[data-nationality-scope]").forEach((button) => button.addEventListener("click", () => {
     app.activityNationalityScope = button.dataset.nationalityScope === "world" ? "world" : "club";
@@ -15201,7 +15449,7 @@ function renderActivity() {
     $("#activity-nationality-slot-dialog")?.close();
     document.querySelector("[data-activity-submit]")?.click();
   }));
-   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const floor = floors[centre]; if (!floor || !floor.available) return; const price = floor.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:floor.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:floor.name})); } catch (error) { toast(error.message); renderActivity(); } }));
+   document.querySelectorAll("[data-activity-unlock]").forEach((button) => button.addEventListener("click", async () => { const centre = String(button.dataset.activityUnlock || ""); const module = modules[centre]; if (!module) return; const price = module.price; if (!await fmoddConfirm(uiText("activity.confirm_unlock_floor", {name:module.name, amount:formatPounds(price)}), uiText("activity.floor_unlock_purchase"))) return; button.disabled = true; try { const response = await request("/api/activity/centre/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({centre})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; renderActivity(); toast(uiText("activity.room_unlocked", {name:module.name})); } catch (error) { toast(error.message); renderActivity(); } }));
    document.querySelectorAll("[data-activity-facility]").forEach((button) => button.addEventListener("click", async () => { const facility = String(button.dataset.activityFacility || ""); const room = facilityState[facility]; if (!room || room.owned) return; const price = Number(room.price || 0); if (!await fmoddConfirm(uiText("activity.confirm_buy_room", {name:room.name, amount:formatPounds(price)}), uiText("activity.room_buy_room"))) return; button.disabled = true; try { const response = await request("/api/activity/facility/purchase", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({facility})}); applyEconomySnapshot(response.economy); app.state.welfare = response.welfare; app.activityNode = facility; renderActivity(); toast(uiText("activity.room_unlocked", {name:room.name})); } catch (error) { toast(error.message); renderActivity(); } }));
   $("[data-salary-authorization]")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
@@ -15556,7 +15804,6 @@ function renderActivity() {
   updateRosterControls();
   renderIcons();
 }
-
 function remainingInjuryDays(injury) {
   const currentText = String(app.gameClock?.date || output().game_date || "");
   if (!currentText) return {low:null, high:null};
@@ -17966,7 +18213,7 @@ function syncWorldNationScanPolling(data = app.worldNations) {
         // activity render performs a fresh read.
         app.internationalNations = null;
         app.internationalNationError = "";
-        if (app.page === "activity" && app.activityFloor === "international") {
+        if (app.page === "activity" && app.activityModule === "international") {
           void loadInternationalNations();
         }
       }
@@ -18445,7 +18692,7 @@ async function scanWorldNations() {
     if (latest?.native_scan?.ready && latest.native_scan.addresses_current) {
       app.internationalNations = null;
       app.internationalNationError = "";
-      if (app.page === "activity" && app.activityFloor === "international") {
+      if (app.page === "activity" && app.activityModule === "international") {
         void loadInternationalNations();
       }
     }
@@ -28282,7 +28529,7 @@ function bindEvents() {
     if (document.visibilityState !== "hidden") scheduleDataPrewarm();
   });
   $("#league-board-grid").addEventListener("change", (event) => {
-    const select = event.target.closest("[data-league-slot]");
+    const select = event.target.closest("select[data-league-slot]");
     if (!select) return;
     const slot = Number(select.dataset.leagueSlot);
     const nextId = Number(select.value);
@@ -28293,6 +28540,87 @@ function bindEvents() {
     localStorage.setItem(leagueSelectionStorageKey(), JSON.stringify(app.leagueSelections));
     renderLeague(); renderIcons();
   });
+  $("#league-board-grid").addEventListener("input", (event) => {
+    const input = event.target.closest("[data-league-search]");
+    if (!input) return;
+    const slot = Number(input.dataset.leagueSearch);
+    leaguePickerState.slot = slot;
+    leaguePickerState.query = input.value;
+    leaguePickerState.active = -1;
+    leaguePickerFillOptions(slot, Number(app.leagueSelections?.[slot] || 0));
+  });
+  $("#league-board-grid").addEventListener("click", (event) => {
+    const option = event.target.closest("[data-league-option]");
+    if (option) {
+      leaguePickerSelect(Number(option.dataset.leagueSlotOption), Number(option.dataset.leagueOption));
+      return;
+    }
+    const clear = event.target.closest("[data-league-search-clear]");
+    if (clear) {
+      const slot = Number(clear.dataset.leagueSearchClear);
+      const input = clear.closest(".league-picker")?.querySelector("[data-league-search]");
+      if (input) input.value = "";
+      leaguePickerState.query = "";
+      leaguePickerState.active = -1;
+      leaguePickerFillOptions(slot, Number(app.leagueSelections?.[slot] || 0));
+      input?.focus?.();
+      return;
+    }
+    const trigger = event.target.closest(".league-picker-trigger[data-league-slot]");
+    if (!trigger) return;
+    const slot = Number(trigger.dataset.leagueSlot);
+    if (leaguePickerState.slot === slot) {
+      leaguePickerClose(slot);
+      return;
+    }
+    leaguePickerClose();
+    leaguePickerOpen(trigger);
+  });
+  $("#league-board-grid").addEventListener("keydown", (event) => {
+    const pane = event.target.closest(".league-picker");
+    if (!pane) return;
+    const slot = Number(pane.dataset.leaguePicker);
+    if (event.key === "Escape" && leaguePickerState.slot === slot) {
+      event.preventDefault();
+      leaguePickerClose(slot);
+      pane.querySelector(".league-picker-trigger")?.focus?.();
+      return;
+    }
+    if (event.target.matches("[data-league-search]")) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        leaguePickerMoveActive(slot, event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+      if (event.key === "Enter") {
+        const active = leaguePickerActiveOption(slot);
+        if (!active) return;
+        event.preventDefault();
+        leaguePickerSelect(slot, Number(active.dataset.leagueOption));
+      }
+      return;
+    }
+    const trigger = event.target.closest(".league-picker-trigger");
+    if (trigger && event.key === "ArrowDown") {
+      event.preventDefault();
+      leaguePickerClose();
+      leaguePickerOpen(trigger);
+      leaguePickerMoveActive(slot, 1);
+    }
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (leaguePickerState.slot === null) return;
+    if (event.target.closest?.(".league-picker")) return;
+    leaguePickerClose();
+  });
+  const repositionLeaguePicker = () => {
+    if (leaguePickerState.slot === null) return;
+    const pane = leaguePickerPane(leaguePickerState.slot);
+    const trigger = pane?.querySelector(".league-picker-trigger");
+    if (trigger) leaguePickerPosition(pane, trigger);
+  };
+  window.addEventListener("resize", repositionLeaguePicker, {passive:true});
+  document.addEventListener("scroll", repositionLeaguePicker, {capture:true, passive:true});
   $("#league-display-count").addEventListener("click", (event) => {
     const button = event.target.closest("[data-league-count]");
     if (!button) return;

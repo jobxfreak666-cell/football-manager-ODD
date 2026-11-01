@@ -1618,6 +1618,109 @@ class RefreshOptimizationTests(unittest.TestCase):
         self.assertIn("market_output_ms", state.last_public_state_metrics)
         self.assertIn("total_ms", state.last_public_state_metrics)
 
+    def test_league_catalog_build_uses_captured_standings_after_state_lock_release(self):
+        class TrackingLock:
+            def __init__(self):
+                self.depth = 0
+
+            def __enter__(self):
+                self.depth += 1
+                return self
+
+            def __exit__(self, *_args):
+                self.depth -= 1
+
+        with patch("fm_odds_web.set_active_save_id"):
+            state = self._state(verified=True, data_version=12)
+        state.lock = TrackingLock()
+        state.output = {
+            "save_instance_id": "verified-save-123",
+            "game_layout": "fm26",
+            "matches": [{"fixture_date": "2028-06-06"}],
+        }
+        state.last_connection_clock = None
+        state.last_process_selection_status = None
+        state.connection_scope_id = None
+        state.connection_live_confirmed = False
+        state.wallet_ready = False
+        state.connection_requested = False
+        state.connection_suspended = False
+        state.save_change_pending = False
+        state._connected_process_available = MagicMock(return_value=False)
+        state._note_connection_liveness = MagicMock(return_value=(None, False))
+        state._data_scope_id = MagicMock(return_value="verified-scope")
+        state._public_training_ground = MagicMock(return_value={"focuses": []})
+        state._player_manager_training_candidate = MagicMock(return_value=None)
+        state._club_policy_context = MagicMock(return_value={
+            "manager_id": 1, "team_id": 2, "club_id": 3,
+        })
+        state.club_policy_hooks = SimpleNamespace(status=MagicMock(return_value={}))
+        state.training_sync_status = {"ready": True}
+        state.attribute_growth_hook = SimpleNamespace(status=MagicMock(return_value={}))
+        state.club_profiles = {}
+        state.club_profile = None
+        state.club_refreshing = False
+        state.club_last_updated = None
+        state.club_error = None
+        state.club_progress = 0
+        state.club_progress_text = ""
+        state.redbull_hook = SimpleNamespace(status=MagicMock(return_value={}))
+        state.fixture_item_effect_status = {}
+        state.referee_hook = SimpleNamespace(status=MagicMock(return_value={}))
+        state.live_settlement_status = {}
+        state.last_background_settled = 0
+        state.last_result_refresh_date = None
+        state.match_intelligence_results = []
+        state._nuclear_status = MagicMock(return_value={})
+        state._public_club_economy = MagicMock(return_value={})
+        state._refresh_state = MagicMock(return_value={})
+
+        standings = {"source": "reconstructed_results", "competitions": [{
+            "competition_id": 42, "competition_name": "Captured League",
+        }]}
+        catalog_calls = []
+
+        def build_catalog(output, *, scope_id, standings):
+            catalog_calls.append((state.lock.depth, output, scope_id, standings))
+            return {"source": "native_competition_table", "competitions": []}
+
+        favorites = {
+            "team_ids": [], "competition_ids": [], "hidden_competitions": [],
+            "market_keys": [], "market_keys_initialized": True,
+            "managed_defaults_initialized": True,
+        }
+        with (
+            patch("fm_odds_web.process_selection_status", return_value={
+                "available": [], "selected": None,
+            }),
+            patch("fm_odds_web.set_active_save_id"),
+            patch("fm_odds_web.public_league_standings", return_value=standings),
+            patch("fm_odds_web.build_league_catalog", side_effect=build_catalog),
+            patch("fm_odds_web.load_settings", return_value={
+                "championship_enabled": False, "disable_fa_penalties": True,
+            }),
+            patch("fm_odds_web.manager_team_context_status", return_value=(True, None)),
+            patch("fm_odds_web.managed_team_rows", return_value=[]),
+            patch("fm_odds_web.public_club_policies", return_value={}),
+            patch("fm_odds_web._public_favorites", return_value=favorites),
+            patch("fm_odds_web.current_match_intelligence_candidates", return_value=[]),
+            patch("fm_odds_web.welfare_status", return_value=None),
+            patch("fm_odds_web.purchasable_match_intelligence_candidates", return_value=[]),
+            patch("fm_odds_web.public_bet_history", return_value=[]),
+            patch("fm_odds_web.saved_account_scopes", return_value=[]),
+            patch("fm_odds_web.market_output", return_value={"matches": []}),
+            patch("fm_odds_web.visible_mail_records", return_value=[]),
+            patch("fm_odds_web.preferred_move_catalog_for_current_game", return_value=[]),
+        ):
+            state._capture_public_state()
+
+        self.assertEqual(len(catalog_calls), 1)
+        lock_depth, captured_output, scope_id, captured_standings = catalog_calls[0]
+        self.assertEqual(lock_depth, 0)
+        self.assertEqual(captured_output["save_instance_id"], "verified-save-123")
+        self.assertEqual(scope_id, "verified-scope")
+        self.assertIs(captured_standings, standings)
+
     def test_public_state_reuses_short_lived_snapshot(self):
         from tools.state_publication import PublicationCandidate
 

@@ -3,7 +3,7 @@ from pathlib import Path
 import subprocess
 
 
-def test_wallet_debug_controls_follow_the_runtime_version_without_stale_visibility():
+def test_wallet_add_100b_is_available_in_frozen_cheat_mode_while_clear_stays_development_only():
     root = Path(__file__).resolve().parents[1] / "src"
     script = r'''
 const fs = require("fs"), vm = require("vm"), assert = require("assert/strict");
@@ -20,6 +20,12 @@ const controls = ["data-cheat-clear", "data-cheat-add-100b"].map(attribute => {
   nodes.set("[" + attribute + "]", control);
   return control;
 });
+const cheatActions = node();
+cheatActions.classList.toggle = (name, enabled) => {
+  assert.equal(name, "visible");
+  cheatActions.visible = enabled;
+};
+nodes.set("#cheat-actions", cheatActions);
 const app = {state:{settings:{}}, settingsRenderSignature:null};
 const context = {app, window:{}, FONT_SIZE_STEPS:[1,2,3,4,5,6], DEFAULT_FONT_SIZE_STEP:3,
   uiText:key => key, activeUiLocale:() => "en-GB", storedLocaleFontKey:() => "test",
@@ -37,12 +43,16 @@ const signature = source.slice(source.indexOf("function settingsRenderStateSigna
 const renderer = source.slice(source.indexOf("function renderSettingsControls("),
   source.indexOf("function shellDomIndex("));
 vm.runInContext(signature + renderer, context);
-for (const [version, hidden] of [["",true],["V2.7.0beta",true],
+for (const [version, clearHidden] of [["",true],["V2.7.0beta",true],
     ["V2.7.0beta-dev",false],["V2.7.0beta",true]]) {
   app.state.app_version = version;
-  context.renderSettingsControls();
-  assert.ok(controls.every(control => control.hidden === hidden),
-    `wallet debug visibility must follow ${version || "unknown runtime"}`);
+  for (const cheatMode of [true, false, true]) {
+    app.cheatMode = cheatMode;
+    context.renderSettingsControls();
+    assert.equal(cheatActions.visible, cheatMode);
+    assert.equal(controls[0].hidden, clearHidden, `clear wallet stays development only: ${version}`);
+    assert.equal(controls[1].hidden, false, `wallet +100B is available in cheat mode: ${version}`);
+  }
 }
 '''
     result = subprocess.run(

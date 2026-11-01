@@ -113,7 +113,7 @@ def test_removed_media_floor_is_invalid_and_never_charged(centre):
         patch.object(club_economy, "save_economy") as save,
         patch.object(club_economy, "available_balance", return_value=0.0),
     ):
-        with pytest.raises(ValueError, match="活动中心楼层无效"):
+        with pytest.raises(ValueError, match="活动模块无效"):
             club_economy.purchase_activity_centre(centre)
 
     assert state["general_balance"] == 100_000_000
@@ -437,7 +437,7 @@ def test_entertainment_activities_are_free_and_share_two_day_floor_cooldown():
         result = club_economy.perform_player_activity(
             1, 2, "球员", "hot_spring", "2026-07-28", 0, apply_effect,
         )
-        with pytest.raises(ValueError, match="1F活动冷却至 2026-07-30"):
+        with pytest.raises(ValueError, match="^该球员的娱乐中心活动冷却至 2026-07-30$"):
             club_economy.perform_player_activity(
                 1, 2, "球员", "massage", "2026-07-29", 0, apply_effect,
             )
@@ -460,7 +460,7 @@ def test_talk_room_activities_share_the_same_floor_cooldown():
         cooldown_until = club_economy.record_activity_floor_cooldown(
             1, 2, "talk_room", "2026-07-28",
         )
-        with pytest.raises(ValueError, match="2F活动冷却至 2026-07-30"):
+        with pytest.raises(ValueError, match="^该球员的人员谈话室活动冷却至 2026-07-30$"):
             club_economy.assert_activity_floor_available(
                 1, 2, "talk_room", "2026-07-29",
             )

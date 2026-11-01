@@ -1,28 +1,36 @@
 from pathlib import Path
+import json
+import re
+
+from frontend_source import read_frontend_source
 
 
 ROOT = (Path(__file__).resolve().parents[1] / "src")
 
 
-def test_random_match_intelligence_header_shows_score_window_hint():
-    script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+def test_random_match_intelligence_header_describes_evidence_without_a_probability_or_one_hour_gate():
+    script = read_frontend_source(ROOT / "web" / "app.js", mode="raw")
     facilities = (ROOT / "web" / "i18n.facilities.js").read_text(encoding="utf-8")
+    assert 'uiText("activity.intelligence_score_window_hint")' in script
+    match = re.search(r'"activity\.intelligence_score_window_hint":(\[[^\n]*?\])', facilities)
+    english, chinese = json.loads(match.group(1))
+    assert "match-result data" in english
+    assert "赛果数据" in chinese
+    assert "hour" not in english.lower()
+    assert "概率" not in chinese and "1h" not in chinese
 
-    assert 'activityHead("随机比赛情报", "开赛时间前1h有概率获取比分情报"' in script
-    assert '"activity.intelligence_score_window_hint":["Score intelligence may become available within 1 hour before kick-off.", "开赛时间前1h有概率获取比分情报"' in facilities
 
-
-def test_activity_centre_exposes_seventh_floor_intelligence_flow():
+def test_activity_centre_exposes_intelligence_module_flow():
     script = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     styles = (ROOT / "web" / "app.css").read_text(encoding="utf-8")
     economy = (ROOT / "tools" / "club_economy.py").read_text(encoding="utf-8")
 
-    assert 'intelligence:{floor:"5F",name:"情报中心"' in script
+    assert 'intelligence:{icon:"scan-eye",name:"情报模块"' in script
     assert 'price:Number(centreState.intelligence?.price ?? 50000000)' in script
     assert 'kind:"match_intelligence"' in script
     assert 'request("/api/activity/intelligence")' in script
     assert 'request("/api/activity/intelligence/purchase"' in script
-    assert 'name:"情报中心"' in script
+    assert 'name:"情报模块"' in script
     assert "收藏赛事或球队比赛的秘密情报，请在到达开赛时间时获取" not in script
     assert "天机阁" not in script
     assert "线人网络" not in script
@@ -96,7 +104,7 @@ def test_activity_centre_exposes_seventh_floor_intelligence_flow():
     assert "intelligencePricingDate !== gameDate" in script
     assert "reveal.goal_events" not in script
     assert "const eventLabel = (event)" not in script
-    assert 'app.activityFloor === "intelligence"' in script
+    assert 'app.activityModule === "intelligence"' in script
     assert "Number(candidate.kickoff_minutes) >= currentMinutes" not in script
     assert "const candidates = activityIndex.candidates;" in script
     assert 'selectedActivity.kind !== "match_intelligence"' in script
@@ -126,7 +134,7 @@ def test_activity_centre_exposes_seventh_floor_intelligence_flow():
     assert ".intelligence-card.compact>.intelligence-card-body{display:none}" in styles
     assert ".intelligence-building .activity-scene{display:block;min-height:0;border-right:1px" in styles
     assert ".intelligence-building .activity-workspace{grid-template-columns:minmax(0,1fr) minmax(360px,410px)}" in styles
-    assert ".intelligence-building .activity-floor-panel{width:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden}" in styles
+    assert ".intelligence-building .activity-module-panel{width:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden}" in styles
     assert ".intelligence-building .intelligence-card-toggle{grid-template-columns:minmax(0,1fr) 78px 18px}" in styles
     assert ".intelligence-building .activity-scene-node{flex-basis:175px;width:175px;grid-template-rows:1fr}" in styles
     assert "match-intelligence-7f-v1.png" in styles
@@ -135,7 +143,7 @@ def test_activity_centre_exposes_seventh_floor_intelligence_flow():
     assert ".intelligence-purchase-card" in styles
     assert 'classList.toggle("has-intelligence-alert", view.intelligenceAvailable)' in script
     assert ".has-intelligence-alert::after" in styles
-    assert ".activity-floor-tabs{grid-template-columns:repeat(4,minmax(0,1fr))}" in styles
+    assert ".activity-module-tabs{display:flex;flex-wrap:wrap" in styles
     assert "data-intelligence-search" in script
     assert '"activity.get_intelligence"' in script
     assert 'request("/api/activity/intelligence/refresh"' in script

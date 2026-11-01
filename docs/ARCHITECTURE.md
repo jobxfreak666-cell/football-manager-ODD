@@ -82,10 +82,15 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 实时盘口 | `src/tools/live_market.py` |
 | 钱包、注单、退款、派彩 | `src/tools/betting_account.py`、`src/tools/money.py`、`src/tools/pass_methods.py` |
 | 积分榜、ELO、冠军盘 | `src/tools/league_standings.py`、`src/tools/championship_odds.py` |
+| 联赛目录、不可用赛事原因 | `src/tools/competition_catalog.py`；只读消费原生 `competition` 表与 `league_standings.py` 的公开投影，不写游戏内存、不复制积分榜字段 |
 | 异常投注与处罚 | `src/tools/match_integrity.py` |
 | 赛季预测归档 | `src/tools/season_ledger.py` |
 
 积分榜公共投影由 `src/tools/league_standings.py` 负责，限定为绑定完整语义依赖键的有界 LRU 派生缓存；冠军盘口的市场价格与快照缓存仍由 `src/tools/championship_odds.py` 按市场版本管理。两者都不能缓存积分/冠军事实、钱包或结算副作用，也不能改变唯一冠军判定、下注重定价和结算链路。
+
+联赛目录由 `src/tools/competition_catalog.py` 负责，只读枚举原生 Competition 表并与同次发布的积分榜按 UID 关联，提供名称、简称、原生声望、榜表可用性与缺数据原因。原生扫描在状态锁外完成，复用发布版本/作用域校验；缓存绑定存档、布局、会话和目录身份，按表 token 或 5 秒时限重读，手动刷新主动失效。前端默认榜表按原生声望降序，搜索覆盖全目录，手动替换按存档保存；不改变赔率、冠军盘或积分真值。完整字段与降级语义见 [运行契约](RUNTIME_CONTRACTS.md#联赛目录与不可用赛事契约)。
+
+页面侧的所有权边界同样固定：前端只能按 `competition_id` 把目录条目与 `league_standings.competitions` 连接，可显示项由目录的 `name`/`short_name`/`reputation` 决定，积分榜列只能来自 `league_standings`，不得在服务端或前端复制一份积分真值。是否可显示积分表以 `standings_available` 为唯一判据，原因以 `standings_reason` 呈现，不得把 `standings_available=false` 显示成空表、读取失败或重试入口。分类（联赛/杯赛）当前没有可信的原生证据，目录不发布该字段，界面也不显示；不得从 `name` 文本、`standings_reason` 或 `competition_kind` 反推类别。
 
 ### 3.3 账户、经济与持久化
 
@@ -132,7 +137,7 @@ JSON 业务路由以 `build_api_routes()` 注册表为唯一分派来源；`Hand
 | 双向人物关系读取、保类别写入与精确回滚 | `src/tools/person_relationships.py`、`src/tools/relationship_network.py` |
 | 青训计划与名单事务 | `src/tools/youth_intake.py` |
 | 原生青训生成 Hook | `src/tools/youth_generation_hook.py` |
-| 活动中心楼层、冷却、语言课程、医疗策略、治疗任务与扣费 | `src/tools/club_economy.py` |
+| 活动中心模块、冷却、语言课程、医疗策略、治疗任务与扣费 | `src/tools/club_economy.py` |
 | 单次心理辅导的余额校验、钱包付费、效果恢复、退款与响应编排 | `src/tools/counseling_application.py`；`LocalOddsState` 保留兼容门面和唯一运行时状态，通过显式 `CounselingIO` 在每次调用时绑定当前依赖；固定清除不满且亲密度变化为零，不写关系档案。辅导保存异常由 `club_economy` 严格核对主容器，提交未确认时不补偿；恢复未完成时停止退款，退款失败保留双重原因，均返回不可重试的错误分类 |
 | 手动/默认治疗及按游戏日推进的医疗编排 | `src/tools/medical_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、名单快照和 `club_medical_auto_result`，通过显式 `MedicalIO` 在每次调用时绑定当前依赖；默认治疗仍经 `_apply_default_medical_treatments` 替换点，治疗存储、扣费与游戏日调度仍归 `club_economy.py` 和现有刷新流程 |
 | 食堂单人/批量海参奖励编排 | `src/tools/canteen_application.py`；`LocalOddsState` 保留四个兼容门面、唯一运行时状态、锁、账户/地址绑定和实时目标解析，通过显式 `CanteenIO` 在每次调用时绑定当前依赖；批量仍使用一个短生命周期写会话和逐人独立事务，经 `_canteen_sea_cucumber_context`/`_canteen_sea_cucumber_one` 替换点调用；`canteen_plan_update`、CA Hook 方案、底层写会话与 `commit_player_effect` 未迁移 |

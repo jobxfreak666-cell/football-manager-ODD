@@ -1,11 +1,12 @@
-"""Account application boundary tests: no disk account or native session."""
+"""Account application tests with isolated state and temporary account documents."""
 from contextlib import contextmanager
 from unittest.mock import Mock
 
 import pytest
 
 import fm_odds_web as web
-from tools import account_application as services
+from tools import account_application as services, account_store, app_paths
+from tools import betting_account, club_economy
 
 
 class OperationLock:
@@ -56,8 +57,73 @@ def test_wallet_update_holds_account_guard_through_write_and_projection(monkeypa
     assert state.lock.depth == 0
 
 
-@pytest.mark.parametrize("payload", [{"amount": 100_000_000_000}, {"clear": True}])
-def test_frozen_wallet_cheat_rejects_before_binding_or_writing(monkeypatch, payload):
+def test_frozen_wallet_cheat_allows_the_100b_addition(monkeypatch):
+    state = account_state()
+    write = Mock(return_value={"balance": 100_000_000_000})
+    monkeypatch.setattr(web, "FROZEN", True)
+    monkeypatch.setattr(services, "cheat_balance", write)
+    monkeypatch.setattr(services, "public_economy", lambda: {})
+    result = state.update_cheat_balance({"amount": 100_000_000_000})
+    assert result == {
+        "balance": 100_000_000_000,
+        "state_patch": {"balance": 100_000_000_000, "economy": {}},
+        "state_sync": {"data_version": 7, "data_scope_id": "account-a"},
+    }
+    state._bind_current_save.assert_called_once_with()
+    write.assert_called_once_with(amount=100_000_000_000.0, clear=False)
+    assert state.lock.depth == 0
+
+
+def test_frozen_wallet_cheat_adds_once_and_rejected_requests_do_not_write(tmp_path, monkeypatch):
+    scope_id = "wallet-cheat-test"
+    account_path = tmp_path / "saves" / f"{scope_id}.fmodd"
+    data_root = tmp_path / "saves" / scope_id
+    monkeypatch.setattr(
+        account_store, "account_save_path",
+        lambda requested=None: tmp_path / "saves" / f"{requested or scope_id}.fmodd",
+    )
+    monkeypatch.setattr(
+        account_store, "save_data_root",
+        lambda requested=None: tmp_path / "saves" / str(requested or scope_id),
+    )
+    monkeypatch.setattr(betting_account, "save_data_root", lambda _scope=None: data_root)
+    monkeypatch.setattr(club_economy, "save_data_root", lambda _scope=None: data_root)
+    previous_scope = app_paths.active_save_id()
+    app_paths.set_active_save_id(scope_id)
+    try:
+        betting_account.save_wallet({
+            "schema_version": 1, "balance": 12.5,
+            "credit_effective_bet_count": 0, "transactions": [],
+        })
+        state = account_state()
+        bind = Mock(side_effect=lambda: app_paths.set_active_save_id(scope_id))
+        state._bind_current_save = bind
+        monkeypatch.setattr(web, "FROZEN", True)
+
+        state.update_cheat_balance({"amount": 100_000_000_000})
+
+        wallet = account_store.read_persisted_document("wallet", scope_id)
+        assert wallet["balance"] == 100_000_000_012.5
+        assert len(wallet["transactions"]) == 1
+        assert wallet["transactions"][0]["type"] == "cheat_funding"
+        assert wallet["transactions"][0]["amount"] == 100_000_000_000
+        persisted_after_add = account_path.read_bytes()
+
+        with pytest.raises(web.NotFoundError):
+            state.update_cheat_balance({"clear": True})
+        with pytest.raises(web.NotFoundError):
+            state.update_cheat_balance({"amount": 100})
+
+        assert account_path.read_bytes() == persisted_after_add
+        assert bind.call_count == 1
+    finally:
+        app_paths.set_active_save_id(previous_scope)
+
+
+@pytest.mark.parametrize("payload", [
+    {"clear": True}, {"amount": 100}, {"amount": 500}, {"amount": 5000},
+])
+def test_frozen_wallet_cheat_rejects_other_operations_before_binding_or_writing(monkeypatch, payload):
     state = account_state()
     write = Mock(return_value={"balance": 100})
     monkeypatch.setattr(web, "FROZEN", True)
@@ -70,10 +136,12 @@ def test_frozen_wallet_cheat_rejects_before_binding_or_writing(monkeypatch, payl
 
 
 @pytest.mark.parametrize("frozen", [False, True])
-def test_wallet_cheat_http_route_is_available_only_in_development(monkeypatch, frozen):
+def test_wallet_cheat_http_route_is_registered_in_all_builds(monkeypatch, frozen):
     monkeypatch.setattr(web, "FROZEN", frozen)
-    route = web.build_api_routes().resolve("POST", "/api/cheat-balance")
-    assert (route is not None) is (not frozen)
+    routes = web.build_api_routes()
+    assert routes.resolve("POST", "/api/cheat-balance") is not None
+    bank_cheat_route = routes.resolve("POST", "/api/bank/cheat-hundred-trillion")
+    assert (bank_cheat_route is not None) is (not frozen)
 
 
 @pytest.mark.parametrize("method,payload,target,args,kwargs,transient", [

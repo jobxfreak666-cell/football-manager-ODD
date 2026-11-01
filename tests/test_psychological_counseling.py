@@ -190,7 +190,7 @@ class PsychologicalCounselingTests(unittest.TestCase):
                 },
             )
             self.assertEqual(result["cooldown_until"], "2028-01-03")
-            with self.assertRaisesRegex(ValueError, "2F活动冷却至 2028-01-03"):
+            with self.assertRaisesRegex(ValueError, "人员谈话室活动冷却至 2028-01-03"):
                 perform_psychological_counseling(
                     1, 2, "球员", "2028-01-02", 19,
                     lambda _outcome, _points: {},
